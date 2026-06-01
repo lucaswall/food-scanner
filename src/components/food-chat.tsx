@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { safeResponseJson } from "@/lib/safe-json";
 import { parseSSEEvents } from "@/lib/sse";
-import { useLogToFitbit } from "@/hooks/use-log-to-fitbit";
+import { useLogFood } from "@/hooks/use-log-food";
 import { compressImage } from "@/lib/image";
 import { getLocalDateTime, getDefaultMealType } from "@/lib/meal-type";
 import { savePendingSubmission } from "@/lib/pending-submission";
@@ -154,7 +154,7 @@ export function FoodChat({
   // True when Claude identified an existing entry to edit via editingEntryId (chat-initiated edit).
   const isEditingExisting = !isEditMode && latestAnalysis?.editingEntryId != null;
 
-  const { logToFitbit, logging, logError, clearLogError } = useLogToFitbit({
+  const { logFood, logging, logError, clearLogError } = useLogFood({
     analysis: latestAnalysis ?? null,
     mealTypeId,
     selectedTime,
@@ -524,7 +524,7 @@ export function FoodChat({
       return;
     }
     setError(null);
-    void logToFitbit();
+    void logFood();
   };
 
   const handleSave = async () => {
@@ -569,7 +569,7 @@ export function FoodChat({
       if (!response.ok || !result.success || !result.data) {
         const errorCode = result.error?.code;
 
-        if (errorCode === "FITBIT_TOKEN_INVALID") {
+        if (errorCode === "HEALTH_TOKEN_INVALID") {
           savePendingSubmission({
             analysis: analysis,
             mealTypeId,
@@ -578,12 +578,12 @@ export function FoodChat({
             time: saveBody.time,
             zoneOffset,
           });
-          window.location.href = "/api/auth/fitbit";
+          window.location.href = "/api/auth/google-health";
           return;
         }
 
-        if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
-          setError("Fitbit is not set up. Please configure your credentials in Settings.");
+        if (errorCode === "HEALTH_NOT_CONNECTED") {
+          setError("Google Health is not connected. Please connect in Settings.");
           return;
         }
 
@@ -649,7 +649,7 @@ export function FoodChat({
 
       if (!response.ok || !result.success || !result.data) {
         const errorCode = result.error?.code;
-        if (errorCode === "FITBIT_TOKEN_INVALID") {
+        if (errorCode === "HEALTH_TOKEN_INVALID") {
           savePendingSubmission({
             analysis: analysis,
             mealTypeId,
@@ -658,11 +658,11 @@ export function FoodChat({
             time: saveBody.time,
             zoneOffset: fallback.zoneOffset,
           });
-          window.location.href = "/api/auth/fitbit";
+          window.location.href = "/api/auth/google-health";
           return;
         }
-        if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
-          setError("Fitbit is not set up. Please configure your credentials in Settings.");
+        if (errorCode === "HEALTH_NOT_CONNECTED") {
+          setError("Google Health is not connected. Please connect in Settings.");
           return;
         }
         setError(result.error?.message || "Failed to save changes");
@@ -759,7 +759,7 @@ export function FoodChat({
                     {isEditMode || isEditingExisting ? "Saving..." : "Logging..."}
                   </>
                 ) : (
-                  isEditMode || isEditingExisting ? "Save Changes" : "Log to Fitbit"
+                  isEditMode || isEditingExisting ? "Save Changes" : "Log to Google Health"
                 )}
               </Button>
             </>
@@ -912,7 +912,7 @@ export function FoodChat({
         {/* Compression warning */}
         {compressionWarning && (
           <div className="px-3 pt-2">
-            <p className="text-xs text-warning-foreground text-center">
+            <p className="text-xs text-warning text-center">
               {compressionWarning}
             </p>
           </div>

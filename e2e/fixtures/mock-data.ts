@@ -41,7 +41,7 @@ export function buildChatSSE(message: string, analysis?: FoodAnalysis): string {
 export const MOCK_ANALYSIS: FoodAnalysis = {
   food_name: 'Grilled Salmon with Vegetables',
   amount: 350,
-  unit_id: 147, // grams
+  unit_id: "g",
   calories: 420,
   protein_g: 38,
   carbs_g: 22,
@@ -62,7 +62,7 @@ export const MOCK_ANALYSIS: FoodAnalysis = {
 export const MOCK_REFINED_ANALYSIS: FoodAnalysis = {
   food_name: 'Grilled Salmon with Vegetables',
   amount: 300,
-  unit_id: 147,
+  unit_id: "g",
   calories: 380,
   protein_g: 35,
   carbs_g: 18,

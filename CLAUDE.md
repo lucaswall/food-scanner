@@ -8,7 +8,7 @@ Delete unused code immediately. No deprecation warnings needed.
 
 ## TECH STACK
 
-Next.js 16+ (App Router), TypeScript (strict), Tailwind CSS + shadcn/ui, Vitest + Testing Library, PostgreSQL + Drizzle ORM, iron-session (cookie transport) + PostgreSQL (session data), Google OAuth 2.0 + Fitbit OAuth 2.0, Anthropic Claude API (tool_use), pino logging, Sentry (error tracking, session replay, AI monitoring), Railway deployment.
+Next.js 16+ (App Router), TypeScript (strict), Tailwind CSS + shadcn/ui, Vitest + Testing Library, PostgreSQL + Drizzle ORM, iron-session (cookie transport) + PostgreSQL (session data), Google OAuth 2.0 (login + Google Health API), Anthropic Claude API (tool_use), pino logging, Sentry (error tracking, session replay, AI monitoring), Railway deployment.
 
 ---
 
@@ -93,22 +93,22 @@ Two test suites with different purposes and runtimes:
 
 Do NOT flag these in code reviews:
 
-- **Double casts on Fitbit API responses:** `data as unknown as Type` in `src/lib/fitbit.ts` — accepted because critical fields are runtime-validated immediately after
+- **Double casts on Google Health API responses:** `data as unknown as Type` in `src/lib/google-health.ts` — accepted because critical fields are runtime-validated immediately after
 - **String literals in Drizzle test mocks:** Using string values instead of real Drizzle column objects in test `where()` clauses — TypeScript catches column name typos at compile time
 
 ---
 
-## FITBIT RATE-LIMIT CRITICALITY
+## GOOGLE HEALTH RATE-LIMIT CRITICALITY
 
-All Fitbit reads/writes route through `fetchWithRetry` in `src/lib/fitbit.ts`. Each call carries a `FitbitCallCriticality` (`"critical"` / `"important"` / `"optional"`) that gates execution against the per-user rate-limit headroom snapshot maintained in `src/lib/fitbit-rate-limit.ts`.
+All Google Health reads/writes route through the rate-limit layer in `src/lib/google-health-rate-limit.ts`. Each call carries a `HealthCallCriticality` (`"critical"` / `"important"` / `"optional"`) that gates execution against the per-user rate-limit headroom snapshot.
 
 | Criticality | When | Breaker behavior |
 |---|---|---|
-| `critical` | Writes (`createFood`, `logFood`, `deleteFoodLog`) and OAuth refresh | Always proceed; warn-log when remaining < 5 |
-| `important` | User-driven explicit reads (settings refresh, today's first goals compute) | Proceed unless remaining < 5 |
-| `optional` | Background revalidations (cache-hit fast path re-fetches, periodic polls) | Proceed only when remaining ≥ 20 |
+| `critical` | Writes (`createNutritionLog`, `deleteNutritionLogs`) and OAuth refresh | Always proceed; 429 cooldown honored |
+| `important` | User-driven explicit reads (settings refresh, today's first goals compute) | Proceed unless rate limit is cooling down |
+| `optional` | Background revalidations (cache-hit fast path re-fetches, periodic polls) | Proceed only when ample headroom |
 
-When the breaker rejects, it throws `FITBIT_RATE_LIMIT_LOW`. Route handlers map this to **HTTP 503** with the typed error code so clients can back off.
+When the breaker rejects, it throws `HEALTH_RATE_LIMIT_LOW`. Route handlers map this to **HTTP 503** with the typed error code so clients can back off.
 
 ---
 
@@ -123,7 +123,7 @@ When the breaker rejects, it throws `FITBIT_RATE_LIMIT_LOW`. Route handlers map 
 - **API route auth convention:**
   - `src/app/api/*` browser-facing routes: `getSession()` + `validateSession()` from `@/lib/session` (iron-session cookies)
   - `src/app/api/v1/*` external API routes: `validateApiRequest()` from `@/lib/api-auth` (Bearer API key)
-  - `src/app/api/auth/*` routes: own OAuth/session management logic (includes test-login when `ENABLE_TEST_AUTH=true`)
+  - `src/app/api/auth/*` routes: own OAuth/session management logic (includes test-login when `ENABLE_TEST_AUTH=true`); `/api/auth/google-health` initiates Google Health OAuth
   - `src/app/api/health` route: public, no auth
   - `/monitoring` route: Sentry tunnel (public, proxies client events to Sentry)
 
@@ -131,7 +131,7 @@ When the breaker rejects, it throws `FITBIT_RATE_LIMIT_LOW`. Route handlers map 
 
 ## DATABASE
 
-- **Tables:** `users`, `sessions`, `fitbit_tokens`, `fitbit_credentials`, `custom_foods`, `food_log_entries`, `api_keys`, `claude_usage`, `nutrition_labels`, `daily_calorie_goals`, `glucose_readings`, `blood_pressure_readings`, `hydration_readings`, `saved_analyses`
+- **Tables:** `users`, `sessions`, `health_tokens`, `custom_foods`, `food_log_entries`, `api_keys`, `claude_usage`, `nutrition_labels`, `daily_calorie_goals`, `glucose_readings`, `blood_pressure_readings`, `hydration_readings`, `saved_analyses`
 - All DB access through `src/lib/` modules — route handlers never import from `src/db/` directly
 - Schema changes: edit `src/db/schema.ts`, then `npx drizzle-kit generate` (does NOT need a live DB)
 - **IMPORTANT: Never hand-write migration files or snapshots**
@@ -141,13 +141,13 @@ When the breaker rejects, it throws `FITBIT_RATE_LIMIT_LOW`. Route handlers map 
 
 ## ENVIRONMENTS
 
-| Environment | Branch | URL | Fitbit API |
+| Environment | Branch | URL | Health API |
 |---|---|---|---|
 | Production | `release` | `food.lucaswall.me` | Live |
-| Staging | `main` | `food-test.lucaswall.me` | Dry-run (`FITBIT_DRY_RUN=true`) |
+| Staging | `main` | `food-test.lucaswall.me` | Dry-run (`HEALTH_DRY_RUN=true`) |
 
 **Promotion:** `main` → `release` via `/push-to-production` skill only.
-**Env vars:** See `.env.sample`. MCP Fitbit credentials are shell-only (not in Railway).
+**Env vars:** See `.env.sample`. Google Health scopes are configured on the GCP consent screen (not env vars).
 
 ---
 

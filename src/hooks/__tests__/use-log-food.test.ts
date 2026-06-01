@@ -27,7 +27,7 @@ import { safeResponseJson } from "@/lib/safe-json";
 import { savePendingSubmission } from "@/lib/pending-submission";
 import { vibrateError } from "@/lib/haptics";
 import { getLocalDateTime } from "@/lib/meal-type";
-import { useLogToFitbit } from "@/hooks/use-log-to-fitbit";
+import { useLogFood } from "@/hooks/use-log-food";
 import type { FoodAnalysis, FoodLogResponse } from "@/types";
 
 const mockSafeResponseJson = vi.mocked(safeResponseJson);
@@ -43,7 +43,7 @@ const MOCK_DATETIME = { date: "2026-04-10", time: "12:00", zoneOffset: "+00:00" 
 const mockAnalysis: FoodAnalysis = {
   food_name: "Chicken Salad",
   amount: 1,
-  unit_id: 304,
+  unit_id: "serving",
   calories: 350,
   protein_g: 25,
   carbs_g: 15,
@@ -63,7 +63,7 @@ const mockAnalysis: FoodAnalysis = {
 const mockLogResponse: FoodLogResponse = {
   success: true,
   reusedFood: false,
-  fitbitLogId: 12345,
+  healthLogId: "test-health-log-id",
 };
 
 function makeSuccessResponse() {
@@ -80,20 +80,19 @@ function makeErrorResponse() {
   } as unknown as Response;
 }
 
-describe("useLogToFitbit", () => {
+describe("useLogFood", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFetch.mockReset();
     mockGetLocalDateTime.mockReturnValue(MOCK_DATETIME);
 
-    // Default: replace window.location
     Object.defineProperty(window, "location", {
       writable: true,
       value: { href: "" },
     });
   });
 
-  describe("logToFitbit", () => {
+  describe("logFood", () => {
     it("calls fetch with correct body for a new food and sets logResponse on success", async () => {
       const mockResponse = makeSuccessResponse();
       mockFetch.mockResolvedValueOnce(mockResponse);
@@ -103,11 +102,11 @@ describe("useLogToFitbit", () => {
       });
 
       const { result } = renderHook(() =>
-        useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3 })
+        useLogFood({ analysis: mockAnalysis, mealTypeId: 3 })
       );
 
       await act(async () => {
-        await result.current.logToFitbit();
+        await result.current.logFood();
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
@@ -126,6 +125,7 @@ describe("useLogToFitbit", () => {
       );
       expect(mockSafeResponseJson).toHaveBeenCalledWith(mockResponse);
       expect(result.current.logResponse).toEqual(mockLogResponse);
+      expect(result.current.logResponse?.healthLogId).toBe("test-health-log-id");
       expect(result.current.logging).toBe(false);
       expect(result.current.logError).toBeNull();
     });
@@ -143,11 +143,11 @@ describe("useLogToFitbit", () => {
       });
 
       const { result } = renderHook(() =>
-        useLogToFitbit({ analysis: analysisWithSource, mealTypeId: 3 })
+        useLogFood({ analysis: analysisWithSource, mealTypeId: 3 })
       );
 
       await act(async () => {
-        await result.current.logToFitbit();
+        await result.current.logFood();
       });
 
       const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
@@ -166,11 +166,11 @@ describe("useLogToFitbit", () => {
       mockSafeResponseJson.mockResolvedValueOnce({ success: true, data: mockLogResponse });
 
       const { result } = renderHook(() =>
-        useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3, selectedTime: "08:30" })
+        useLogFood({ analysis: mockAnalysis, mealTypeId: 3, selectedTime: "08:30" })
       );
 
       await act(async () => {
-        await result.current.logToFitbit();
+        await result.current.logFood();
       });
 
       const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
@@ -182,11 +182,11 @@ describe("useLogToFitbit", () => {
       mockSafeResponseJson.mockResolvedValueOnce({ success: true, data: mockLogResponse });
 
       const { result } = renderHook(() =>
-        useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3, dateOverride: "2026-03-15" })
+        useLogFood({ analysis: mockAnalysis, mealTypeId: 3, dateOverride: "2026-03-15" })
       );
 
       await act(async () => {
-        await result.current.logToFitbit();
+        await result.current.logFood();
       });
 
       const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
@@ -199,11 +199,11 @@ describe("useLogToFitbit", () => {
       mockSafeResponseJson.mockResolvedValueOnce({ success: true, data: mockLogResponse });
 
       const { result } = renderHook(() =>
-        useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3 })
+        useLogFood({ analysis: mockAnalysis, mealTypeId: 3 })
       );
 
       await act(async () => {
-        await result.current.logToFitbit();
+        await result.current.logFood();
       });
 
       expect(abortSignalSpy).toHaveBeenCalledWith(15000);
@@ -215,11 +215,11 @@ describe("useLogToFitbit", () => {
 
       const onSuccess = vi.fn();
       const { result } = renderHook(() =>
-        useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3, onSuccess })
+        useLogFood({ analysis: mockAnalysis, mealTypeId: 3, onSuccess })
       );
 
       await act(async () => {
-        await result.current.logToFitbit();
+        await result.current.logFood();
       });
 
       expect(onSuccess).toHaveBeenCalledWith(mockLogResponse);
@@ -227,58 +227,53 @@ describe("useLogToFitbit", () => {
 
     it("is a no-op when analysis is null", async () => {
       const { result } = renderHook(() =>
-        useLogToFitbit({ analysis: null, mealTypeId: 3 })
+        useLogFood({ analysis: null, mealTypeId: 3 })
       );
 
       await act(async () => {
-        await result.current.logToFitbit();
+        await result.current.logFood();
       });
 
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it("is a no-op when already logging (prevents double submission)", async () => {
-      // Set up a fetch that never resolves to keep logging=true
       let resolveFirst: (v: unknown) => void = () => {};
       mockFetch.mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }));
       mockFetch.mockResolvedValueOnce(makeSuccessResponse());
 
       const { result } = renderHook(() =>
-        useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3 })
+        useLogFood({ analysis: mockAnalysis, mealTypeId: 3 })
       );
 
-      // Start first log — don't await so it stays pending
-      act(() => { result.current.logToFitbit(); });
+      act(() => { result.current.logFood(); });
 
-      // Try to start second log while first is in flight
       await act(async () => {
-        await result.current.logToFitbit();
+        await result.current.logFood();
       });
 
-      // Only one fetch call despite two logToFitbit calls
       expect(mockFetch).toHaveBeenCalledTimes(1);
 
-      // Resolve first fetch cleanly to avoid unhandled async errors
       mockSafeResponseJson.mockResolvedValueOnce({ success: true, data: mockLogResponse });
       await act(async () => {
         resolveFirst({ ok: true });
       });
     });
 
-    describe("error handling — FITBIT_TOKEN_INVALID", () => {
-      it("calls savePendingSubmission and redirects to /api/auth/fitbit", async () => {
+    describe("error handling — HEALTH_TOKEN_INVALID", () => {
+      it("calls savePendingSubmission and redirects to /api/auth/google-health", async () => {
         mockFetch.mockResolvedValueOnce(makeErrorResponse());
         mockSafeResponseJson.mockResolvedValueOnce({
           success: false,
-          error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+          error: { code: "HEALTH_TOKEN_INVALID", message: "Token expired" },
         });
 
         const { result } = renderHook(() =>
-          useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3 })
+          useLogFood({ analysis: mockAnalysis, mealTypeId: 3 })
         );
 
         await act(async () => {
-          await result.current.logToFitbit();
+          await result.current.logFood();
         });
 
         expect(mockSavePendingSubmission).toHaveBeenCalledWith({
@@ -290,52 +285,29 @@ describe("useLogToFitbit", () => {
           zoneOffset: "+00:00",
           sessionId: undefined,
         });
-        expect(window.location.href).toBe("/api/auth/fitbit");
+        expect(window.location.href).toBe("/api/auth/google-health");
         expect(mockVibrateError).not.toHaveBeenCalled();
       });
     });
 
-    describe("error handling — FITBIT_CREDENTIALS_MISSING", () => {
-      it("sets logError to setup message and calls vibrateError", async () => {
+    describe("error handling — HEALTH_NOT_CONNECTED", () => {
+      it("sets logError to connect message and calls vibrateError", async () => {
         mockFetch.mockResolvedValueOnce(makeErrorResponse());
         mockSafeResponseJson.mockResolvedValueOnce({
           success: false,
-          error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Missing credentials" },
+          error: { code: "HEALTH_NOT_CONNECTED", message: "Not connected" },
         });
 
         const { result } = renderHook(() =>
-          useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3 })
+          useLogFood({ analysis: mockAnalysis, mealTypeId: 3 })
         );
 
         await act(async () => {
-          await result.current.logToFitbit();
+          await result.current.logFood();
         });
 
         expect(result.current.logError).toBe(
-          "Fitbit is not set up. Please configure your credentials in Settings."
-        );
-        expect(mockVibrateError).toHaveBeenCalled();
-      });
-    });
-
-    describe("error handling — FITBIT_NOT_CONNECTED", () => {
-      it("sets same error message as FITBIT_CREDENTIALS_MISSING", async () => {
-        mockFetch.mockResolvedValueOnce(makeErrorResponse());
-        mockSafeResponseJson.mockResolvedValueOnce({
-          success: false,
-          error: { code: "FITBIT_NOT_CONNECTED", message: "Not connected" },
-        });
-
-        const { result } = renderHook(() =>
-          useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3 })
-        );
-
-        await act(async () => {
-          await result.current.logToFitbit();
-        });
-
-        expect(result.current.logError).toBe(
-          "Fitbit is not set up. Please configure your credentials in Settings."
+          "Google Health is not connected. Please connect in Settings."
         );
         expect(mockVibrateError).toHaveBeenCalled();
       });
@@ -350,11 +322,11 @@ describe("useLogToFitbit", () => {
         });
 
         const { result } = renderHook(() =>
-          useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3 })
+          useLogFood({ analysis: mockAnalysis, mealTypeId: 3 })
         );
 
         await act(async () => {
-          await result.current.logToFitbit();
+          await result.current.logFood();
         });
 
         expect(result.current.logError).toBe("Something went wrong");
@@ -368,11 +340,11 @@ describe("useLogToFitbit", () => {
         mockFetch.mockRejectedValueOnce(timeoutError);
 
         const { result } = renderHook(() =>
-          useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3 })
+          useLogFood({ analysis: mockAnalysis, mealTypeId: 3 })
         );
 
         await act(async () => {
-          await result.current.logToFitbit();
+          await result.current.logFood();
         });
 
         expect(result.current.logError).toBe("Request timed out. Please try again.");
@@ -384,11 +356,11 @@ describe("useLogToFitbit", () => {
         mockFetch.mockRejectedValueOnce(abortError);
 
         const { result } = renderHook(() =>
-          useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3 })
+          useLogFood({ analysis: mockAnalysis, mealTypeId: 3 })
         );
 
         await act(async () => {
-          await result.current.logToFitbit();
+          await result.current.logFood();
         });
 
         expect(result.current.logError).toBe("Request timed out. Please try again.");
@@ -402,11 +374,11 @@ describe("useLogToFitbit", () => {
         mockFetch.mockRejectedValueOnce(networkErr);
 
         const { result } = renderHook(() =>
-          useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3 })
+          useLogFood({ analysis: mockAnalysis, mealTypeId: 3 })
         );
 
         await act(async () => {
-          await result.current.logToFitbit();
+          await result.current.logFood();
         });
 
         expect(result.current.logError).toBe("Network failure");
@@ -416,17 +388,17 @@ describe("useLogToFitbit", () => {
     });
   });
 
-  describe("logToFitbitWithMatch", () => {
+  describe("logFoodWithMatch", () => {
     it("sends reuseCustomFoodId body with correct fields", async () => {
       mockFetch.mockResolvedValueOnce(makeSuccessResponse());
       mockSafeResponseJson.mockResolvedValueOnce({ success: true, data: mockLogResponse });
 
       const { result } = renderHook(() =>
-        useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3 })
+        useLogFood({ analysis: mockAnalysis, mealTypeId: 3 })
       );
 
       await act(async () => {
-        await result.current.logToFitbitWithMatch({ customFoodId: 42, foodName: "Existing Food" });
+        await result.current.logFoodWithMatch({ customFoodId: 42, foodName: "Existing Food" });
       });
 
       const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
@@ -444,7 +416,7 @@ describe("useLogToFitbit", () => {
       mockSafeResponseJson.mockResolvedValueOnce({ success: true, data: mockLogResponse });
 
       const { result } = renderHook(() =>
-        useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3 })
+        useLogFood({ analysis: mockAnalysis, mealTypeId: 3 })
       );
 
       const metadata = {
@@ -455,7 +427,7 @@ describe("useLogToFitbit", () => {
       };
 
       await act(async () => {
-        await result.current.logToFitbitWithMatch(
+        await result.current.logFoodWithMatch(
           { customFoodId: 42, foodName: "Existing Food" },
           metadata
         );
@@ -468,19 +440,19 @@ describe("useLogToFitbit", () => {
       expect(fetchBody.newConfidence).toBe("high");
     });
 
-    it("calls savePendingSubmission with correct args on FITBIT_TOKEN_INVALID", async () => {
+    it("calls savePendingSubmission with correct args on HEALTH_TOKEN_INVALID", async () => {
       mockFetch.mockResolvedValueOnce(makeErrorResponse());
       mockSafeResponseJson.mockResolvedValueOnce({
         success: false,
-        error: { code: "FITBIT_TOKEN_INVALID", message: "expired" },
+        error: { code: "HEALTH_TOKEN_INVALID", message: "expired" },
       });
 
       const { result } = renderHook(() =>
-        useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3 })
+        useLogFood({ analysis: mockAnalysis, mealTypeId: 3 })
       );
 
       await act(async () => {
-        await result.current.logToFitbitWithMatch({ customFoodId: 42, foodName: "Existing Food" });
+        await result.current.logFoodWithMatch({ customFoodId: 42, foodName: "Existing Food" });
       });
 
       expect(mockSavePendingSubmission).toHaveBeenCalledWith({
@@ -493,7 +465,7 @@ describe("useLogToFitbit", () => {
         zoneOffset: "+00:00",
         sessionId: undefined,
       });
-      expect(window.location.href).toBe("/api/auth/fitbit");
+      expect(window.location.href).toBe("/api/auth/google-health");
     });
 
     it("sets logResponse on success", async () => {
@@ -501,11 +473,11 @@ describe("useLogToFitbit", () => {
       mockSafeResponseJson.mockResolvedValueOnce({ success: true, data: mockLogResponse });
 
       const { result } = renderHook(() =>
-        useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3 })
+        useLogFood({ analysis: mockAnalysis, mealTypeId: 3 })
       );
 
       await act(async () => {
-        await result.current.logToFitbitWithMatch({ customFoodId: 42, foodName: "Existing Food" });
+        await result.current.logFoodWithMatch({ customFoodId: 42, foodName: "Existing Food" });
       });
 
       expect(result.current.logResponse).toEqual(mockLogResponse);
@@ -517,11 +489,11 @@ describe("useLogToFitbit", () => {
       mockFetch.mockRejectedValueOnce(new Error("fail"));
 
       const { result } = renderHook(() =>
-        useLogToFitbit({ analysis: mockAnalysis, mealTypeId: 3 })
+        useLogFood({ analysis: mockAnalysis, mealTypeId: 3 })
       );
 
       await act(async () => {
-        await result.current.logToFitbit();
+        await result.current.logFood();
       });
       expect(result.current.logError).toBe("fail");
 
@@ -537,11 +509,11 @@ describe("useLogToFitbit", () => {
       mockFetch.mockResolvedValueOnce(makeErrorResponse());
       mockSafeResponseJson.mockResolvedValueOnce({
         success: false,
-        error: { code: "FITBIT_TOKEN_INVALID", message: "expired" },
+        error: { code: "HEALTH_TOKEN_INVALID", message: "expired" },
       });
 
       const { result } = renderHook(() =>
-        useLogToFitbit({
+        useLogFood({
           analysis: mockAnalysis,
           mealTypeId: 3,
           getSessionId: () => "session-abc",
@@ -549,7 +521,7 @@ describe("useLogToFitbit", () => {
       );
 
       await act(async () => {
-        await result.current.logToFitbit();
+        await result.current.logFood();
       });
 
       expect(mockSavePendingSubmission).toHaveBeenCalledWith(

@@ -2,7 +2,7 @@
 
 import { X } from "lucide-react";
 import type { FoodAnalysis } from "@/types";
-import { FITBIT_MEAL_TYPE_LABELS } from "@/types";
+import { MEAL_TYPE_LABELS } from "@/types";
 
 interface SessionItemsListProps {
   items: FoodAnalysis[];
@@ -58,7 +58,7 @@ export function SessionItemsList({ items, onRemoveItem }: SessionItemsListProps)
               >
                 {item.time != null && formatTime(item.time)}
                 {item.time != null && item.mealTypeId != null && " · "}
-                {item.mealTypeId != null && (FITBIT_MEAL_TYPE_LABELS[item.mealTypeId] ?? "")}
+                {item.mealTypeId != null && (MEAL_TYPE_LABELS[item.mealTypeId] ?? "")}
               </p>
             )}
 

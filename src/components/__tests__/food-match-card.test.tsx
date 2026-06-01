@@ -10,11 +10,10 @@ const mockMatch: FoodMatch = {
   proteinG: 2,
   carbsG: 5,
   fatG: 2,
-  fitbitFoodId: 12345,
   matchRatio: 0.85,
   lastLoggedAt: new Date("2026-02-05T12:00:00Z"),
   amount: 1,
-  unitId: 91, // cup
+  unitId: "cup",
 };
 
 describe("FoodMatchCard", () => {
@@ -31,7 +30,7 @@ describe("FoodMatchCard", () => {
   it("renders amount with correct unit label", () => {
     render(<FoodMatchCard match={mockMatch} onSelect={vi.fn()} />);
 
-    // unitId 91 = cup, amount 1 = "1 cup"
+    // unitId 'cup', amount 1 = "1 cup"
     expect(screen.getByText(/1 cup/)).toBeInTheDocument();
   });
 

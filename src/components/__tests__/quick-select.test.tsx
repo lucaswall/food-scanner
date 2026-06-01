@@ -96,14 +96,13 @@ const mockFoods: CommonFood[] = [
     customFoodId: 1,
     foodName: "Empanada de carne",
     amount: 150,
-    unitId: 147,
+    unitId: "g",
     calories: 320,
     proteinG: 12,
     carbsG: 28,
     fatG: 18,
     fiberG: 2,
     sodiumMg: 450,
-    fitbitFoodId: 111,
     mealTypeId: 3,
     isFavorite: false,
   },
@@ -111,14 +110,13 @@ const mockFoods: CommonFood[] = [
     customFoodId: 2,
     foodName: "Cafe con leche",
     amount: 250,
-    unitId: 209,
+    unitId: "ml",
     calories: 120,
     proteinG: 6,
     carbsG: 10,
     fatG: 5,
     fiberG: 0,
     sodiumMg: 80,
-    fitbitFoodId: 222,
     mealTypeId: 1,
     isFavorite: false,
   },
@@ -126,8 +124,7 @@ const mockFoods: CommonFood[] = [
 
 const mockLogResponse: FoodLogResponse = {
   success: true,
-  fitbitFoodId: 111,
-  fitbitLogId: 67890,
+  healthLogId: "test-health-log-id",
   reusedFood: true,
 };
 
@@ -438,7 +435,7 @@ describe("QuickSelect", () => {
     expect(screen.queryByText(/no foods found/i)).not.toBeInTheDocument();
   });
 
-  it("tapping a food card shows confirmation with Log to Fitbit button", async () => {
+  it("tapping a food card shows confirmation with Log to Google Health button", async () => {
     mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
 
     renderQuickSelect();
@@ -450,7 +447,7 @@ describe("QuickSelect", () => {
     fireEvent.click(screen.getByText("Empanada de carne"));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       expect(screen.getByText("Nutrition Facts")).toBeInTheDocument();
     });
   });
@@ -472,10 +469,10 @@ describe("QuickSelect", () => {
     fireEvent.click(screen.getByText("Empanada de carne"));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
@@ -505,10 +502,10 @@ describe("QuickSelect", () => {
     fireEvent.click(screen.getByText("Empanada de carne"));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
@@ -574,10 +571,10 @@ describe("QuickSelect", () => {
     fireEvent.click(screen.getByText("Empanada de carne"));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       const logCall = mockFetch.mock.calls.find(
@@ -590,7 +587,7 @@ describe("QuickSelect", () => {
     });
   });
 
-  it("saves date and time in pending submission on FITBIT_TOKEN_INVALID", async () => {
+  it("saves date and time in pending submission on HEALTH_TOKEN_INVALID", async () => {
     mockFetch
       .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
       .mockResolvedValueOnce({
@@ -598,7 +595,7 @@ describe("QuickSelect", () => {
         text: () =>
           Promise.resolve(JSON.stringify({
             success: false,
-            error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+            error: { code: "HEALTH_TOKEN_INVALID", message: "Token expired" },
           })),
       });
 
@@ -617,10 +614,10 @@ describe("QuickSelect", () => {
     fireEvent.click(screen.getByText("Empanada de carne"));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       expect(mockSavePending).toHaveBeenCalledWith(
@@ -894,10 +891,10 @@ describe("QuickSelect", () => {
       fireEvent.click(screen.getByText("Empanada de carne"));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         expect(screen.getByRole("alert")).toBeInTheDocument();
@@ -1013,14 +1010,13 @@ describe("QuickSelect", () => {
         customFoodId: 3,
         foodName: "Empanada de humita",
         amount: 150,
-        unitId: 147,
+        unitId: "g",
         calories: 280,
         proteinG: 8,
         carbsG: 30,
         fatG: 14,
         fiberG: 3,
         sodiumMg: 350,
-        fitbitFoodId: 333,
         mealTypeId: 3,
         isFavorite: false,
       };
@@ -1097,14 +1093,13 @@ describe("QuickSelect", () => {
         customFoodId: 1,
         foodName: "Test Food",
         amount: 100,
-        unitId: 147,
+        unitId: "g",
         calories: 200,
         proteinG: 10,
         carbsG: 20,
         fatG: 8,
         fiberG: 3,
         sodiumMg: 150,
-        fitbitFoodId: 100,
         mealTypeId: 3,
         isFavorite: false,
         saturatedFatG: 3.5,
@@ -1140,14 +1135,13 @@ describe("QuickSelect", () => {
         customFoodId: 1,
         foodName: "Test Food",
         amount: 100,
-        unitId: 147,
+        unitId: "g",
         calories: 200,
         proteinG: 10,
         carbsG: 20,
         fatG: 8,
         fiberG: 3,
         sodiumMg: 150,
-        fitbitFoodId: 100,
         mealTypeId: 3,
         isFavorite: false,
       };
@@ -1169,10 +1163,10 @@ describe("QuickSelect", () => {
 
       fireEvent.click(screen.getByText("Test Food"));
       await waitFor(() => {
-        expect(screen.getByText("Log to Fitbit")).toBeInTheDocument();
+        expect(screen.getByText("Log to Google Health")).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByText("Log to Fitbit"));
+      fireEvent.click(screen.getByText("Log to Google Health"));
 
       // Success screen should NOT appear while API call is pending
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -1183,7 +1177,7 @@ describe("QuickSelect", () => {
         ok: true,
         text: () => Promise.resolve(JSON.stringify({
           success: true,
-          data: { success: true, fitbitLogId: 123, reusedFood: true },
+          data: { success: true, healthLogId: "ghl-123", reusedFood: true },
         })),
       });
 
@@ -1212,10 +1206,10 @@ describe("QuickSelect", () => {
       fireEvent.click(screen.getByText("Empanada de carne"));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         const logCall = mockFetch.mock.calls.find(
@@ -1319,10 +1313,10 @@ describe("QuickSelect", () => {
 
       fireEvent.click(screen.getByText("Empanada de carne"));
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
@@ -1335,14 +1329,13 @@ describe("QuickSelect", () => {
       customFoodId: 10,
       foodName: "Favorite Oatmeal",
       amount: 100,
-      unitId: 147,
+      unitId: "g",
       calories: 300,
       proteinG: 10,
       carbsG: 50,
       fatG: 5,
       fiberG: 4,
       sodiumMg: 100,
-      fitbitFoodId: 500,
       mealTypeId: 1,
       isFavorite: true,
     };
@@ -1421,7 +1414,7 @@ describe("QuickSelect", () => {
       });
 
       // After clicking star, should NOT have navigated to food detail (selectedFood stays null)
-      expect(screen.queryByRole("button", { name: /log to fitbit/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /log to google health/i })).not.toBeInTheDocument();
     });
   });
 
@@ -1430,14 +1423,13 @@ describe("QuickSelect", () => {
       customFoodId: 10,
       foodName: "Favorite Oatmeal",
       amount: 100,
-      unitId: 147,
+      unitId: "g",
       calories: 300,
       proteinG: 10,
       carbsG: 50,
       fatG: 5,
       fiberG: 4,
       sodiumMg: 100,
-      fitbitFoodId: 500,
       mealTypeId: 1,
       isFavorite: true,
     };

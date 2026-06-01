@@ -1,7 +1,7 @@
 import { getSession, validateSession } from "@/lib/session";
 import { redirect } from "next/navigation";
 import { EditFood } from "@/components/edit-food";
-import { FitbitSetupGuard } from "@/components/fitbit-setup-guard";
+import { HealthConnectGuard } from "@/components/health-connect-guard";
 import { SkipLink } from "@/components/skip-link";
 
 export default async function EditFoodPage({
@@ -22,9 +22,9 @@ export default async function EditFoodPage({
     <main id="main-content" className="contents">
       <div className="flex flex-col h-[calc(100dvh-5rem)]">
         <SkipLink />
-        <FitbitSetupGuard>
+        <HealthConnectGuard>
           <EditFood entryId={id} />
-        </FitbitSetupGuard>
+        </HealthConnectGuard>
       </div>
     </main>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { FitbitMealType } from "@/types";
+import { MealType } from "@/types";
 import {
   Select,
   SelectContent,
@@ -21,12 +21,12 @@ interface MealTypeSelectorProps {
 }
 
 const MEAL_TYPE_OPTIONS = [
-  { id: FitbitMealType.Breakfast, label: "Breakfast" },
-  { id: FitbitMealType.MorningSnack, label: "Morning Snack" },
-  { id: FitbitMealType.Lunch, label: "Lunch" },
-  { id: FitbitMealType.AfternoonSnack, label: "Afternoon Snack" },
-  { id: FitbitMealType.Dinner, label: "Dinner" },
-  { id: FitbitMealType.Anytime, label: "Anytime" },
+  { id: MealType.Breakfast, label: "Breakfast" },
+  { id: MealType.MorningSnack, label: "Morning Snack" },
+  { id: MealType.Lunch, label: "Lunch" },
+  { id: MealType.AfternoonSnack, label: "Afternoon Snack" },
+  { id: MealType.Dinner, label: "Dinner" },
+  { id: MealType.Anytime, label: "Anytime" },
 ];
 
 export function MealTypeSelector({

@@ -8,7 +8,7 @@ interface HealthData {
   status: string;
   version: string;
   environment: string;
-  fitbitMode: string;
+  healthMode: string;
   claudeModel: string;
   commitHash: string;
 }
@@ -56,8 +56,8 @@ export function AboutSection() {
           <span>{data?.environment}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Fitbit Mode</span>
-          <span>{data?.fitbitMode}</span>
+          <span className="text-muted-foreground">Health Mode</span>
+          <span>{data?.healthMode}</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Claude Model</span>

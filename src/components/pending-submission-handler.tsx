@@ -71,20 +71,17 @@ export function PendingSubmissionHandler() {
         } else {
           const errorCode = result.error?.code;
 
-          if (errorCode === "FITBIT_TOKEN_INVALID") {
+          if (errorCode === "HEALTH_TOKEN_INVALID") {
             savePendingSubmission(pending);
-            window.location.href = "/api/auth/fitbit";
+            window.location.href = "/api/auth/google-health";
             return;
           }
 
-          if (
-            errorCode === "FITBIT_CREDENTIALS_MISSING" ||
-            errorCode === "FITBIT_NOT_CONNECTED"
-          ) {
+          if (errorCode === "HEALTH_NOT_CONNECTED") {
             clearPendingSubmission();
             setStatus("error");
             setErrorMessage(
-              "Fitbit is not set up. Please configure your credentials in Settings."
+              "Google Health is not connected. Please connect in Settings."
             );
             return;
           }

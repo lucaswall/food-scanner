@@ -4155,10 +4155,18 @@ describe("validateFoodAnalysis — serving_unit coercion (Task 21)", () => {
     expect(result.unit_id).toBe("cup");
   });
 
-  it("missing serving_unit coerces to 'serving' (no throw)", async () => {
+  it("missing serving_unit falls back to unit_id when present (no throw)", async () => {
     const { validateFoodAnalysis } = await import("@/lib/claude");
-    // validAnalysis has no serving_unit — omitting it should coerce to 'serving'
+    // validAnalysis has unit_id: 'g' but no serving_unit — falls back to unit_id
     const result = validateFoodAnalysis({ ...validAnalysis });
+    expect(result.unit_id).toBe("g");
+  });
+
+  it("missing serving_unit AND missing unit_id coerces to 'serving' (no throw)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    // No serving_unit, no unit_id — defaults to 'serving'
+    const { unit_id: _omit, ...withoutUnit } = validAnalysis;
+    const result = validateFoodAnalysis({ ...withoutUnit });
     expect(result.unit_id).toBe("serving");
   });
 

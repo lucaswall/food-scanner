@@ -70,7 +70,7 @@ const makeCapture = (overrides: Partial<CaptureItem> = {}): CaptureItem => ({
 const makeFoodAnalysis = (overrides: Partial<FoodAnalysis> = {}): FoodAnalysis => ({
   food_name: "Pasta",
   amount: 300,
-  unit_id: 147,
+  unit_id: "g",
   calories: 620,
   protein_g: 45,
   carbs_g: 30,

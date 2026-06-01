@@ -7,7 +7,7 @@ import { apiFetcher } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
 import { ArrowLeft, AlertCircle, Star, Share2 } from "lucide-react";
-import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
+import { getUnitLabel, MEAL_TYPE_LABELS } from "@/types";
 import type { FoodLogEntryDetail } from "@/types";
 import { formatTime } from "@/lib/date-utils";
 
@@ -171,14 +171,14 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
           </Button>
         </div>
         {shareCopied && (
-          <p className="text-xs text-green-600 mt-1">Link copied to clipboard!</p>
+          <p className="text-xs text-success mt-1">Link copied to clipboard!</p>
         )}
         {shareError && (
           <p className="text-xs text-destructive mt-1">{shareError}</p>
         )}
         <p className="text-sm text-muted-foreground mt-1">
           {formatDate(data.date)} · {formatTime(data.time) || "Not specified"} ·{" "}
-          {FITBIT_MEAL_TYPE_LABELS[data.mealTypeId] ?? "Unknown"}
+          {MEAL_TYPE_LABELS[data.mealTypeId] ?? "Unknown"}
         </p>
         <p className="text-sm text-muted-foreground">
           {getUnitLabel(data.unitId, data.amount)}

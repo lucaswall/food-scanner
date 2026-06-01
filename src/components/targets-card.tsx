@@ -1,7 +1,7 @@
 "use client";
 
 import useSWR from "swr";
-import { apiFetcher, FITBIT_BACKED_SWR_CONFIG } from "@/lib/swr";
+import { apiFetcher, HEALTH_BACKED_SWR_CONFIG } from "@/lib/swr";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
@@ -43,7 +43,7 @@ export function TargetsCard({ date }: TargetsCardProps) {
   } = useSWR<NutritionGoals>(
     `/api/nutrition-goals?clientDate=${date}`,
     apiFetcher,
-    FITBIT_BACKED_SWR_CONFIG,
+    HEALTH_BACKED_SWR_CONFIG,
   );
 
   if (isLoading) {

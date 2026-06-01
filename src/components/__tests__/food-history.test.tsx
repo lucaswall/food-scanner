@@ -74,11 +74,11 @@ const mockEntries: FoodLogHistoryEntry[] = [
     fiberG: 2,
     sodiumMg: 450,
     amount: 150,
-    unitId: 147,
+    unitId: "g",
     mealTypeId: 3,
     date: today,
     time: "12:30:00",
-    fitbitLogId: 111,
+    healthLogId: "ghl-111",
     isFavorite: false,
   },
   {
@@ -92,11 +92,11 @@ const mockEntries: FoodLogHistoryEntry[] = [
     fiberG: 0,
     sodiumMg: 80,
     amount: 250,
-    unitId: 209,
+    unitId: "ml",
     mealTypeId: 1,
     date: today,
     time: "08:00:00",
-    fitbitLogId: 222,
+    healthLogId: "ghl-222",
     isFavorite: false,
   },
   {
@@ -110,11 +110,11 @@ const mockEntries: FoodLogHistoryEntry[] = [
     fiberG: 3,
     sodiumMg: 700,
     amount: 300,
-    unitId: 147,
+    unitId: "g",
     mealTypeId: 5,
     date: yesterday,
     time: "20:00:00",
-    fitbitLogId: 333,
+    healthLogId: "ghl-333",
     isFavorite: false,
   },
 ];
@@ -500,11 +500,11 @@ describe("FoodHistory", () => {
         fiberG: 1,
         sodiumMg: 100,
         amount: 100,
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 5,
         date: "2026-02-06",
         time: "23:00:00",
-        fitbitLogId: 999,
+        healthLogId: "ghl-999",
         isFavorite: false,
       },
       {
@@ -518,11 +518,11 @@ describe("FoodHistory", () => {
         fiberG: 3,
         sodiumMg: 600,
         amount: 300,
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 5,
         date: "2026-02-05",
         time: "20:00:00",
-        fitbitLogId: 998,
+        healthLogId: "ghl-998",
         isFavorite: false,
       },
     ];
@@ -749,11 +749,11 @@ describe("FoodHistory", () => {
         fiberG: 1,
         sodiumMg: 100,
         amount: 100,
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 3,
         date: today,
         time: "12:00:00",
-        fitbitLogId: 111,
+        healthLogId: "ghl-111",
         isFavorite: false,
       },
       {
@@ -767,11 +767,11 @@ describe("FoodHistory", () => {
         fiberG: 2,
         sodiumMg: 200,
         amount: 150,
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 1,
         date: today,
         time: "08:00:00",
-        fitbitLogId: 222,
+        healthLogId: "ghl-222",
         isFavorite: false,
       },
     ];
@@ -842,11 +842,11 @@ describe("FoodHistory", () => {
         fiberG: 1,
         sodiumMg: 50,
         amount: 100,
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 3,
         date: today,
         time: "12:00:00",
-        fitbitLogId: 1000,
+        healthLogId: null,
         isFavorite: false,
       },
     ];
@@ -863,11 +863,11 @@ describe("FoodHistory", () => {
         fiberG: 2,
         sodiumMg: 100,
         amount: 150,
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 1,
         date: today,
         time: "08:00:00",
-        fitbitLogId: 2000,
+        healthLogId: null,
         isFavorite: false,
       },
     ];
@@ -924,11 +924,11 @@ describe("FoodHistory", () => {
         fiberG: 1,
         sodiumMg: 50,
         amount: 100,
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 3,
         date: today,
         time: "12:00:00",
-        fitbitLogId: 1000,
+        healthLogId: null,
         isFavorite: false,
       },
     ];
@@ -945,11 +945,11 @@ describe("FoodHistory", () => {
         fiberG: 2,
         sodiumMg: 100,
         amount: 150,
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 1,
         date: today,
         time: "08:00:00",
-        fitbitLogId: 2000,
+        healthLogId: null,
         isFavorite: false,
       },
     ];
@@ -996,11 +996,10 @@ describe("FoodHistory", () => {
     expect(screen.queryByText("Cached Entry")).not.toBeInTheDocument();
   });
 
-  // FOO-425: FoodHistory delete error shows no recovery action for FITBIT_TOKEN_INVALID
-  it("shows reconnect link when delete fails with FITBIT_TOKEN_INVALID", async () => {
+  it("shows reconnect link when delete fails with HEALTH_TOKEN_INVALID", async () => {
     const errorResponse = {
       success: false,
-      error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+      error: { code: "HEALTH_TOKEN_INVALID", message: "Token expired" },
     };
 
     mockFetch
@@ -1031,17 +1030,17 @@ describe("FoodHistory", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/token expired/i)).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: /reconnect fitbit/i })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /reconnect google health/i })).toBeInTheDocument();
     });
 
-    const reconnectLink = screen.getByRole("link", { name: /reconnect fitbit/i });
-    expect(reconnectLink).toHaveAttribute("href", "/api/auth/fitbit");
+    const reconnectLink = screen.getByRole("link", { name: /reconnect google health/i });
+    expect(reconnectLink).toHaveAttribute("href", "/app/connect-health");
   });
 
-  it("shows Settings link when delete fails with FITBIT_CREDENTIALS_MISSING", async () => {
+  it("shows Settings link when delete fails with HEALTH_NOT_CONNECTED", async () => {
     const errorResponse = {
       success: false,
-      error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Credentials not found" },
+      error: { code: "HEALTH_NOT_CONNECTED", message: "Credentials not found" },
     };
 
     mockFetch
@@ -1071,8 +1070,8 @@ describe("FoodHistory", () => {
     fireEvent.click(confirmButton);
 
     await waitFor(() => {
-      expect(screen.getByText(/credentials.*settings/i)).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: /settings/i })).toBeInTheDocument();
+      expect(screen.getByText(/connect in Settings/i)).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /go to settings/i })).toBeInTheDocument();
     });
   });
 
@@ -1196,11 +1195,11 @@ describe("FoodHistory", () => {
         fiberG: 1,
         sodiumMg: 50,
         amount: 100,
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 3,
         date: today,
         time: "12:00:00",
-        fitbitLogId: 1000 + i,
+        healthLogId: null,
         isFavorite: false,
       }));
 
@@ -1245,11 +1244,11 @@ describe("FoodHistory", () => {
         fiberG: 1,
         sodiumMg: 50,
         amount: 100,
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 3,
         date: today,
         time: "12:00:00",
-        fitbitLogId: 1000 + i,
+        healthLogId: null,
         isFavorite: false,
       }));
 
@@ -1280,11 +1279,11 @@ describe("FoodHistory", () => {
         fiberG: 1,
         sodiumMg: 50,
         amount: 100,
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 3,
         date: i < 10 ? today : yesterday,
         time: "12:00:00",
-        fitbitLogId: 1000 + i,
+        healthLogId: null,
         isFavorite: false,
       }));
 
@@ -1340,11 +1339,11 @@ describe("FoodHistory", () => {
         fiberG: 1,
         sodiumMg: 50,
         amount: 100,
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 3,
         date: today,
         time: null,
-        fitbitLogId: 1000 + i,
+        healthLogId: null,
         isFavorite: false,
       }));
 
@@ -1396,11 +1395,11 @@ describe("FoodHistory", () => {
         fiberG: 1,
         sodiumMg: 50,
         amount: 100,
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 3,
         date: today,
         time: "12:00:00",
-        fitbitLogId: 1000 + i,
+        healthLogId: null,
         isFavorite: false,
       }));
 
@@ -1467,11 +1466,11 @@ describe("FoodHistory", () => {
         fiberG: 1,
         sodiumMg: 50,
         amount: 100,
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 3,
         date: today,
         time: "12:00:00",
-        fitbitLogId: 1000 + i,
+        healthLogId: null,
         isFavorite: false,
       }));
 
@@ -1487,11 +1486,11 @@ describe("FoodHistory", () => {
         fiberG: 2,
         sodiumMg: 100,
         amount: 100,
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 3,
         date: yesterday,
         time: "10:00:00",
-        fitbitLogId: 2000 + i,
+        healthLogId: null,
         isFavorite: false,
       }));
 

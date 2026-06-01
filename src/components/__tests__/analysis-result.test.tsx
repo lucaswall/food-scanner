@@ -26,7 +26,7 @@ afterEach(() => {
 const mockAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
   amount: 150,
-  unit_id: 147,
+  unit_id: "g",
   calories: 320,
   protein_g: 12,
   carbs_g: 28,
@@ -76,7 +76,7 @@ describe("AnalysisResult", () => {
     const onRetry = vi.fn();
     render(
       <AnalysisResult
-        analysis={{ ...mockAnalysis, amount: 1, unit_id: 91 }}
+        analysis={{ ...mockAnalysis, amount: 1, unit_id: "cup" }}
         loading={false}
         error={null}
         onRetry={onRetry}
@@ -90,7 +90,7 @@ describe("AnalysisResult", () => {
     const onRetry = vi.fn();
     render(
       <AnalysisResult
-        analysis={{ ...mockAnalysis, amount: 2, unit_id: 91 }}
+        analysis={{ ...mockAnalysis, amount: 2, unit_id: "cup" }}
         loading={false}
         error={null}
         onRetry={onRetry}

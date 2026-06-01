@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { MealGroup, MealEntry } from "@/types";
-import { FITBIT_MEAL_TYPE_LABELS } from "@/types";
+import { MEAL_TYPE_LABELS } from "@/types";
 import { FoodEntryCard } from "@/components/food-entry-card";
 
 interface MealBreakdownProps {
@@ -71,7 +71,7 @@ export function MealBreakdown({ meals, onEdit, onDelete, onEntryClick, deletingI
                     isExpanded ? "rotate-180" : ""
                   }`}
                 />
-                <span className="font-medium">{FITBIT_MEAL_TYPE_LABELS[meal.mealTypeId] ?? "Other"}</span>
+                <span className="font-medium">{MEAL_TYPE_LABELS[meal.mealTypeId] ?? "Other"}</span>
               </div>
               <span className="text-sm text-muted-foreground tabular-nums">
                 {meal.subtotal.calories} cal

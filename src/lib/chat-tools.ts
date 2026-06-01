@@ -3,7 +3,7 @@ import { searchFoods, getDailyNutritionSummary, getDateRangeNutritionSummary, ge
 import { getFastingWindow, getFastingWindows } from "@/lib/fasting";
 import { getOrComputeDailyGoals } from "@/lib/daily-goals";
 import { searchLabels, insertLabel, updateLabel, deleteLabel, findDuplicateLabel } from "@/lib/nutrition-labels";
-import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
+import { getUnitLabel, MEAL_TYPE_LABELS } from "@/types";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 
@@ -146,7 +146,7 @@ async function executeSearchFoodLog(
     }
     const lines = foods.map((food) => {
       const amountLabel = getUnitLabel(food.unitId, food.amount);
-      const mealLabel = FITBIT_MEAL_TYPE_LABELS[food.mealTypeId] || "Unknown";
+      const mealLabel = MEAL_TYPE_LABELS[food.mealTypeId] || "Unknown";
       return `• [id:${food.customFoodId}] ${food.foodName} — ${amountLabel}, ${food.calories} cal, P:${food.proteinG}g C:${food.carbsG}g F:${food.fatG}g (usually eaten at ${mealLabel})`;
     });
     return `Found ${foods.length} matching foods:\n${lines.join("\n")}`;
@@ -168,7 +168,7 @@ async function executeSearchFoodLog(
 
     const lines: string[] = [];
     for (const meal of filteredMeals) {
-      const mealLabel = FITBIT_MEAL_TYPE_LABELS[meal.mealTypeId] || "Unknown";
+      const mealLabel = MEAL_TYPE_LABELS[meal.mealTypeId] || "Unknown";
       lines.push(`\n${mealLabel}:`);
       for (const entry of meal.entries) {
         const timeStr = entry.time ? ` at ${formatTime(entry.time)}` : "";
@@ -195,7 +195,7 @@ async function executeSearchFoodLog(
 
     const lines = truncated.map((entry) => {
       const amountLabel = getUnitLabel(entry.unitId, entry.amount);
-      const mealLabel = FITBIT_MEAL_TYPE_LABELS[entry.mealTypeId] || "Unknown";
+      const mealLabel = MEAL_TYPE_LABELS[entry.mealTypeId] || "Unknown";
       const timeStr = entry.time ? ` at ${formatTime(entry.time)}` : "";
       return `• [id:${entry.customFoodId}] [entry:${entry.id}] ${entry.date} — ${entry.foodName} (${mealLabel}${timeStr}) — ${amountLabel}, ${entry.calories} cal, P:${entry.proteinG}g C:${entry.carbsG}g F:${entry.fatG}g`;
     });
@@ -257,7 +257,7 @@ async function executeGetNutritionSummary(
     if (summary.meals.length > 0) {
       lines.push("\nBreakdown by meal:");
       for (const meal of summary.meals) {
-        const mealLabel = FITBIT_MEAL_TYPE_LABELS[meal.mealTypeId] || "Unknown";
+        const mealLabel = MEAL_TYPE_LABELS[meal.mealTypeId] || "Unknown";
         lines.push(`  ${mealLabel}: ${meal.subtotal.calories} cal, P:${meal.subtotal.proteinG}g C:${meal.subtotal.carbsG}g F:${meal.subtotal.fatG}g`);
       }
     }

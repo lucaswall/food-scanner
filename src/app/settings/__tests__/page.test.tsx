@@ -39,8 +39,7 @@ const validSession: FullSession = {
   sessionId: "test-session",
   userId: "test-user-uuid",
   expiresAt: Date.now() + 86400000,
-  fitbitConnected: true,
-  hasFitbitCredentials: true,
+  healthConnected: true,
   destroy: vi.fn(),
 };
 
@@ -73,7 +72,7 @@ describe("Settings page (server component)", () => {
           success: true,
           data: {
             email: "test@example.com",
-            fitbitConnected: true,
+            healthConnected: true,
             expiresAt: Date.now() + 86400000,
           },
         }),
@@ -93,7 +92,7 @@ describe("Settings page (server component)", () => {
           success: true,
           data: {
             email: "test@example.com",
-            fitbitConnected: true,
+            healthConnected: true,
             expiresAt: Date.now() + 86400000,
           },
         }),
@@ -116,7 +115,7 @@ describe("Settings content (client component)", () => {
             success: true,
             data: {
               email: "test@example.com",
-              fitbitConnected: true,
+              healthConnected: true,
               expiresAt: Date.now() + 86400000,
             },
           }),
@@ -136,7 +135,7 @@ describe("Settings content (client component)", () => {
           success: true,
           data: {
             email: "test@example.com",
-            fitbitConnected: true,
+            healthConnected: true,
             expiresAt: Date.now() + 86400000,
           },
         }),
@@ -146,7 +145,7 @@ describe("Settings content (client component)", () => {
     expect(screen.getByText("Settings")).toBeInTheDocument();
   });
 
-  it("renders 'Reconnect Fitbit' button", async () => {
+  it("renders 'Reconnect Google Health' link when connected", async () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: () =>
@@ -154,16 +153,18 @@ describe("Settings content (client component)", () => {
           success: true,
           data: {
             email: "test@example.com",
-            fitbitConnected: true,
+            healthConnected: true,
             expiresAt: Date.now() + 86400000,
           },
         }),
     });
 
     renderWithSWR(<SettingsContent />);
-    expect(
-      screen.getByRole("button", { name: /reconnect fitbit/i }),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("link", { name: /reconnect google health/i }),
+      ).toBeInTheDocument();
+    });
   });
 
   it("renders 'Logout' button", async () => {
@@ -174,7 +175,7 @@ describe("Settings content (client component)", () => {
           success: true,
           data: {
             email: "test@example.com",
-            fitbitConnected: true,
+            healthConnected: true,
             expiresAt: Date.now() + 86400000,
           },
         }),
@@ -249,7 +250,7 @@ describe("Settings content (client component)", () => {
             success: true,
             data: {
               email: "test@example.com",
-              fitbitConnected: true,
+              healthConnected: true,
               expiresAt: Date.now() + 86400000,
             },
           }),
@@ -276,7 +277,7 @@ describe("Settings content (client component)", () => {
             success: true,
             data: {
               email: "test@example.com",
-              fitbitConnected: true,
+              healthConnected: true,
               expiresAt: Date.now() + 86400000,
             },
           }),
@@ -305,7 +306,7 @@ describe("Settings content (client component)", () => {
             success: true,
             data: {
               email: "test@example.com",
-              fitbitConnected: true,
+              healthConnected: true,
               expiresAt: Date.now() + 86400000,
             },
           }),
@@ -337,7 +338,7 @@ describe("Settings content (client component)", () => {
             success: true,
             data: {
               email: "test@example.com",
-              fitbitConnected: true,
+              healthConnected: true,
               expiresAt: Date.now() + 86400000,
             },
           }),
@@ -376,7 +377,7 @@ describe("Settings content (client component)", () => {
             success: true,
             data: {
               email: "test@example.com",
-              fitbitConnected: true,
+              healthConnected: true,
               expiresAt: Date.now() + 86400000,
             },
           }),
@@ -410,7 +411,7 @@ describe("Settings content (client component)", () => {
     it("uses SWR for session fetching", async () => {
       const sessionData = {
         email: "test@example.com",
-        fitbitConnected: true,
+        healthConnected: true,
         expiresAt: Date.now() + 86400000,
       };
 
@@ -433,7 +434,7 @@ describe("Settings content (client component)", () => {
     it("displays session data after fetch completes", async () => {
       const sessionData = {
         email: "test@example.com",
-        fitbitConnected: true,
+        healthConnected: true,
         expiresAt: Date.now() + 86400000,
       };
 

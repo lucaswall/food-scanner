@@ -72,7 +72,7 @@ describe("LogSharedContent date handling", () => {
     });
 
     render(<LogSharedContent token="test-token" />);
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(

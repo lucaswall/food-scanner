@@ -28,15 +28,14 @@ vi.mock("@/lib/haptics", () => ({
 
 const mockResponse: FoodLogResponse = {
   success: true,
-  fitbitFoodId: 12345,
-  fitbitLogId: 67890,
+  healthLogId: "test-health-log-id",
   reusedFood: false,
 };
 
 const mockAnalysis: FoodAnalysis = {
   food_name: "Grilled Chicken Breast",
   amount: 200,
-  unit_id: 147,
+  unit_id: "g",
   calories: 330,
   protein_g: 42,
   carbs_g: 0,
@@ -89,7 +88,7 @@ describe("FoodLogConfirmation", () => {
     expect(screen.getByText(/reused existing food/i)).toBeInTheDocument();
   });
 
-  it("does not display fitbitLogId", () => {
+  it("does not display healthLogId as text", () => {
     render(
       <FoodLogConfirmation
         response={mockResponse}
@@ -201,7 +200,7 @@ describe("FoodLogConfirmation", () => {
         />
       );
 
-      // 200g (unit_id 147 = g, no space)
+      // 200g (unit_id "g", no space)
       expect(screen.getByText("200g")).toBeInTheDocument();
     });
 

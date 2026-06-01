@@ -170,7 +170,7 @@ vi.mock("../food-chat", () => ({
         onClick={() => {
           mockFoodChatOnLogged(onLogged);
           onLogged?.(
-            { success: true, fitbitLogId: 999, fitbitFoodId: 888, reusedFood: false },
+            { success: true, healthLogId: "ghl-999", reusedFood: false },
             initialAnalysis!,
             3
           );
@@ -186,7 +186,7 @@ vi.mock("../food-chat", () => ({
 const mockFoodAnalysis: FoodAnalysis = {
   food_name: "Chicken Rice Bowl",
   amount: 1,
-  unit_id: 304,
+  unit_id: "serving",
   calories: 500,
   protein_g: 30,
   carbs_g: 60,
@@ -222,17 +222,15 @@ const mockMatch: FoodMatch = {
   transFatG: 0,
   sugarsG: 1,
   caloriesFromFat: 80,
-  fitbitFoodId: 100,
   matchRatio: 0.9,
   lastLoggedAt: new Date("2026-04-01"),
   amount: 1,
-  unitId: 304,
+  unitId: "serving",
 };
 
 const mockLogResponse: FoodLogResponse = {
   success: true,
-  fitbitFoodId: 123,
-  fitbitLogId: 456,
+  healthLogId: "ghl-456",
   reusedFood: false,
 };
 
@@ -374,7 +372,7 @@ describe("SavedFoodDetail", () => {
       expect(body.keywords).toEqual(["chicken", "rice", "bowl"]);
       expect(body.food_name).toBe("Chicken Rice Bowl");
       expect(body.amount).toBe(1);
-      expect(body.unit_id).toBe(304);
+      expect(body.unit_id).toBe("serving");
       expect(body.calories).toBe(500);
       expect(body.protein_g).toBe(30);
       expect(body.carbs_g).toBe(60);
@@ -388,10 +386,10 @@ describe("SavedFoodDetail", () => {
   });
 
   describe("No matches", () => {
-    it("sticky button says 'Log to Fitbit' when no matches", () => {
+    it("sticky button says 'Log to Google Health' when no matches", () => {
       setupSWR({ matches: [] });
       render(<SavedFoodDetail savedId={42} />);
-      expect(screen.getByRole("button", { name: "Log to Fitbit" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Log to Google Health" })).toBeInTheDocument();
       expect(screen.queryByText("Similar foods")).not.toBeInTheDocument();
     });
   });
@@ -410,14 +408,14 @@ describe("SavedFoodDetail", () => {
       expect(screen.getByRole("button", { name: "Log as new food" })).toBeInTheDocument();
     });
 
-    it("selecting a match changes button label to Log to Fitbit and sets reuseCustomFoodId", async () => {
+    it("selecting a match changes button label to Log to Google Health and sets reuseCustomFoodId", async () => {
       setupSWR({ matches: [mockMatch] });
       render(<SavedFoodDetail savedId={42} />);
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Use this" }));
       });
-      // After selecting a match with matches present, CTA should say "Log to Fitbit"
-      expect(screen.getByRole("button", { name: "Log to Fitbit" })).toBeInTheDocument();
+      // After selecting a match with matches present, CTA should say "Log to Google Health"
+      expect(screen.getByRole("button", { name: "Log to Google Health" })).toBeInTheDocument();
     });
   });
 
@@ -437,7 +435,7 @@ describe("SavedFoodDetail", () => {
       render(<SavedFoodDetail savedId={42} />);
 
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Log to Fitbit" }));
+        fireEvent.click(screen.getByRole("button", { name: "Log to Google Health" }));
       });
 
       await waitFor(() => {
@@ -472,7 +470,7 @@ describe("SavedFoodDetail", () => {
       render(<SavedFoodDetail savedId={42} />);
 
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Log to Fitbit" }));
+        fireEvent.click(screen.getByRole("button", { name: "Log to Google Health" }));
       });
 
       await waitFor(() => {
@@ -513,7 +511,7 @@ describe("SavedFoodDetail", () => {
       });
 
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Log to Fitbit" }));
+        fireEvent.click(screen.getByRole("button", { name: "Log to Google Health" }));
       });
 
       await waitFor(() => {
@@ -546,7 +544,7 @@ describe("SavedFoodDetail", () => {
       render(<SavedFoodDetail savedId={42} />);
 
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Log to Fitbit" }));
+        fireEvent.click(screen.getByRole("button", { name: "Log to Google Health" }));
       });
 
       await waitFor(() => {
@@ -717,7 +715,7 @@ describe("SavedFoodDetail", () => {
       render(<SavedFoodDetail savedId={42} />);
 
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Log to Fitbit" }));
+        fireEvent.click(screen.getByRole("button", { name: "Log to Google Health" }));
       });
 
       await waitFor(() => {
@@ -742,7 +740,7 @@ describe("SavedFoodDetail", () => {
       render(<SavedFoodDetail savedId={42} />);
 
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Log to Fitbit" }));
+        fireEvent.click(screen.getByRole("button", { name: "Log to Google Health" }));
       });
 
       await waitFor(() => {
@@ -781,15 +779,15 @@ describe("SavedFoodDetail", () => {
     });
   });
 
-  describe("FITBIT_TOKEN_INVALID handling", () => {
-    it("saves pending submission and redirects to Fitbit OAuth on token invalid", async () => {
+  describe("HEALTH_TOKEN_INVALID handling", () => {
+    it("saves pending submission and redirects to Google Health OAuth on token invalid", async () => {
       setupSWR({ matches: [] });
       mockFetch.mockResolvedValueOnce({
         ok: false,
         text: async () =>
           JSON.stringify({
             success: false,
-            error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+            error: { code: "HEALTH_TOKEN_INVALID", message: "Token expired" },
           }),
       });
 
@@ -802,7 +800,7 @@ describe("SavedFoodDetail", () => {
       render(<SavedFoodDetail savedId={42} />);
 
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Log to Fitbit" }));
+        fireEvent.click(screen.getByRole("button", { name: "Log to Google Health" }));
       });
 
       // Redirect should have been set

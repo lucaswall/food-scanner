@@ -108,8 +108,8 @@ test.describe('Empty and Error States', () => {
     await captureScreenshots(page, 'history-empty-state');
   });
 
-  test('FitbitSetupGuard: shows setup UI when credentials missing', async ({ page }) => {
-    // Mock /api/auth/session to return no credentials
+  test('HealthConnectGuard: shows connect UI when Google Health not connected', async ({ page }) => {
+    // Mock /api/auth/session to return not connected
     await page.route('**/api/auth/session', async (route) => {
       await route.fulfill({
         status: 200,
@@ -117,8 +117,7 @@ test.describe('Empty and Error States', () => {
         body: JSON.stringify({
           success: true,
           data: {
-            fitbitConnected: false,
-            hasFitbitCredentials: false,
+            healthConnected: false,
           },
         }),
       });
@@ -127,48 +126,15 @@ test.describe('Empty and Error States', () => {
     await page.goto('/app/analyze');
     await page.waitForLoadState('networkidle');
 
-    // FitbitSetupGuard should show "Set up your Fitbit credentials" message
+    // HealthConnectGuard should show "Connect Google Health" message
     await expect(
-      page.getByText('Set up your Fitbit credentials to start logging food')
+      page.getByText('Connect Google Health to start logging food')
     ).toBeVisible({ timeout: 10000 });
 
-    // "Set up Fitbit" button should be present
-    await expect(page.getByRole('link', { name: 'Set up Fitbit' })).toBeVisible();
+    // "Connect Google Health" link should be present
+    await expect(page.getByRole('link', { name: 'Connect Google Health' })).toBeVisible();
 
-    // Screenshot: FitbitSetupGuard — credentials missing state
-    await captureScreenshots(page, 'fitbit-setup-guard-no-credentials');
-  });
-
-  test('FitbitSetupGuard: shows reconnect UI when credentials exist but tokens missing', async ({
-    page,
-  }) => {
-    // Mock /api/auth/session to return credentials but no fitbit connection
-    await page.route('**/api/auth/session', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
-            fitbitConnected: false,
-            hasFitbitCredentials: true,
-          },
-        }),
-      });
-    });
-
-    await page.goto('/app/analyze');
-    await page.waitForLoadState('networkidle');
-
-    // FitbitSetupGuard should show "Connect your Fitbit account" message
-    await expect(
-      page.getByText('Connect your Fitbit account to start logging food')
-    ).toBeVisible({ timeout: 10000 });
-
-    // "Connect Fitbit" button/form should be present
-    await expect(page.getByRole('button', { name: 'Connect Fitbit' })).toBeVisible();
-
-    // Screenshot: FitbitSetupGuard — needs reconnect state
-    await captureScreenshots(page, 'fitbit-setup-guard-reconnect');
+    // Screenshot: HealthConnectGuard — not connected state
+    await captureScreenshots(page, 'health-connect-guard-disconnected');
   });
 });

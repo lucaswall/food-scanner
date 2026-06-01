@@ -11,7 +11,7 @@ config({ path: '.env.test', override: true });
  * Runs once before all tests.
  * - Truncates all database tables
  * - Authenticates via test-login endpoint (creates test user + session)
- * - Seeds test data (custom foods, food log entries)
+ * - Seeds test data (custom foods, food log entries, Google Health tokens)
  * - Saves session cookies to storage state file
  */
 export default async function globalSetup() {
@@ -34,19 +34,8 @@ export default async function globalSetup() {
     );
   }
 
-  // Seed Fitbit credentials via API so the server encrypts with its own SESSION_SECRET.
-  // Direct DB insert would use the seed process's key, which may differ from the server's.
-  const credResponse = await page.request.post(`${baseURL}/api/fitbit-credentials`, {
-    data: { clientId: 'TEST_CLIENT_ID', clientSecret: 'TEST_CLIENT_SECRET' },
-  });
-
-  if (!credResponse.ok()) {
-    throw new Error(
-      `Fitbit credentials seed failed: ${credResponse.status()} ${await credResponse.text()}`
-    );
-  }
-
-  // Seed remaining test data (custom foods, food log entries, Fitbit tokens)
+  // Seed test data (custom foods, food log entries, Google Health tokens)
+  // HEALTH_DRY_RUN=true is set in the test environment — all Health API calls are no-ops
   await seedTestData();
 
   // Save the authenticated state (includes session cookies)

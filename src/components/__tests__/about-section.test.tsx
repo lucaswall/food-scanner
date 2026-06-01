@@ -12,7 +12,7 @@ const mockHealthData = {
   status: "ok",
   version: "1.11.0",
   environment: "Production",
-  fitbitMode: "Live",
+  healthMode: "Live",
   claudeModel: "claude-sonnet-4-6",
   commitHash: "",
 };

@@ -1,10 +1,17 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
+import { getSession } from "@/lib/session";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { SkipLink } from "@/components/skip-link";
 import { ArrowLeft } from "lucide-react";
 
-export default function SetupFitbitLoading() {
+export default async function ConnectHealthPage() {
+  const session = await getSession();
+
+  if (!session) {
+    redirect("/");
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <SkipLink />
@@ -15,29 +22,23 @@ export default function SetupFitbitLoading() {
               <ArrowLeft className="h-5 w-5" />
             </Link>
           </Button>
-          <h1 className="text-2xl font-bold">Set Up Fitbit</h1>
+          <h1 className="text-2xl font-bold">Connect Google Health</h1>
         </div>
 
         <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
           <div className="flex flex-col gap-2">
-            <Skeleton className="h-6 w-48" />
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-3/4" />
+            <h2 className="text-lg font-semibold">Connect your Google account</h2>
+            <p className="text-sm text-muted-foreground">
+              Connect Google Health to start logging food to your health data.
+              You&apos;ll be redirected to Google to grant permission.
+            </p>
           </div>
 
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="h-[44px] w-full" />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <Skeleton className="h-4 w-40" />
-              <Skeleton className="h-[44px] w-full" />
-            </div>
-
-            <Skeleton className="h-[44px] w-full" />
-          </div>
+          <form action="/api/auth/google-health" method="POST">
+            <Button type="submit" className="w-full min-h-[44px]">
+              Connect Google Health
+            </Button>
+          </form>
         </div>
       </main>
     </div>
