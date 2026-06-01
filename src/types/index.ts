@@ -139,6 +139,7 @@ export interface FoodLogRequest extends FoodAnalysis {
   date: string; // YYYY-MM-DD (client wall-clock)
   time: string; // HH:mm:ss (client wall-clock)
   zoneOffset?: string; // ±HH:MM (client UTC offset)
+  clientToken?: string; // optional idempotency key for retried log requests
   reuseCustomFoodId?: number;
   // Optional metadata updates when reusing a custom food
   newDescription?: string;

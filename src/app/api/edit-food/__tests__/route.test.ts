@@ -391,7 +391,10 @@ describe("POST /api/edit-food", () => {
       const response = await POST(createMockRequest(unchangedBody));
       expect(response.status).toBe(500);
       const body = await response.json();
-      expect(body.error.code).toBe("INTERNAL_ERROR");
+      // Both the primary DB update AND the compensation's id-link update fail here,
+      // leaving an orphaned compensation log + stale DB pointer → PARTIAL_ERROR so the
+      // client knows manual cleanup may be needed (not a silent INTERNAL_ERROR).
+      expect(body.error.code).toBe("PARTIAL_ERROR");
       // Compensation: delete new log
       expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
         expect.any(String),

@@ -154,7 +154,7 @@ export async function POST(request: Request) {
 
   const isDryRun = process.env.HEALTH_DRY_RUN === "true";
   const userId = session!.userId;
-  const clientToken = (body as unknown as Record<string, unknown>).clientToken as string | undefined;
+  const clientToken = body.clientToken;
 
   // ── Idempotency check ─────────────────────────────────────────────────────
   if (clientToken) {

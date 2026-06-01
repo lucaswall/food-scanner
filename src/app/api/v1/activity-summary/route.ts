@@ -1,5 +1,6 @@
 import { validateApiRequest, hashForRateLimit } from "@/lib/api-auth";
 import { conditionalResponse, errorResponse } from "@/lib/api-response";
+import { mapHealthError } from "@/lib/health-error-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getCachedHealthActivitySummary } from "@/lib/health-cache";
 import { isValidDateFormat } from "@/lib/date-utils";
@@ -65,37 +66,6 @@ export async function GET(request: Request) {
       "v1 activity summary fetch failed"
     );
 
-    if (error instanceof Error) {
-      if (error.message === "HEALTH_TOKEN_INVALID") {
-        return errorResponse("HEALTH_TOKEN_INVALID", "Google Health token is invalid or expired", 401);
-      }
-      if (error.message === "HEALTH_SCOPE_MISSING") {
-        return errorResponse("HEALTH_SCOPE_MISSING", "Google Health permissions need updating. Please reconnect your account in Settings.", 403);
-      }
-      if (error.message === "HEALTH_RATE_LIMIT") {
-        return errorResponse("HEALTH_RATE_LIMIT", "Google Health API rate limited. Please try again later.", 429);
-      }
-      if (error.message === "HEALTH_RATE_LIMIT_LOW") {
-        return errorResponse(
-          "HEALTH_RATE_LIMIT_LOW",
-          "Google Health rate-limit headroom is low. Please try again in a few minutes.",
-          503,
-        );
-      }
-      if (error.message === "HEALTH_TIMEOUT") {
-        return errorResponse("HEALTH_TIMEOUT", "Request to Google Health timed out. Please try again.", 504);
-      }
-      if (error.message === "HEALTH_REFRESH_TRANSIENT") {
-        return errorResponse("HEALTH_REFRESH_TRANSIENT", "Temporary Google Health error. Please try again.", 502);
-      }
-      if (error.message === "HEALTH_TOKEN_SAVE_FAILED") {
-        return errorResponse("HEALTH_TOKEN_SAVE_FAILED", "Failed to save Google Health tokens. Please try again.", 500);
-      }
-      if (error.message === "HEALTH_API_ERROR") {
-        return errorResponse("HEALTH_API_ERROR", "Google Health API error", 502);
-      }
-    }
-
-    return errorResponse("INTERNAL_ERROR", "Failed to fetch activity summary", 500);
+    return mapHealthError(error);
   }
 }

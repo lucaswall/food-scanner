@@ -1225,3 +1225,53 @@ Summary: **13 issues to FIX** (3 HIGH, 5 MEDIUM, grouped into 9 Linear issues in
 3. Logging: add structured `action` to `claude.ts:1576` conversationalRefine error log.
 4. Security test: add the returnTo open-redirect guard test in the google callback test.
 5. Stale-Fitbit sweep: comments (daily-goals, user-profile, claude-tools-schema, types mealTypeId JSDoc, use-keyboard-shortcuts, food-analyzer, goals-setup-banner, swr); test fixtures/names (food-log stale fitbitFoodId + isFavorite coverage, find-matches, daily-goals var names, about-section name); dead test code (chat-food `if(false)`, edit-chat mock error code); log-food clientToken double-cast.
+
+---
+
+## Iteration 7: Fix Plan — Google Health migration review fixes (FOO-1101..1109)
+
+**Implemented:** 2026-06-01
+**Method:** Agent team (4 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- **Fix 1 (FOO-1101):** saved-analyses POST now validates via `validateFoodAnalysis` (accepts ServingUnit string `unit_id`); fixture updated to string — "Save for later" no longer 400s post-migration. (worker-2)
+- **Fix 2 (FOO-1102):** edit-food regular-path DB-failure compensation re-creates the original Google Health log from `buildAnalysisFromEntry(entry)` and persists the compensation id via `updateFoodLogEntryMetadata`, mirroring the fast path. (worker-1)
+- **Fix 3 (FOO-1103):** new `src/lib/health-error-response.ts` (`mapHealthError`) centralizes the full HEALTH_*→HTTP mapping (401/403/429/503/504/502/500/502 + INTERNAL_ERROR fallback); wired into log-food, edit-food, food-history DELETE, health-profile, and v1/activity-summary catches. (worker-1; health-profile + v1/activity-summary routed through the helper by the lead per bug-hunter Bug 2)
+- **Fix 4 (FOO-1104):** `REPORT_NUTRITION_UI_CARD_NOTE` "Log to Fitbit" → "Log to Google Health" (both occurrences); claude.test assertions updated. (worker-2 + worker-4 sweep)
+- **Fix 5 (FOO-1105):** log-food idempotency cache stores/returns `reusedFood` on a hit and sweeps expired entries on write; `clientToken` now read via the typed `FoodLogRequest.clientToken` field (lead applied the cast cleanup worker-4 deferred). (worker-1 + lead)
+- **Fix 6 (FOO-1106):** food-detail `handleShare` optional-chains `result?.data?.shareUrl` with a friendly error + outer catch, and both share + health-profile-card refresh fetches gained `AbortSignal.timeout(10000)`. (worker-3)
+- **Fix 7 (FOO-1107):** log-shared logging UI wrapped in `HealthConnectGuard` (viewing the shared food still allowed). (worker-3)
+- **Fix 8 (FOO-1108):** rate-limit `assertRateLimitAllowed` now blocks `important` calls during a 429 cooldown (throws HEALTH_RATE_LIMIT_LOW, matching CLAUDE.md); only `critical` bypasses. (worker-2)
+- **Fix 9 (FOO-1109):** cleanup sweep — layout/manifest "Fitbit"→"Google Health", google-health weight JSDoc corrected, MIGRATIONS saved_analyses note softened to optional, quick-select aria fix, conversationalRefine `action` log, +2 returnTo open-redirect guard tests, and a broad stale-Fitbit comment/fixture/dead-code sweep. (worker-4) [chat/page.tsx SkipLink already correct — no change needed.]
+
+### Files Modified
+- **NEW:** `src/lib/health-error-response.ts`
+- Routes: `src/app/api/log-food/route.ts`, `src/app/api/edit-food/route.ts`, `src/app/api/food-history/[id]/route.ts`, `src/app/api/health-profile/route.ts`, `src/app/api/v1/activity-summary/route.ts`, `src/app/api/saved-analyses/route.ts`
+- Lib: `src/lib/google-health-rate-limit.ts`, `src/lib/claude-prompts.ts`, `src/lib/google-health.ts`, `src/lib/daily-goals.ts`, `src/lib/user-profile.ts`, `src/lib/claude-tools-schema.ts`, `src/lib/claude.ts`, `src/lib/swr.ts`, `src/lib/haptics.ts`
+- Types/hooks: `src/types/index.ts` (added `FoodLogRequest.clientToken?`), `src/hooks/use-keyboard-shortcuts.ts`
+- Components/pages: `src/components/food-detail.tsx`, `src/components/health-profile-card.tsx`, `src/components/food-analyzer.tsx`, `src/components/goals-setup-banner.tsx`, `src/components/quick-select.tsx`, `src/app/app/log-shared/[token]/log-shared-content.tsx`, `src/app/layout.tsx`
+- Docs/config: `public/manifest.json`, `MIGRATIONS.md`
+- Plus colocated test files for each of the above (new + updated assertions/fixtures)
+
+### Linear Updates
+- FOO-1101 … FOO-1109: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 issues, both fixed before proceeding — [MEDIUM] edit-food inner-compensation DB-update failures now return `PARTIAL_ERROR` (orphaned-log/stale-pointer surfacing) across all 3 compensation blocks + updated the fast-path regression test; [LOW] health-profile & v1/activity-summary routed through the shared `mapHealthError` helper instead of duplicated inline if-chains.
+- verifier: 3,436 unit/integration tests pass, lint clean, production build clean (57 routes, zero warnings). typecheck: 0 errors.
+
+### Work Partition
+- Worker 1: Fixes 2, 3, 5 (backend write-routes + shared HEALTH error helper)
+- Worker 2: Fixes 1, 4, 8 (saved-analyses + Claude prompt + rate-limit)
+- Worker 3: Fixes 6, 7 (client fetch robustness + log-shared UX)
+- Worker 4: Fix 9 (migration cleanup sweep)
+
+### Merge Summary
+- Worker 1: fast-forward (foundation: routes + new lib helper)
+- Worker 2: merged cleanly (typecheck green)
+- Worker 3: merged cleanly (typecheck green)
+- Worker 4: merged cleanly — git auto-merged the overlapping `claude-prompts.ts`/`claude.test.ts` edits (same Fitbit→Google Health change) with no conflict markers
+- Lead post-merge: applied the deferred log-food `clientToken` cast cleanup + the 2 bug-hunter fixes
+
+### Continuation Status
+All Fix Plan tasks (FOO-1101..1109) completed and verified. Ready for `plan-review-implementation`. The remaining FOO-1100 (Task 30) is the production release deploy, performed by `push-to-production` per the MIGRATIONS.md RELEASE RUNBOOK.

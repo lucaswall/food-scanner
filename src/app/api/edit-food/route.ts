@@ -262,6 +262,7 @@ export async function POST(request: Request) {
               { action: "edit_food_fast_path_db_compensation_failed", error: dbUpdateErr instanceof Error ? dbUpdateErr.message : String(dbUpdateErr) },
               "failed to update healthLogId after fast path DB compensation"
             );
+            return errorResponse("PARTIAL_ERROR", "Food restored in Google Health but local ID link failed. Manual cleanup may be needed.", 500);
           }
           log.info({ action: "edit_food_fast_path_db_compensation_success" }, "fast path DB compensation succeeded");
         } catch (compensationErr) {
@@ -332,6 +333,7 @@ export async function POST(request: Request) {
               { action: "edit_food_compensation_db_failed", error: dbUpdateErr instanceof Error ? dbUpdateErr.message : String(dbUpdateErr) },
               "failed to update healthLogId after regular path compensation"
             );
+            return errorResponse("PARTIAL_ERROR", "Food restored in Google Health but local ID link failed. Manual cleanup may be needed.", 500);
           }
           log.info({ action: "edit_food_compensation_success" }, "original health log restored");
         } catch (compensationErr) {
@@ -417,6 +419,7 @@ export async function POST(request: Request) {
             { action: "edit_food_db_compensation_db_failed", error: dbUpdateErr instanceof Error ? dbUpdateErr.message : String(dbUpdateErr) },
             "failed to update healthLogId after regular path DB compensation"
           );
+          return errorResponse("PARTIAL_ERROR", "Food restored in Google Health but local ID link failed. Manual cleanup may be needed.", 500);
         }
         log.info({ action: "edit_food_db_compensation_success", healthLogId: compensationHealthLogId }, "original health log restored after DB failure");
       } catch (compensationErr) {
