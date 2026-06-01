@@ -2931,9 +2931,9 @@ describe("Task 5: CHAT_SYSTEM_PROMPT anti-confirmation rules (FOO-645)", () => {
     expect(CHAT_SYSTEM_PROMPT).toMatch(/UI card/i);
   });
 
-  it("explains that user confirms via Log to Fitbit button, not text", async () => {
+  it("explains that user confirms via Log to Google Health button, not text", async () => {
     const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
-    expect(CHAT_SYSTEM_PROMPT).toMatch(/Log to Fitbit.*button|button.*Log to Fitbit/i);
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/Log to Google Health.*button|button.*Log to Google Health/i);
   });
 
   it("has blanket anti-confirmation rule: never ask 'should I log/register this?'", async () => {
@@ -2958,9 +2958,9 @@ describe("Task 5: ANALYSIS_SYSTEM_PROMPT anti-confirmation rules (FOO-645)", () 
     expect(ANALYSIS_SYSTEM_PROMPT).toMatch(/UI card/i);
   });
 
-  it("explains that user confirms via Log to Fitbit button", async () => {
+  it("explains that user confirms via Log to Google Health button", async () => {
     const { ANALYSIS_SYSTEM_PROMPT } = await import("@/lib/claude");
-    expect(ANALYSIS_SYSTEM_PROMPT).toMatch(/Log to Fitbit.*button|button.*Log to Fitbit/i);
+    expect(ANALYSIS_SYSTEM_PROMPT).toMatch(/Log to Google Health.*button|button.*Log to Google Health/i);
   });
 });
 

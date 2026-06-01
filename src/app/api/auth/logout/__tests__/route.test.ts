@@ -37,7 +37,7 @@ describe("POST /api/auth/logout", () => {
       sessionId: "test-session",
       email: "test@example.com",
       expiresAt: Date.now() + 86400000,
-      fitbitConnected: false,
+      healthConnected: false,
       destroy: destroyFn,
     });
 
@@ -66,7 +66,7 @@ describe("POST /api/auth/logout", () => {
       sessionId: "test-session",
       email: "test@example.com",
       expiresAt: Date.now() + 86400000,
-      fitbitConnected: false,
+      healthConnected: false,
       destroy: destroyFn,
     });
 

@@ -118,7 +118,7 @@ export interface FoodAnalysis {
   date?: string | null;
   /** Meal time suggested by Claude in HH:mm format. Only set when user explicitly mentions time. */
   time?: string | null;
-  /** Fitbit meal type ID (1-7, no 6) suggested by Claude. Only set when user mentions meal context. */
+  /** Meal type ID (1-7, no 6) suggested by Claude. Only set when user mentions meal context. */
   mealTypeId?: number | null;
 }
 

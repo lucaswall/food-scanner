@@ -23,7 +23,7 @@ interface GoalsSetupBannerProps {
 /**
  * Dumb banner shown on the dashboard whenever goals.status === "blocked".
  * Receives the blocked reason as a prop; performs no own data fetching.
- * Matches the amber/warning palette from FitbitStatusBanner (FOO-1046).
+ * Matches the amber/warning palette from HealthStatusBanner (FOO-1046).
  */
 export function GoalsSetupBanner({ reason }: GoalsSetupBannerProps) {
   const message =

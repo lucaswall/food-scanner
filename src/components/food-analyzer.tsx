@@ -448,7 +448,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     }
   }, [logResponse]);
 
-  // Auto-resubmit pending submission after Fitbit reconnect
+  // Auto-resubmit pending submission after Google Health reconnect
   useEffect(() => {
     const pending = getPendingSubmission();
     if (!pending) return;

@@ -90,7 +90,7 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       },
       meal_type_id: {
         type: "number",
-        description: "Fitbit meal type: 1=Breakfast, 2=Morning Snack, 3=Lunch, 4=Afternoon Snack, 5=Dinner, 7=Anytime. Always suggest based on current time, today's logged meals, and food type. When editing an existing entry, preserve the original value unless user asks to change it.",
+        description: "Meal type: 1=Breakfast, 2=Morning Snack, 3=Lunch, 4=Afternoon Snack, 5=Dinner, 7=Anytime. Always suggest based on current time, today's logged meals, and food type. When editing an existing entry, preserve the original value unless user asks to change it.",
       },
     },
     required: [
@@ -222,7 +222,7 @@ export const REPORT_SESSION_ITEMS_TOOL: Anthropic.Tool = {
             },
             meal_type_id: {
               type: "number",
-              description: "Fitbit meal type: 1=Breakfast, 2=Morning Snack, 3=Lunch, 4=Afternoon Snack, 5=Dinner, 7=Anytime. Assign based on capture time.",
+              description: "Meal type: 1=Breakfast, 2=Morning Snack, 3=Lunch, 4=Afternoon Snack, 5=Dinner, 7=Anytime. Assign based on capture time.",
             },
             capture_indices: {
               type: "array",

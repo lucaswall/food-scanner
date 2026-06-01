@@ -484,4 +484,46 @@ describe("GET /api/auth/google/callback", () => {
     const body = await response.json();
     expect(body.error.code).toBe("HEALTH_TOKEN_SAVE_FAILED");
   });
+
+  // open-redirect guard tests
+  it("health-connect: rejects absolute-URL returnTo and falls back to /app", async () => {
+    // An attacker could embed returnTo: "https://evil.com" hoping for an open redirect.
+    // The guard (startsWith("/") && !startsWith("//")) must reject it and fall back to /app.
+    const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect", returnTo: "https://evil.com/steal" });
+    mockRawSession.oauthState = healthState;
+    mockRawSession.sessionId = "existing-session-id";
+    mockGetSessionById.mockResolvedValue(fakeDbSession);
+    mockExchangeGoogleHealthCode.mockResolvedValue({
+      access_token: "health-at",
+      refresh_token: "health-rt",
+      expires_in: 3600,
+    });
+    mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
+
+    const response = await GET(makeCallbackRequest("health-code", healthState));
+    expect(response.status).toBe(302);
+    // Must redirect to /app, NOT to the external URL
+    expect(response.headers.get("location")).toBe("http://localhost:3000/app");
+    expect(response.headers.get("location")).not.toContain("evil.com");
+  });
+
+  it("health-connect: rejects protocol-relative returnTo (//evil.com) and falls back to /app", async () => {
+    // Protocol-relative URLs start with "/" but also with "//" — both checks are needed.
+    const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect", returnTo: "//evil.com/steal" });
+    mockRawSession.oauthState = healthState;
+    mockRawSession.sessionId = "existing-session-id";
+    mockGetSessionById.mockResolvedValue(fakeDbSession);
+    mockExchangeGoogleHealthCode.mockResolvedValue({
+      access_token: "health-at",
+      refresh_token: "health-rt",
+      expires_in: 3600,
+    });
+    mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
+
+    const response = await GET(makeCallbackRequest("health-code", healthState));
+    expect(response.status).toBe(302);
+    // Must redirect to /app, NOT to the protocol-relative external URL
+    expect(response.headers.get("location")).toBe("http://localhost:3000/app");
+    expect(response.headers.get("location")).not.toContain("evil.com");
+  });
 });

@@ -99,7 +99,7 @@ describe("apiFetcher", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
-          error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Credentials not found" },
+          error: { code: "HEALTH_NOT_CONNECTED", message: "Credentials not found" },
         }),
         {
           status: 424,
@@ -114,7 +114,7 @@ describe("apiFetcher", () => {
       expect(true).toBe(false);
     } catch (error) {
       expect(error).toBeInstanceOf(ApiError);
-      expect((error as ApiError).code).toBe("FITBIT_CREDENTIALS_MISSING");
+      expect((error as ApiError).code).toBe("HEALTH_NOT_CONNECTED");
       expect((error as ApiError).message).toBe("Credentials not found");
     }
   });
