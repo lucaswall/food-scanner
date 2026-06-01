@@ -12,7 +12,7 @@ import { logger } from "@/lib/logger";
 
 const THINKING_INSTRUCTION = `Before calling any tool, emit a brief natural-language sentence describing what you're about to do (e.g., 'Let me check your food history...', 'Looking up nutrition info for this restaurant...', 'Checking your fasting patterns...'). This gives the user real-time feedback. Keep it to one short sentence per tool batch.`;
 
-const REPORT_NUTRITION_UI_CARD_NOTE = `Calling report_nutrition surfaces a UI card with nutrition details and a "Log to Fitbit" button — it does NOT log food directly. The user must tap "Log to Fitbit" to actually commit the food log. Text confirmation before calling report_nutrition is never necessary — the user confirms via the UI button.`;
+const REPORT_NUTRITION_UI_CARD_NOTE = `Calling report_nutrition surfaces a UI card with nutrition details and a "Log to Google Health" button — it does NOT log food directly. The user must tap "Log to Google Health" to actually commit the food log. Text confirmation before calling report_nutrition is never necessary — the user confirms via the UI button.`;
 
 const REPORT_NUTRITION_EDIT_UI_CARD_NOTE = `Calling report_nutrition surfaces a UI card with updated nutrition details and a "Save Changes" button — it does NOT save the changes directly. The user must tap "Save Changes" to actually commit the updated entry. Text confirmation before calling report_nutrition is never necessary — the user confirms via the UI button.`;
 

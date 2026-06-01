@@ -85,8 +85,8 @@ export function getRateLimitSnapshot(
  *
  * Rules:
  *   - No active cooldown (cold start or elapsed) → allow all.
+ *   - In cooldown + 'important' → throw HEALTH_RATE_LIMIT_LOW (blocked, per CLAUDE.md spec).
  *   - In cooldown + 'optional' → throw HEALTH_RATE_LIMIT_LOW.
- *   - In cooldown + 'important' → allow silently.
  *   - In cooldown + 'critical' → allow + warn log.
  *
  * NEVER blocks 'critical' writes — a wrong tuning degrades to extra 429 retries,
@@ -114,12 +114,7 @@ export function assertRateLimitAllowed(
     return;
   }
 
-  if (criticality === "important") {
-    // Allow silently — important user-driven reads proceed but don't burn logs.
-    return;
-  }
-
-  // optional: reject to protect quota during cooldown window.
+  // important and optional: reject to protect quota during cooldown window.
   (log ?? defaultLogger).warn(
     {
       action: "health_breaker_reject",
