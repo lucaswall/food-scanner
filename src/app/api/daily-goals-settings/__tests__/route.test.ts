@@ -39,6 +39,7 @@ const mockUpdateUserGoalSettings = vi.fn();
 vi.mock("@/lib/users", () => ({
   getUserGoalSettings: (...args: unknown[]) => mockGetUserGoalSettings(...args),
   updateUserGoalSettings: (...args: unknown[]) => mockUpdateUserGoalSettings(...args),
+  SEX_VALUES: ["MALE", "FEMALE"],
 }));
 
 const mockInvalidateUserDailyGoalsForSettingsChange = vi.fn();
@@ -413,5 +414,74 @@ describe("PATCH /api/daily-goals-settings", () => {
     );
 
     expect(response.status).toBe(401);
+  });
+
+  // FOO-1116: sex is a local macro-engine input (Google Health v4 omits it)
+  it("persists a valid sex and invalidates daily goals", async () => {
+    mockUpdateUserGoalSettings.mockResolvedValue({
+      activityLevel: null, goalWeightKg: null, goalRateKgPerWeek: null, sex: "FEMALE", weightGoalType: null,
+    });
+
+    const response = await PATCH(
+      new Request("http://localhost/api/daily-goals-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sex: "FEMALE" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockUpdateUserGoalSettings).toHaveBeenCalledWith("user-uuid-123", { sex: "FEMALE" });
+    expect(mockInvalidateUserDailyGoalsForSettingsChange).toHaveBeenCalled();
+    const body = await response.json();
+    expect(body.data.sex).toBe("FEMALE");
+  });
+
+  it("returns 400 VALIDATION_ERROR for an invalid sex", async () => {
+    const response = await PATCH(
+      new Request("http://localhost/api/daily-goals-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sex: "OTHER" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(mockUpdateUserGoalSettings).not.toHaveBeenCalled();
+  });
+
+  it("persists a valid weightGoalType (restored setter)", async () => {
+    mockUpdateUserGoalSettings.mockResolvedValue({
+      activityLevel: null, goalWeightKg: null, goalRateKgPerWeek: null, sex: null, weightGoalType: "GAIN",
+    });
+
+    const response = await PATCH(
+      new Request("http://localhost/api/daily-goals-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ weightGoalType: "GAIN" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockUpdateUserGoalSettings).toHaveBeenCalledWith("user-uuid-123", { weightGoalType: "GAIN" });
+    const body = await response.json();
+    expect(body.data.weightGoalType).toBe("GAIN");
+  });
+
+  it("returns 400 VALIDATION_ERROR for an invalid weightGoalType", async () => {
+    const response = await PATCH(
+      new Request("http://localhost/api/daily-goals-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ weightGoalType: "BULK" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 });

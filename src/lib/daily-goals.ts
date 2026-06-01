@@ -9,6 +9,7 @@ import {
 } from "@/lib/health-cache";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
+import type { Sex } from "@/lib/users";
 import type { ActivityLevel, NutritionGoals, NutritionGoalsAudit } from "@/types";
 
 // ─── DB row shape ─────────────────────────────────────────────────────────────
@@ -123,7 +124,15 @@ async function queryRow(userId: string, date: string): Promise<DbRow | null> {
   return (rows[0] as DbRow) ?? null;
 }
 
-/** True when all three goal settings on the stored row match the user's current settings. */
+/**
+ * True when all three goal settings on the stored row match the user's current settings.
+ *
+ * Note: `sex` is NOT compared here — it is not persisted on `daily_calorie_goals`. A sex
+ * change always goes through the settings PATCH, which invalidates (deletes) the row, so
+ * a row can only survive if it was computed with the current sex. The write-time CAS
+ * (`setWhere`) and the pre-write re-read additionally gate on `users.sex`, covering the
+ * mid-compute race. (FOO-1116)
+ */
 function rowSettingsMatch(
   row: DbRow,
   userActivityLevel: string,
@@ -141,15 +150,17 @@ interface UserSettingsRow {
   activityLevel: string | null;
   goalWeightKg: string | null;
   goalRateKgPerWeek: string | null;
+  sex: Sex | null;
 }
 
 interface CompleteUserSettings {
   activityLevel: string;
   goalWeightKg: string;
   goalRateKgPerWeek: string;
+  sex: Sex;
 }
 
-/** Type predicate: all three goal-setting columns are non-null. */
+/** Type predicate: all goal-setting columns (incl. sex) are non-null. */
 function settingsAreComplete(
   s: UserSettingsRow | undefined,
 ): s is CompleteUserSettings {
@@ -157,7 +168,8 @@ function settingsAreComplete(
     s !== undefined &&
     s.activityLevel !== null &&
     s.goalWeightKg !== null &&
-    s.goalRateKgPerWeek !== null
+    s.goalRateKgPerWeek !== null &&
+    s.sex !== null
   );
 }
 
@@ -278,11 +290,12 @@ async function doCompute(
         activityLevel:     users.activityLevel,
         goalWeightKg:      users.goalWeightKg,
         goalRateKgPerWeek: users.goalRateKgPerWeek,
+        sex:               users.sex,
       })
       .from(users)
       .where(eq(users.id, userId));
 
-    const userSettings = userRows[0];
+    const userSettings = userRows[0] as UserSettingsRow | undefined;
     const isPast = date < getTodayDate();
 
     // ── Step 2: Read existing row (early — past historical rows are stable
@@ -313,6 +326,7 @@ async function doCompute(
       activityLevel: userActivityLevel,
       goalWeightKg: userGoalWeightKg,
       goalRateKgPerWeek: userGoalRateKgPerWeek,
+      sex: userSex,
     } = userSettings;
 
     // Today/future cache hit (past rows already returned above).
@@ -336,13 +350,9 @@ async function doCompute(
       getCachedHealthWeightKg(userId, date, l, "important"),
     ]);
 
-    if (profile.sex === "NA") {
-      l.warn(
-        { action: "daily_goals_blocked", reason: "sex_unset", userId, date },
-        "Daily goals blocked",
-      );
-      return { status: "blocked", reason: "sex_unset" };
-    }
+    // Sex comes from the local setting (the Google Health v4 profile does not expose it,
+    // FOO-1116) and is guaranteed non-null by settingsAreComplete above — a missing sex
+    // surfaces upstream as `goals_not_set`, driving the home settings banner.
     if (weightLog === null) {
       l.warn(
         { action: "daily_goals_blocked", reason: "no_weight", userId, date },
@@ -353,7 +363,7 @@ async function doCompute(
 
     // ── Step 4: Compute macros ───────────────────────────────────────────────
     const engineOut = computeMacroTargets({
-      sex:               profile.sex,
+      sex:               userSex,
       ageYears:          profile.ageYears,
       heightCm:          profile.heightCm,
       currentWeightKg:   weightLog.weightKg,
@@ -374,6 +384,7 @@ async function doCompute(
         activityLevel:     users.activityLevel,
         goalWeightKg:      users.goalWeightKg,
         goalRateKgPerWeek: users.goalRateKgPerWeek,
+        sex:               users.sex,
       })
       .from(users)
       .where(eq(users.id, userId));
@@ -382,7 +393,8 @@ async function doCompute(
       fresh !== undefined &&
       fresh.activityLevel     === userActivityLevel &&
       fresh.goalWeightKg      === userGoalWeightKg &&
-      fresh.goalRateKgPerWeek === userGoalRateKgPerWeek;
+      fresh.goalRateKgPerWeek === userGoalRateKgPerWeek &&
+      fresh.sex               === userSex;
 
     if (!stillFresh) {
       l.debug(
@@ -436,6 +448,7 @@ async function doCompute(
             AND ${users.activityLevel} = ${userActivityLevel}
             AND ${users.goalWeightKg} = ${userGoalWeightKg}
             AND ${users.goalRateKgPerWeek} = ${userGoalRateKgPerWeek}
+            AND ${users.sex} = ${userSex}
         )`,
       });
 
@@ -460,9 +473,9 @@ async function doCompute(
     );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    // Note: SEX_UNSET is not handled here — `profile.sex === "NA"` is checked
-    // and short-circuited before computeMacroTargets is called, so the engine
-    // never reaches its SEX_UNSET throw path from this caller.
+    // Note: SEX_UNSET is not handled here — sex comes from the local setting and is
+    // guaranteed non-null by settingsAreComplete() (a null sex returns goals_not_set
+    // earlier), so the engine never reaches its SEX_UNSET throw path from this caller.
     let reason: "scope_mismatch" | "invalid_profile" | null = null;
     if (errorMessage === "HEALTH_SCOPE_MISSING") reason = "scope_mismatch";
     else if (errorMessage === "INVALID_PROFILE_DATA") reason = "invalid_profile";

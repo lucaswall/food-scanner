@@ -93,7 +93,15 @@ ALTER TABLE users ADD COLUMN weight_goal_type text;
 ALTER TABLE users ADD CONSTRAINT users_weight_goal_type_chk
   CHECK (weight_goal_type IS NULL OR weight_goal_type IN ('LOSE','MAINTAIN','GAIN'));
 ```
-Nullable, no backfill — replaces the removed Fitbit weight-goal read. Null renders as "Not set"; existing users re-select it if they want the profile card to show a direction. Helpers `getWeightGoalType`/`setWeightGoalType` live in `src/lib/users.ts` (the existing settings module; the plan's notional `user-settings.ts` maps to it).
+Nullable, no backfill — replaces the removed Fitbit weight-goal read. Null renders as "Not set"; existing users re-select it if they want the profile card to show a direction. Helpers `getWeightGoalType`/`setWeightGoalType` live in `src/lib/users.ts` (the existing settings module; the plan's notional `user-settings.ts` maps to it). **Now settable** via the Daily Goals settings form + `PATCH /api/daily-goals-settings` (FOO-1116 follow-up — the setter previously had no UI).
+
+### FOO-1116 — users.sex (post-review fix, migration `drizzle/0028`)
+```sql
+ALTER TABLE users ADD COLUMN sex text;
+ALTER TABLE users ADD CONSTRAINT users_sex_chk
+  CHECK (sex IS NULL OR sex IN ('MALE','FEMALE'));
+```
+Nullable, no backfill. The Google Health v4 Profile resource does NOT expose biological sex (unlike Fitbit), so it becomes a LOCAL macro-engine input set in the Daily Goals settings form. **Both existing users (Lucas, Mariana) MUST set their sex after cutover or daily-goal computation stays blocked** (`goals_not_set` → home settings banner). Safe to apply to populated tables (nullable add + CHECK; CHECK validates only non-null values).
 
 ### Task 10 — session contract rewire (FOO-1080)
 **No SQL** — session state is recomputed per request. `getSession()` now derives `healthConnected` from the presence of a `health_tokens` row (via `getHealthTokens`); `fitbitConnected`/`hasFitbitCredentials` are removed. `validateSession({ requireHealth: true })` returns a 400 `HEALTH_NOT_CONNECTED` response (replacing the former `requireFitbit` → `FITBIT_NOT_CONNECTED`/`FITBIT_CREDENTIALS_MISSING` two-tier check). After the release token-clear, both users see `healthConnected=false` until they reconnect.

@@ -1,7 +1,7 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
-import { getUserGoalSettings, updateUserGoalSettings } from "@/lib/users";
+import { getUserGoalSettings, updateUserGoalSettings, SEX_VALUES, type Sex, type WeightGoalType } from "@/lib/users";
 import { invalidateUserDailyGoalsForSettingsChange } from "@/lib/daily-goals";
 import { getTodayDate } from "@/lib/date-utils";
 import type { ActivityLevel } from "@/types";
@@ -19,10 +19,20 @@ function isActivityLevel(v: unknown): v is ActivityLevel {
   return typeof v === "string" && (ACTIVITY_LEVEL_VALUES as readonly string[]).includes(v);
 }
 
+const WEIGHT_GOAL_TYPE_VALUES = ["LOSE", "MAINTAIN", "GAIN"] as const;
+function isSex(v: unknown): v is Sex {
+  return typeof v === "string" && (SEX_VALUES as readonly string[]).includes(v);
+}
+function isWeightGoalType(v: unknown): v is WeightGoalType {
+  return typeof v === "string" && (WEIGHT_GOAL_TYPE_VALUES as readonly string[]).includes(v);
+}
+
 interface DailyGoalsSettingsResponse {
   activityLevel: ActivityLevel | null;
   goalWeightKg: number | null;
   goalRateKgPerWeek: number | null;
+  sex: Sex | null;
+  weightGoalType: WeightGoalType | null;
 }
 
 /** Cast a Drizzle numeric column value (string | null) to number | null. */
@@ -36,11 +46,15 @@ function buildResponse(raw: {
   activityLevel: ActivityLevel | null;
   goalWeightKg: string | null;
   goalRateKgPerWeek: string | null;
+  sex: Sex | null;
+  weightGoalType: WeightGoalType | null;
 }): DailyGoalsSettingsResponse {
   return {
     activityLevel: raw.activityLevel,
     goalWeightKg: toNumberOrNull(raw.goalWeightKg),
     goalRateKgPerWeek: toNumberOrNull(raw.goalRateKgPerWeek),
+    sex: raw.sex,
+    weightGoalType: raw.weightGoalType,
   };
 }
 
@@ -84,6 +98,8 @@ export async function PATCH(request: Request) {
     activityLevel?: ActivityLevel | null;
     goalWeightKg?: number | null;
     goalRateKgPerWeek?: number | null;
+    sex?: Sex | null;
+    weightGoalType?: WeightGoalType | null;
   } = {};
 
   // Validate activityLevel if provided
@@ -131,6 +147,24 @@ export async function PATCH(request: Request) {
     } else {
       update.goalRateKgPerWeek = null;
     }
+  }
+
+  // Validate sex if provided (local macro-engine input — Google Health v4 omits it)
+  if ("sex" in raw) {
+    const v = raw.sex;
+    if (v !== null && v !== undefined && !isSex(v)) {
+      return errorResponse("VALIDATION_ERROR", `sex must be one of: ${SEX_VALUES.join(", ")}`, 400);
+    }
+    update.sex = v === undefined ? null : (v as Sex | null);
+  }
+
+  // Validate weightGoalType if provided (display-only goal direction)
+  if ("weightGoalType" in raw) {
+    const v = raw.weightGoalType;
+    if (v !== null && v !== undefined && !isWeightGoalType(v)) {
+      return errorResponse("VALIDATION_ERROR", `weightGoalType must be one of: ${WEIGHT_GOAL_TYPE_VALUES.join(", ")}`, 400);
+    }
+    update.weightGoalType = v === undefined ? null : (v as WeightGoalType | null);
   }
 
   if (Object.keys(update).length === 0) {

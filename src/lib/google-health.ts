@@ -459,6 +459,10 @@ function buildNutritionLogBody(name: string, food: FoodAnalysis, timing: HealthL
   if (food.saturated_fat_g != null) nutrients.push({ nutrient: "SATURATED_FAT", amount: { grams: food.saturated_fat_g } });
   if (food.trans_fat_g != null) nutrients.push({ nutrient: "TRANS_FAT", amount: { grams: food.trans_fat_g } });
   if (food.sugars_g != null) nutrients.push({ nutrient: "SUGARS", amount: { grams: food.sugars_g } });
+  // NOTE: calories_from_fat is intentionally NOT sent to the health mirror yet — the v4
+  // nutrient enum is unconfirmed and sending an unknown enum on the critical write path
+  // could 400 ALL food logging. It is a derived value (≈ fat_g × 9) and is fully
+  // preserved locally; add it once the enum is confirmed live (FOO-1115).
 
   const nutritionLog: Record<string, unknown> = {
     food: {
@@ -865,10 +869,14 @@ export async function getHealthActivitySummary(
     : (data.dailyRollUp ? [data.dailyRollUp as Record<string, unknown>] : []);
   const rollUp = rollUps[0];
 
+  // Prefer kcal fields; fall back to kilojoule fields converted to kcal (÷4.184) —
+  // Google fitness energy is often reported in kJ. Best-effort field names (FOO-1115).
   const kcal =
     rollUp && typeof rollUp.totalCaloriesKcal === "number" ? rollUp.totalCaloriesKcal
     : rollUp && typeof rollUp.caloriesKcal === "number" ? rollUp.caloriesKcal
     : rollUp && typeof rollUp.caloriesOut === "number" ? rollUp.caloriesOut
+    : rollUp && typeof rollUp.totalCaloriesKj === "number" ? rollUp.totalCaloriesKj / 4.184
+    : rollUp && typeof rollUp.kilojoules === "number" ? rollUp.kilojoules / 4.184
     : null;
 
   if (kcal === null) {

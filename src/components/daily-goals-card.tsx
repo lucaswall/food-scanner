@@ -12,10 +12,15 @@ import {
 } from "@/lib/macro-engine";
 import type { ActivityLevel, HealthProfileData } from "@/types";
 
+type Sex = "MALE" | "FEMALE";
+type WeightGoalType = "LOSE" | "MAINTAIN" | "GAIN";
+
 interface DailyGoalsSettingsData {
   activityLevel: ActivityLevel | null;
   goalWeightKg: number | null;
   goalRateKgPerWeek: number | null;
+  sex: Sex | null;
+  weightGoalType: WeightGoalType | null;
 }
 
 const ACTIVITY_LEVEL_VALUES: ActivityLevel[] = [
@@ -24,6 +29,17 @@ const ACTIVITY_LEVEL_VALUES: ActivityLevel[] = [
   "moderate",
   "very_active",
   "extra_active",
+];
+
+const SEX_OPTIONS: { value: Sex; label: string }[] = [
+  { value: "MALE", label: "Male" },
+  { value: "FEMALE", label: "Female" },
+];
+
+const WEIGHT_GOAL_TYPE_OPTIONS: { value: WeightGoalType; label: string }[] = [
+  { value: "LOSE", label: "Lose" },
+  { value: "MAINTAIN", label: "Maintain" },
+  { value: "GAIN", label: "Gain" },
 ];
 
 const SAFETY_FLOOR_FEMALE = 1200;
@@ -48,6 +64,8 @@ export function DailyGoalsCard() {
   const [activityLevel, setActivityLevel] = useState<ActivityLevel | null>(null);
   const [goalWeightKg, setGoalWeightKg] = useState<string>("");
   const [goalRateKgPerWeek, setGoalRateKgPerWeek] = useState<string>("");
+  const [sex, setSex] = useState<Sex | null>(null);
+  const [weightGoalType, setWeightGoalType] = useState<WeightGoalType | null>(null);
 
   // Sync form state from SWR on initial load only
   const hasSynced = useRef(false);
@@ -59,6 +77,8 @@ export function DailyGoalsCard() {
       setGoalRateKgPerWeek(
         settingsData.goalRateKgPerWeek !== null ? String(settingsData.goalRateKgPerWeek) : "",
       );
+      setSex(settingsData.sex);
+      setWeightGoalType(settingsData.weightGoalType);
     }
   }, [settingsData]);
 
@@ -71,6 +91,7 @@ export function DailyGoalsCard() {
   const goalRateNum = parseFloat(goalRateKgPerWeek);
   const canPreview =
     activityLevel !== null &&
+    sex !== null &&
     !isNaN(goalWeightNum) &&
     goalWeightNum > 0 &&
     !isNaN(goalRateNum) &&
@@ -79,10 +100,10 @@ export function DailyGoalsCard() {
     profileData !== null &&
     profileData.weightKg !== null;
 
-  if (canPreview && profileData) {
+  if (canPreview && profileData && sex !== null) {
     try {
       const result = computeMacroTargets({
-        sex: profileData.sex,
+        sex,
         ageYears: profileData.ageYears,
         heightCm: profileData.heightCm,
         currentWeightKg: profileData.weightKg as number,
@@ -98,7 +119,7 @@ export function DailyGoalsCard() {
   }
 
   const safetyFloor =
-    profileData?.sex === "FEMALE" ? SAFETY_FLOOR_FEMALE : SAFETY_FLOOR_MALE;
+    sex === "FEMALE" ? SAFETY_FLOOR_FEMALE : SAFETY_FLOOR_MALE;
   const showSafetyWarning =
     liveTargetKcal !== null && liveTargetKcal < safetyFloor;
 
@@ -122,6 +143,8 @@ export function DailyGoalsCard() {
           activityLevel,
           goalWeightKg: goalWeightValue,
           goalRateKgPerWeek: goalRateValue,
+          sex,
+          weightGoalType,
         }),
         signal: AbortSignal.timeout(15000),
       });
@@ -184,6 +207,36 @@ export function DailyGoalsCard() {
           {saveError}
         </p>
       )}
+
+      {/* Biological sex — required for macro targets (Google Health v4 does not provide it) */}
+      <fieldset className="flex flex-col gap-2">
+        <legend className="text-sm font-medium mb-1">Biological sex</legend>
+        <div className="flex gap-2" role="radiogroup" aria-label="Biological sex">
+          {SEX_OPTIONS.map((opt) => {
+            const isActive = sex === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="radio"
+                aria-label={opt.label}
+                aria-checked={isActive}
+                disabled={saving}
+                onClick={() => setSex(opt.value)}
+                className={[
+                  "flex-1 rounded-lg border p-3 min-h-[44px] transition-colors text-center font-medium",
+                  isActive ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50",
+                ].join(" ")}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Used to compute your calorie/macro targets. Required.
+        </p>
+      </fieldset>
 
       {/* Activity level */}
       <fieldset className="flex flex-col gap-2">
@@ -253,6 +306,33 @@ export function DailyGoalsCard() {
           disabled={saving}
         />
       </div>
+
+      {/* Weight-goal direction (display label on the profile card) */}
+      <fieldset className="flex flex-col gap-2">
+        <legend className="text-sm font-medium mb-1">Weight goal</legend>
+        <div className="flex gap-2" role="radiogroup" aria-label="Weight goal">
+          {WEIGHT_GOAL_TYPE_OPTIONS.map((opt) => {
+            const isActive = weightGoalType === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="radio"
+                aria-label={opt.label}
+                aria-checked={isActive}
+                disabled={saving}
+                onClick={() => setWeightGoalType(opt.value)}
+                className={[
+                  "flex-1 rounded-lg border p-3 min-h-[44px] transition-colors text-center font-medium",
+                  isActive ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50",
+                ].join(" ")}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </fieldset>
 
       {/* Live target preview */}
       {canPreview && (

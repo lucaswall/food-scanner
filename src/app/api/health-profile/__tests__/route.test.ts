@@ -40,9 +40,9 @@ vi.mock("@/lib/health-cache", () => ({
   invalidateHealthProfileCache: (...args: unknown[]) => mockInvalidateHealthProfileCache(...args),
 }));
 
-const mockGetWeightGoalType = vi.fn();
+const mockGetUserGoalSettings = vi.fn();
 vi.mock("@/lib/users", () => ({
-  getWeightGoalType: (...args: unknown[]) => mockGetWeightGoalType(...args),
+  getUserGoalSettings: (...args: unknown[]) => mockGetUserGoalSettings(...args),
 }));
 
 const mockInvalidateUserDailyGoalsForDate = vi.fn();
@@ -69,7 +69,13 @@ beforeEach(() => {
   mockGetSession.mockResolvedValue(validSession);
   mockGetCachedHealthProfile.mockResolvedValue({ ageYears: 34, sex: "MALE", heightCm: 180 });
   mockGetCachedHealthWeightKg.mockResolvedValue({ weightKg: 80.5, loggedDate: "2026-05-30" });
-  mockGetWeightGoalType.mockResolvedValue("LOSE");
+  mockGetUserGoalSettings.mockResolvedValue({
+    activityLevel: "moderate",
+    goalWeightKg: "75",
+    goalRateKgPerWeek: "0.5",
+    sex: "MALE",
+    weightGoalType: "LOSE",
+  });
   mockInvalidateUserDailyGoalsForDate.mockResolvedValue(undefined);
 });
 
@@ -104,14 +110,14 @@ describe("GET /api/health-profile", () => {
   });
 
   it("returns goalType from users.weightGoalType (not Fitbit)", async () => {
-    mockGetWeightGoalType.mockResolvedValue("GAIN");
+    mockGetUserGoalSettings.mockResolvedValue({ sex: "MALE", weightGoalType: "GAIN" });
     const response = await GET(createRequest("http://localhost:3000/api/health-profile"));
     const body = await response.json();
     expect(body.data.goalType).toBe("GAIN");
   });
 
   it("returns null goalType when weightGoalType is not set", async () => {
-    mockGetWeightGoalType.mockResolvedValue(null);
+    mockGetUserGoalSettings.mockResolvedValue({ sex: "MALE", weightGoalType: null });
     const response = await GET(createRequest("http://localhost:3000/api/health-profile"));
     const body = await response.json();
     expect(body.data.goalType).toBeNull();

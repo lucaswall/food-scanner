@@ -9,7 +9,7 @@ export type GoalBlockedReason = NonNullable<NutritionGoals["reason"]>;
 const REASON_MESSAGES: Record<GoalBlockedReason, string> = {
   goals_not_set: "Set up your daily goals in Settings to see your targets.",
   no_weight: "Log your weight in Google Health to enable targets.",
-  sex_unset: "Set your biological sex in your Google Health profile to enable targets.",
+  sex_unset: "Set your biological sex in Settings to enable targets.",
   scope_mismatch: "Reconnect Google Health to enable targets.",
   invalid_profile:
     "Your Google Health profile has invalid values — update your profile in Google Health.",

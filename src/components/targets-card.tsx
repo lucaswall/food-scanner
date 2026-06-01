@@ -23,7 +23,7 @@ function formatSignedDeficit(kcal: number): string {
 const BLOCKED_MESSAGES: Record<GoalBlockedReason, string> = {
   goals_not_set: "Set up your daily goals in Settings to enable targets.",
   no_weight: "Log your weight in Google Health to enable macro targets.",
-  sex_unset: "Set your biological sex in your Google Health profile to enable macro targets.",
+  sex_unset: "Set your biological sex in Settings to enable macro targets.",
   scope_mismatch: "Reconnect Google Health to enable macro targets.",
   invalid_profile:
     "Your Google Health profile has invalid values (height, weight, or age). Update your profile in Google Health.",

@@ -28,6 +28,9 @@ export const users = pgTable(
     goalWeightKg: numeric("goal_weight_kg"),
     goalRateKgPerWeek: numeric("goal_rate_kg_per_week"),
     weightGoalType: text("weight_goal_type"),
+    // Biological sex for the macro engine. The Google Health v4 Profile resource does
+    // not expose sex (FOO-1116), so it is a local setting (was sourced from Fitbit).
+    sex: text("sex"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -43,6 +46,10 @@ export const users = pgTable(
     weightGoalTypeCheck: check(
       "users_weight_goal_type_chk",
       sql`${table.weightGoalType} IS NULL OR ${table.weightGoalType} IN ('LOSE','MAINTAIN','GAIN')`,
+    ),
+    sexCheck: check(
+      "users_sex_chk",
+      sql`${table.sex} IS NULL OR ${table.sex} IN ('MALE','FEMALE')`,
     ),
   }),
 );

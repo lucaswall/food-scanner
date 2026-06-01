@@ -93,6 +93,7 @@ const USER_SETTINGS = {
   activityLevel: "moderate",
   goalWeightKg: "70",
   goalRateKgPerWeek: "0.5",
+  sex: "MALE",
 };
 
 const USER_SETTINGS_NULL = {
@@ -401,15 +402,30 @@ describe("getOrComputeDailyGoals — blocked reasons", () => {
     expect(mockDb.insert).not.toHaveBeenCalled();
   });
 
-  it("returns blocked/sex_unset when profile.sex is NA", async () => {
-    mockSelectOnce([USER_SETTINGS]);
+  it("returns blocked/goals_not_set when the local sex setting is null (FOO-1116)", async () => {
+    // Sex is now a LOCAL setting (Google Health v4 omits it). A null sex means the
+    // goal settings are incomplete → goals_not_set (drives the home settings banner),
+    // not a Health-profile sex_unset. profile.sex being "NA" no longer matters.
+    // Blocks at settingsAreComplete (before the Health fetch) — do NOT queue
+    // profile/weight mocks here or their unconsumed `...Once` would leak to the next test.
+    mockSelectOnce([{ ...USER_SETTINGS, sex: null }]);
     mockSelectOnce([]);
-    mockGetCachedHealthProfile.mockResolvedValueOnce({ sex: "NA", ageYears: 30, heightCm: 170 });
-    mockGetCachedHealthWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
 
     const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
-    expect(result).toEqual({ status: "blocked", reason: "sex_unset" });
+    expect(result).toEqual({ status: "blocked", reason: "goals_not_set" });
     expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it("computes normally when local sex is set even though Google Health profile.sex is NA", async () => {
+    // Sex comes from the local setting; the engine uses it regardless of profile.sex.
+    mockSelectOnce([USER_SETTINGS]); // sex: MALE
+    mockSelectOnce([]);
+    mockGetCachedHealthProfile.mockResolvedValueOnce({ sex: "NA", ageYears: 30, heightCm: 175 });
+    mockGetCachedHealthWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
+    mockUpsertOnce();
+
+    const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
+    expect(result.status).toBe("ok");
   });
 
   it("returns blocked/scope_mismatch when getCachedHealthProfile throws HEALTH_SCOPE_MISSING", async () => {
@@ -776,17 +792,16 @@ describe("getOrComputeDailyGoals — log conversions (FOO-1052)", () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  it("warns when health profile.sex === NA (sex_unset)", async () => {
+  it("debug-logs goals_not_set when the local sex setting is null (FOO-1116)", async () => {
     const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
-    mockSelectOnce([USER_SETTINGS]);
+    // Blocks at settingsAreComplete (before the Health fetch) — no profile/weight mocks.
+    mockSelectOnce([{ ...USER_SETTINGS, sex: null }]);
     mockSelectOnce([]);
-    mockGetCachedHealthProfile.mockResolvedValueOnce({ sex: "NA", ageYears: 30, heightCm: 175 });
-    mockGetCachedHealthWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
 
     await getOrComputeDailyGoals("user-1", "2026-05-08", log as unknown as Logger);
 
-    expect(log.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "daily_goals_blocked", reason: "sex_unset" }),
+    expect(log.debug).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "daily_goals_blocked", reason: "goals_not_set" }),
       expect.any(String),
     );
   });

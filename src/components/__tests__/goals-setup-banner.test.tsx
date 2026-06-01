@@ -39,7 +39,7 @@ describe("GoalsSetupBanner", () => {
   it("maps sex_unset → correct message", () => {
     render(<GoalsSetupBanner reason="sex_unset" />);
     expect(
-      screen.getByText(/Set your biological sex in your Google Health profile to enable targets\./i)
+      screen.getByText(/Set your biological sex in Settings to enable targets\./i)
     ).toBeInTheDocument();
   });
 

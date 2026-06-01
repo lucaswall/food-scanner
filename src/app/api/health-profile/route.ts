@@ -7,7 +7,7 @@ import {
   getCachedHealthWeightKg,
   invalidateHealthProfileCache,
 } from "@/lib/health-cache";
-import { getWeightGoalType } from "@/lib/users";
+import { getUserGoalSettings } from "@/lib/users";
 import { invalidateUserDailyGoalsForDate } from "@/lib/daily-goals";
 import { getTodayDate } from "@/lib/date-utils";
 import type { HealthProfileData } from "@/types";
@@ -44,20 +44,22 @@ export async function GET(request: Request) {
   try {
     const todayDate = getTodayDate();
 
-    // User-explicit fetch (settings page, refresh button) — mark `important`
-    const [profile, weightLog, goalType] = await Promise.all([
+    // User-explicit fetch (settings page, refresh button) — mark `important`.
+    // sex + goalType (weightGoalType) are LOCAL settings — the Google Health v4
+    // profile does not expose sex (FOO-1116), so prefer the local value.
+    const [profile, weightLog, goalSettings] = await Promise.all([
       getCachedHealthProfile(userId, log, "important"),
       getCachedHealthWeightKg(userId, todayDate, log, "important"),
-      getWeightGoalType(userId),
+      getUserGoalSettings(userId),
     ]);
 
     const data: HealthProfileData = {
       ageYears: profile.ageYears,
-      sex: profile.sex,
+      sex: goalSettings.sex ?? profile.sex,
       heightCm: profile.heightCm,
       weightKg: weightLog?.weightKg ?? null,
       weightLoggedDate: weightLog?.loggedDate ?? null,
-      goalType,
+      goalType: goalSettings.weightGoalType,
       lastSyncedAt: Date.now(),
     };
 

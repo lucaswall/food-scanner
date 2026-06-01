@@ -5,16 +5,25 @@ import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import type { User, ActivityLevel } from "@/types";
 
+/** Biological sex for the macro engine (local setting — not exposed by Google Health v4). */
+export type Sex = "MALE" | "FEMALE";
+
+export const SEX_VALUES: readonly Sex[] = ["MALE", "FEMALE"];
+
 export interface UserGoalSettings {
   activityLevel: ActivityLevel | null;
   goalWeightKg: string | null;
   goalRateKgPerWeek: string | null;
+  sex: Sex | null;
+  weightGoalType: WeightGoalType | null;
 }
 
 export type UserGoalSettingsUpdate = Partial<{
   activityLevel: ActivityLevel | null;
   goalWeightKg: number | null;
   goalRateKgPerWeek: number | null;
+  sex: Sex | null;
+  weightGoalType: WeightGoalType | null;
 }>;
 
 export async function getOrCreateUser(email: string, name?: string, log?: Logger): Promise<User> {
@@ -49,18 +58,22 @@ export async function getUserGoalSettings(
       activityLevel: users.activityLevel,
       goalWeightKg: users.goalWeightKg,
       goalRateKgPerWeek: users.goalRateKgPerWeek,
+      sex: users.sex,
+      weightGoalType: users.weightGoalType,
     })
     .from(users)
     .where(eq(users.id, userId));
 
   const row = rows[0];
   if (!row) {
-    return { activityLevel: null, goalWeightKg: null, goalRateKgPerWeek: null };
+    return { activityLevel: null, goalWeightKg: null, goalRateKgPerWeek: null, sex: null, weightGoalType: null };
   }
   return {
     activityLevel: (row.activityLevel as ActivityLevel | null) ?? null,
     goalWeightKg: row.goalWeightKg ?? null,
     goalRateKgPerWeek: row.goalRateKgPerWeek ?? null,
+    sex: (row.sex as Sex | null) ?? null,
+    weightGoalType: (row.weightGoalType as WeightGoalType | null) ?? null,
   };
 }
 
@@ -90,6 +103,18 @@ export async function updateUserGoalSettings(
       update.goalRateKgPerWeek !== null && update.goalRateKgPerWeek !== undefined
         ? update.goalRateKgPerWeek.toString()
         : null;
+  }
+  if ("sex" in update) {
+    if (update.sex !== null && update.sex !== undefined && !SEX_VALUES.includes(update.sex)) {
+      throw new Error(`Invalid sex: ${String(update.sex)}`);
+    }
+    setClause.sex = update.sex ?? null;
+  }
+  if ("weightGoalType" in update) {
+    if (update.weightGoalType !== null && update.weightGoalType !== undefined && !WEIGHT_GOAL_TYPES.includes(update.weightGoalType)) {
+      throw new Error(`Invalid weight goal type: ${String(update.weightGoalType)}`);
+    }
+    setClause.weightGoalType = update.weightGoalType ?? null;
   }
 
   await db
