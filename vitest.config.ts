@@ -13,6 +13,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    // Integration tests require a live Postgres (INTEGRATION_DATABASE_URL) and
+    // run via `npm run test:integration` with the dedicated config. Excluded here
+    // so the default fast loop stays ~5s and never touches dev/prod databases.
+    exclude: ["src/**/*.integration.test.ts"],
     setupFiles: ["./src/test-setup.ts"],
   },
 });

@@ -91,5 +91,55 @@ The request-body construction is isolated in `buildNutritionLogBody` / per-read 
 - SWR config export renamed: `FITBIT_BACKED_SWR_CONFIG` → **`HEALTH_BACKED_SWR_CONFIG`**; profile/daily-goals SWR keys move accordingly.
 - External `/api/v1/activity-summary` response body `{ caloriesOut }` is **unchanged**; only the upstream data source (Google Health) and error codes change.
 
+### Task 27 — deleteUserData admin path + integration test infrastructure (FOO-1097)
+
+**No SQL.** `deleteUserData(userId)` in `src/lib/user-data.ts` deletes all rows for a user in
+FK-safe order inside a single Postgres transaction. No schema changes are required.
+
+**FK onDelete strategy: NO ACTION (not CASCADE)**
+
+FK constraints remain `ON DELETE NO ACTION` (the Drizzle ORM default). Rationale:
+
+- **Fail-safe**: an accidental single-table delete (missing a table in the order) is caught
+  immediately by the DB with a FK violation, rather than silently cascading and losing data.
+- **Self-documenting**: the explicit deletion sequence in `deleteUserData` is reviewable code;
+  `ON DELETE CASCADE` hides what gets deleted and the rationale for the sequence.
+- **No schema change required**: `NO ACTION` is already the default. `CASCADE` would require
+  adding `{ onDelete: "cascade" }` to every FK in `schema.ts` plus a `drizzle-kit generate`
+  / migration run — a non-trivial blast radius.
+- **Acceptable at this scale**: the function is called infrequently (admin user-deletion path),
+  so the explicit per-table delete order is not a maintenance burden.
+
+The CASCADE alternative becomes more attractive if the number of FK-child tables grows
+significantly; the current trade-off (visibility + no schema change) is preferred for now.
+
+**Integration test DATABASE_URL setup**
+
+The integration suite (`npm run test:integration`) reads `INTEGRATION_DATABASE_URL` — a
+**dedicated** env var, never `DATABASE_URL`. This prevents any accidental connection to dev
+or production. The lead runs the following before the integration gate:
+
+```bash
+# 1. Start a throwaway Postgres container
+docker run --rm -d -p 5433:5432 \
+  -e POSTGRES_PASSWORD=test \
+  -e POSTGRES_DB=food_scanner_integration \
+  --name pg-integration postgres:16
+
+# 2. Apply the current schema (drizzle-kit push syncs schema.ts directly;
+#    do NOT use the committed drizzle/ migration files — they are STALE
+#    pending Task 29's drizzle-kit generate).
+INTEGRATION_DATABASE_URL="postgresql://postgres:test@localhost:5433/food_scanner_integration" \
+  DATABASE_URL="postgresql://postgres:test@localhost:5433/food_scanner_integration" \
+  npx drizzle-kit push --config drizzle.config.ts
+
+# 3. Run the integration suite
+INTEGRATION_DATABASE_URL="postgresql://postgres:test@localhost:5433/food_scanner_integration" \
+  npm run test:integration
+
+# 4. Tear down
+docker stop pg-integration
+```
+
 ### Task 21 — Claude tool schema (FOO-1091)
 **No data migration.** The Claude tool-schema property `unit_id` → `serving_unit` (string enum) is an LLM-contract change only; the internal parsed field stays `unit_id` carrying a `ServingUnit` string. The legacy numeric→string `unit_id` DB backfill is already covered by the Task 7 deploy note.
