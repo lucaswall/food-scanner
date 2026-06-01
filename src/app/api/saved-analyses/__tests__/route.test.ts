@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.stubEnv("SESSION_SECRET", "a-secret-that-is-at-least-32-characters-long");
 vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost:5432/test");
+vi.stubEnv("ANTHROPIC_API_KEY", "test-api-key");
 
 const mockGetSession = vi.fn();
 const mockValidateSession = vi.fn();
@@ -32,6 +33,13 @@ vi.mock("@/lib/logger", () => {
   };
 });
 
+// Use the real validateFoodAnalysis so existing field-validation tests keep working.
+// It coerces missing/invalid unit_id to "serving" (tolerant) rather than throwing.
+vi.mock("@/lib/claude", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/claude")>();
+  return { ...actual };
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockValidateSession.mockReturnValue(null);
@@ -60,7 +68,7 @@ function makePostRequest(body: unknown): Request {
 const validFoodAnalysis = {
   food_name: "Grilled Chicken",
   amount: 150,
-  unit_id: 147,
+  unit_id: "g",
   calories: 250,
   protein_g: 30,
   carbs_g: 5,
@@ -135,11 +143,12 @@ describe("POST /api/saved-analyses validation (FOO-908)", () => {
     expect(response.status).toBe(400);
   });
 
-  it("returns 400 when unit_id is missing", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { unit_id: _, ...noUnitId } = validFoodAnalysis;
-    const response = await POST(makePostRequest({ foodAnalysis: noUnitId }));
+  it("returns 400 when foodAnalysis is null", async () => {
+    // validateFoodAnalysis throws when input is not an object
+    const response = await POST(makePostRequest({ foodAnalysis: null }));
     expect(response.status).toBe(400);
+    const data = await response.json();
+    expect(data.error.code).toBe("VALIDATION_ERROR");
   });
 
   it("returns 400 when fiber_g is missing", async () => {

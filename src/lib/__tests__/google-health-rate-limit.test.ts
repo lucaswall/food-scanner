@@ -85,7 +85,7 @@ describe("google-health-rate-limit", () => {
 
   // (b) After a 429 cooldown: throws HEALTH_RATE_LIMIT_LOW for optional, returns for important/critical
   describe("after a 429 cooldown", () => {
-    it("throws HEALTH_RATE_LIMIT_LOW for optional but allows important and critical", () => {
+    it("throws HEALTH_RATE_LIMIT_LOW for optional and important during cooldown, allows critical", () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-05-04T12:00:00Z"));
 
@@ -96,7 +96,7 @@ describe("google-health-rate-limit", () => {
       ).toThrow("HEALTH_RATE_LIMIT_LOW");
       expect(() =>
         assertRateLimitAllowed("user-a", "important", fakeLog),
-      ).not.toThrow();
+      ).toThrow("HEALTH_RATE_LIMIT_LOW");
       expect(() =>
         assertRateLimitAllowed("user-a", "critical", fakeLog),
       ).not.toThrow();
@@ -159,7 +159,7 @@ describe("google-health-rate-limit", () => {
       );
     });
 
-    it("important during cooldown returns silently (no warn)", () => {
+    it("important during cooldown throws HEALTH_RATE_LIMIT_LOW with reject warn log", () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-05-04T12:00:00Z"));
 
@@ -168,12 +168,13 @@ describe("google-health-rate-limit", () => {
 
       expect(() =>
         assertRateLimitAllowed("user-a", "important", fakeLog),
-      ).not.toThrow();
-      // important should NOT warn — only critical warns
-      const bypassCall = warnMock.mock.calls.find(
-        (c) => (c[0] as { action?: string }).action === "health_breaker_critical_bypass",
+      ).toThrow("HEALTH_RATE_LIMIT_LOW");
+      // important should emit health_breaker_reject warn — same shape as optional
+      const rejectCall = warnMock.mock.calls.find(
+        (c) => (c[0] as { action?: string }).action === "health_breaker_reject",
       );
-      expect(bypassCall).toBeUndefined();
+      expect(rejectCall).toBeDefined();
+      expect((rejectCall![0] as { criticality?: string }).criticality).toBe("important");
     });
   });
 

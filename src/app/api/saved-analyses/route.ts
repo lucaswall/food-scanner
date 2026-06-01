@@ -2,6 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { conditionalResponse, errorResponse, successResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { saveAnalysis, getSavedAnalyses } from "@/lib/saved-analyses";
+import { validateFoodAnalysis } from "@/lib/claude";
 import type { FoodAnalysis } from "@/types";
 
 export async function GET(request: Request) {
@@ -33,33 +34,31 @@ export async function POST(request: Request) {
   const validationError = validateSession(session);
   if (validationError) return validationError;
 
+  let body: unknown;
   try {
-    const body = await request.json();
-    if (!body || typeof body !== "object" || Array.isArray(body)) {
-      return errorResponse("VALIDATION_ERROR", "Request body must be a JSON object", 400);
-    }
-    const foodAnalysis = body.foodAnalysis as FoodAnalysis | undefined;
+    body = await request.json();
+  } catch {
+    return errorResponse("VALIDATION_ERROR", "Invalid JSON body", 400);
+  }
 
-    if (
-      !foodAnalysis ||
-      typeof foodAnalysis.food_name !== "string" ||
-      !foodAnalysis.food_name ||
-      typeof foodAnalysis.calories !== "number" ||
-      typeof foodAnalysis.amount !== "number" ||
-      typeof foodAnalysis.unit_id !== "number" ||
-      typeof foodAnalysis.protein_g !== "number" ||
-      typeof foodAnalysis.carbs_g !== "number" ||
-      typeof foodAnalysis.fat_g !== "number" ||
-      typeof foodAnalysis.fiber_g !== "number" ||
-      typeof foodAnalysis.sodium_mg !== "number"
-    ) {
-      return errorResponse(
-        "VALIDATION_ERROR",
-        "foodAnalysis must include food_name, calories, amount, unit_id, protein_g, carbs_g, fat_g, fiber_g, and sodium_mg",
-        400,
-      );
-    }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return errorResponse("VALIDATION_ERROR", "Request body must be a JSON object", 400);
+  }
 
+  const data = body as Record<string, unknown>;
+
+  let foodAnalysis: FoodAnalysis;
+  try {
+    foodAnalysis = validateFoodAnalysis(data.foodAnalysis);
+  } catch (err) {
+    return errorResponse(
+      "VALIDATION_ERROR",
+      err instanceof Error ? err.message : "Invalid food analysis",
+      400,
+    );
+  }
+
+  try {
     const result = await saveAnalysis(session!.userId, foodAnalysis);
 
     log.info(
