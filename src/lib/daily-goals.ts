@@ -464,7 +464,7 @@ async function doCompute(
     // and short-circuited before computeMacroTargets is called, so the engine
     // never reaches its SEX_UNSET throw path from this caller.
     let reason: "scope_mismatch" | "invalid_profile" | null = null;
-    if (errorMessage === "FITBIT_SCOPE_MISSING") reason = "scope_mismatch";
+    if (errorMessage === "HEALTH_SCOPE_MISSING") reason = "scope_mismatch";
     else if (errorMessage === "INVALID_PROFILE_DATA") reason = "invalid_profile";
     else if (errorMessage === "INVALID_GOAL_RATE") reason = "invalid_profile";
 

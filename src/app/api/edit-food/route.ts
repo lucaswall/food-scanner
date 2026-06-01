@@ -59,6 +59,35 @@ function buildAnalysisFromEntry(entry: FoodLogEntryDetail): FoodAnalysis {
   };
 }
 
+/** Map a thrown Google Health error code to a typed HTTP response (mirrors log-food's outer catch). */
+function mapHealthErrorToResponse(
+  error: unknown,
+  log: ReturnType<typeof createRequestLogger>,
+  action: string,
+): Response {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+
+  if (errorMessage === "HEALTH_TOKEN_INVALID") {
+    log.warn({ action }, "Google Health token invalid, reconnect required");
+    return errorResponse("HEALTH_TOKEN_INVALID", "Google Health session expired. Please reconnect your account.", 401);
+  }
+  if (errorMessage === "HEALTH_TIMEOUT") {
+    log.warn({ action }, "Google Health request timed out");
+    return errorResponse("HEALTH_TIMEOUT", "Request to Google Health timed out. Please try again.", 504);
+  }
+  if (errorMessage === "HEALTH_RATE_LIMIT_LOW") {
+    log.warn({ action }, "Google Health rate limit headroom low");
+    return errorResponse("HEALTH_RATE_LIMIT_LOW", "Google Health rate-limit headroom is low. Please try again in a few minutes.", 503);
+  }
+  if (errorMessage === "HEALTH_RATE_LIMIT") {
+    log.warn({ action }, "Google Health rate limited");
+    return errorResponse("HEALTH_RATE_LIMIT", "Google Health API rate limited. Please try again later.", 429);
+  }
+
+  log.error({ action, error: errorMessage }, "Google Health API error");
+  return errorResponse("HEALTH_API_ERROR", "Failed to update food in Google Health", 500);
+}
+
 export async function POST(request: Request) {
   const log = createRequestLogger("POST", "/api/edit-food");
   const session = await getSession();
@@ -148,7 +177,12 @@ export async function POST(request: Request) {
     let fastPathHealthLogId: string | null = entry.healthLogId;
 
     if (!isDryRun) {
-      const accessToken = await ensureFreshToken(userId, log);
+      let accessToken: string;
+      try {
+        accessToken = await ensureFreshToken(userId, log);
+      } catch (tokenErr) {
+        return mapHealthErrorToResponse(tokenErr, log, "edit_food_fast_path_ensure_token_failed");
+      }
 
       // Delete old health log if exists
       if (entry.healthLogId) {
@@ -273,7 +307,12 @@ export async function POST(request: Request) {
   let newHealthLogId: string | undefined;
 
   if (!isDryRun) {
-    const accessToken = await ensureFreshToken(userId, log);
+    let accessToken: string;
+    try {
+      accessToken = await ensureFreshToken(userId, log);
+    } catch (tokenErr) {
+      return mapHealthErrorToResponse(tokenErr, log, "edit_food_ensure_token_failed");
+    }
 
     // Delete old health log if exists
     if (entry.healthLogId) {

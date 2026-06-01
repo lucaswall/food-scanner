@@ -72,11 +72,10 @@ const validSession: FullSession = {
   destroy: vi.fn(),
 };
 
-// unit_id uses number (147=g) since food-validation.ts still validates as number (Task 21 migrates it)
 const validFoodLogRequest: FoodLogRequest = {
   food_name: "Test Food",
   amount: 100,
-  unit_id: 147 as unknown as ServingUnit,
+  unit_id: "g",
   calories: 150,
   protein_g: 10,
   carbs_g: 20,
@@ -220,6 +219,19 @@ describe("POST /api/log-food", () => {
     expect(response.status).toBe(401);
     const body = await response.json();
     expect(body.error.code).toBe("HEALTH_TOKEN_INVALID");
+  });
+
+  it("returns 429 HEALTH_RATE_LIMIT when the 429 retry is exhausted", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockCreateNutritionLog.mockRejectedValue(new Error("HEALTH_RATE_LIMIT"));
+
+    const request = createMockRequest(validFoodLogRequest);
+    const response = await POST(request);
+
+    expect(response.status).toBe(429);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_RATE_LIMIT");
   });
 
   it("returns 500 HEALTH_API_ERROR on createNutritionLog failure", async () => {
@@ -453,6 +465,50 @@ describe("POST /api/log-food", () => {
       await POST(createMockRequest(body2));
 
       expect(mockCreateNutritionLog).toHaveBeenCalledTimes(2);
+    });
+
+    it("is idempotent in the reuse flow: same clientToken calls createNutritionLog once", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockGetCustomFoodById.mockResolvedValue({
+        id: 42,
+        userId: "user-uuid-123",
+        foodName: "Tea with milk",
+        amount: "1",
+        unitId: "cup" as ServingUnit,
+        calories: 50,
+        proteinG: "2",
+        carbsG: "5",
+        fatG: "2",
+        fiberG: "0",
+        sodiumMg: "30",
+        saturatedFatG: null,
+        transFatG: null,
+        sugarsG: null,
+        caloriesFromFat: null,
+        confidence: "high",
+        notes: null,
+        description: null,
+        keywords: ["tea", "milk"],
+        createdAt: new Date("2026-02-05T12:00:00Z"),
+      });
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-reuse-idem" });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 77, loggedAt: new Date() });
+
+      const body = { ...validFoodLogRequest, reuseCustomFoodId: 42, clientToken: "reuse-token-xyz" };
+
+      const response1 = await POST(createMockRequest(body));
+      const response2 = await POST(createMockRequest(body));
+
+      expect(response1.status).toBe(200);
+      expect(response2.status).toBe(200);
+      // The remote create happens once; the retry is served from the idempotency cache
+      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
+
+      const data1 = (await response1.json()).data;
+      const data2 = (await response2.json()).data;
+      expect(data1.foodLogId).toBe(77);
+      expect(data2.foodLogId).toBe(77);
     });
   });
 

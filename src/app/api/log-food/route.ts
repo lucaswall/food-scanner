@@ -285,6 +285,16 @@ export async function POST(request: Request) {
         return errorResponse("INTERNAL_ERROR", "Failed to save food log", 500);
       }
 
+      // Store in idempotency cache if clientToken provided (reuse flow)
+      if (clientToken) {
+        const cacheKey = getIdempotencyKey(userId, clientToken);
+        idempotencyCache.set(cacheKey, {
+          healthLogId,
+          foodLogId,
+          expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
+        });
+      }
+
       const response: FoodLogResponse = {
         success: true,
         healthLogId,
@@ -439,7 +449,7 @@ export async function POST(request: Request) {
 
     if (errorMessage === "HEALTH_RATE_LIMIT") {
       log.warn({ action: "log_food_rate_limited" }, "Google Health rate limited");
-      return errorResponse("HEALTH_API_ERROR", "Google Health API rate limited. Please try again later.", 500);
+      return errorResponse("HEALTH_RATE_LIMIT", "Google Health API rate limited. Please try again later.", 429);
     }
 
     log.error({ action: "log_food_error", error: errorMessage }, "Google Health API error");

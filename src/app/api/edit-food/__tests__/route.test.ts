@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { FullSession, FoodLogEntryDetail, ServingUnit } from "@/types";
+import type { FullSession, FoodLogEntryDetail } from "@/types";
 
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 
@@ -86,7 +86,7 @@ const existingEntry: FoodLogEntryDetail = {
   sugarsG: null,
   caloriesFromFat: null,
   amount: 150,
-  unitId: 147 as unknown as ServingUnit,
+  unitId: "g",
   mealTypeId: 5,
   date: "2026-02-15",
   time: "20:00:00",
@@ -100,7 +100,7 @@ const validBody = {
   entryId: 42,
   food_name: "Empanada de carne actualizada",
   amount: 130,
-  unit_id: 147,
+  unit_id: "g",
   calories: 280,
   protein_g: 10,
   carbs_g: 24,
@@ -154,6 +154,22 @@ describe("POST /api/edit-food", () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error.code).toBe("HEALTH_NOT_CONNECTED");
+  });
+
+  it("maps a token-refresh failure to 401 HEALTH_TOKEN_INVALID instead of an unhandled 500", async () => {
+    mockEnsureFreshToken.mockRejectedValueOnce(new Error("HEALTH_TOKEN_INVALID"));
+    const response = await POST(createMockRequest(validBody));
+    expect(response.status).toBe(401);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_TOKEN_INVALID");
+  });
+
+  it("maps a low rate-limit headroom on token refresh to 503", async () => {
+    mockEnsureFreshToken.mockRejectedValueOnce(new Error("HEALTH_RATE_LIMIT_LOW"));
+    const response = await POST(createMockRequest(validBody));
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_RATE_LIMIT_LOW");
   });
 
   it("returns 400 for missing entryId", async () => {
@@ -271,7 +287,7 @@ describe("POST /api/edit-food", () => {
       entryId: 42,
       food_name: "Empanada de carne",
       amount: 150,
-      unit_id: 147,
+      unit_id: "g",
       calories: 320,
       protein_g: 12,
       carbs_g: 28,

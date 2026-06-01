@@ -68,3 +68,28 @@ Nullable, no backfill — replaces the removed Fitbit weight-goal read. Null ren
 
 ### Task 10 — session contract rewire (FOO-1080)
 **No SQL** — session state is recomputed per request. `getSession()` now derives `healthConnected` from the presence of a `health_tokens` row (via `getHealthTokens`); `fitbitConnected`/`hasFitbitCredentials` are removed. `validateSession({ requireHealth: true })` returns a 400 `HEALTH_NOT_CONNECTED` response (replacing the former `requireFitbit` → `FITBIT_NOT_CONNECTED`/`FITBIT_CREDENTIALS_MISSING` two-tier check). After the release token-clear, both users see `healthConnected=false` until they reconnect.
+
+---
+
+## Phase 3 — Google Health write/read transport + route rewires (Tasks 16–21)
+
+**No new SQL.** All Phase-3 changes are code rewires against the schema already migrated in Phase 1 (Task 29 emits the single consolidated Drizzle migration). The notes below are **API/route-contract and release-QA** items, not data migrations.
+
+### Task 16 / 18 — Google Health API body shapes (FOO-1086, FOO-1088)
+The Google Health REST request/response field paths are **inferred from docs, not a live API**, and must be confirmed during staging QA:
+- `createNutritionLog` / `deleteNutritionLogs` — `nutrition-log/dataPoints` create (`food_display_name` + `energy`/`protein`/`carbs`/`fat`/`fiber`/`sodium`, optional `trans_fat`/`sugars`/`saturated_fat`/`calories_from_fat`) and `batchDelete`.
+- `getHealthProfile` — `https://health.googleapis.com/v4/users/me` (sex/height/DOB → `{ ageYears, sex, heightCm }`).
+- `getHealthLatestWeightKg` — single ranged fetch over `[targetDate-13d, targetDate]` (replaces the old 14-day walk-back), most-recent point on/before `targetDate`.
+- `getHealthActivitySummary` — `/activity-summary?date=` dailyRollUp → `{ caloriesOut }`.
+The request-body construction is isolated in `buildNutritionLogBody` / per-read parser helpers so a wrong field path has a contained blast radius — correct only those helpers if staging QA finds a mismatch.
+
+### Task 17 — write-route contract (FOO-1087)
+`POST /api/log-food` gains an **optional `clientToken`** for idempotency (per-user, in-memory, ~5-min TTL, resets on deploy — acceptable for the 2-user app). Responses now expose **`healthLogId` (string)** in place of the old numeric Fitbit ids. Pre-existing rows carrying legacy numeric ids hold stale, string-incompatible handles — they are replaced on the next edit/delete. (DB column change itself is Task 7 / Phase 1.)
+
+### Task 20 — client-facing route + SWR key changes (FOO-1090)
+- Route paths change: `/api/fitbit/profile` → **`/api/health-profile`**, `/api/fitbit/health` → **`/api/health-status`** (the public `/api/health` check is untouched).
+- SWR config export renamed: `FITBIT_BACKED_SWR_CONFIG` → **`HEALTH_BACKED_SWR_CONFIG`**; profile/daily-goals SWR keys move accordingly.
+- External `/api/v1/activity-summary` response body `{ caloriesOut }` is **unchanged**; only the upstream data source (Google Health) and error codes change.
+
+### Task 21 — Claude tool schema (FOO-1091)
+**No data migration.** The Claude tool-schema property `unit_id` → `serving_unit` (string enum) is an LLM-contract change only; the internal parsed field stays `unit_id` carrying a `ServingUnit` string. The legacy numeric→string `unit_id` DB backfill is already covered by the Task 7 deploy note.

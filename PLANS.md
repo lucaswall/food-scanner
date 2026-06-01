@@ -910,3 +910,86 @@ Resume at **Phase 3, Task 16** (FOO-1086 — `createNutritionLog`/`deleteNutriti
 
 ### Continuation Status
 Phase boundary reached (workers-mode checkpoint). Phase 2 complete and merged; resume at Phase 3, Task 16.
+
+---
+
+## Iteration 4: Phase 3 — Google Health write/read transport + route rewires + Claude serving_unit
+
+**Date:** 2026-05-31
+**Status:** PARTIAL — 9 tasks remaining (Phases 4–5, Tasks 22–30)
+**Method:** Agent team (2 workers, worktree-isolated)
+
+### Summary
+Completed all of **Phase 3 (Tasks 16–21)** — the Google Health nutrition write/delete + profile/weight/activity reads, the three write-route rewires, the health-cache rename, the profile/v1/health-status routes, and the Claude `serving_unit` tool-schema migration. Two work units ran in parallel: **worker-1** (a sequential transport/routes/cache chain, Tasks 16→17→18→19→20, including the full deletion of `src/lib/fitbit.ts`) and **worker-2** (the independent Claude analysis domain, Task 21). After merge, **all 874 migrated + foundation unit tests pass**. bug-hunter found **4 real bugs** (2 HIGH, 2 MEDIUM) — all fixed by the lead with regression tests.
+
+**Expected red global typecheck (251 errors, down from ~385):** Deleting `fitbit.ts`/`fitbit-cache.ts`/`fitbit-health.ts` + the `/api/fitbit/*` routes removed many errors; the remainder are all in **unmigrated Phase-4 consumers** (`src/components/**`, `src/hooks/use-log-to-fitbit`, `/api/auth/fitbit/**`, `/api/fitbit-credentials`, `src/lib/chat-tools.ts`, `src/lib/user-profile.ts`, and test fixtures with numeric `unit_id`). The Phase-3 migrated source files are themselves typecheck-clean (filtered `tsc` → empty). Full build/verifier/E2E remain deferred to migration end; the global typecheck returns to green around Task 23.
+
+### Tasks Completed This Iteration
+- **Task 16 (FOO-1086):** `createNutritionLog` + `deleteNutritionLogs` on `google-health.ts` via one isolated `buildNutritionLogBody` helper, criticality `critical`, module-level `HEALTH_DRY_RUN` gate (collapses Fitbit createFood+logFood into one anonymous-food create; batchDelete replaces deleteFoodLog). (worker-1)
+- **Task 17 (FOO-1087):** Rewired `log-food` (per-user `clientToken` in-memory idempotency, full `HEALTH_*`→HTTP mapping incl. `HEALTH_RATE_LIMIT_LOW`→503), `edit-food` (delete-old+create-new on both fast and regular paths, 4 compensation branches), and `food-history/[id]` DELETE to Google Health. (worker-1)
+- **Task 18 (FOO-1088):** `getHealthProfile`/`getHealthLatestWeightKg` (single 14-day ranged read, most-recent on/before target)/`getHealthActivitySummary` on `google-health.ts`; sex enum defaults unknown→`NA`. **Deleted `src/lib/fitbit.ts` + `fitbit.test.ts` entirely.** (worker-1)
+- **Task 19 (FOO-1089):** Created `health-cache.ts` (getCachedHealthProfile/WeightKg/ActivitySummary + invalidateHealthProfileCache, dropped the weight-goal cache); deleted `fitbit-cache.ts`; rewired `daily-goals.ts`. (worker-1)
+- **Task 20 (FOO-1090):** Created `/api/health-profile`, `/api/health-status`, and `src/lib/health-connection.ts` (`checkHealthConnection`: needs_reconnect/scope_mismatch/healthy); migrated `/api/v1/activity-summary`; renamed `swr.ts` export `FITBIT_BACKED_SWR_CONFIG`→`HEALTH_BACKED_SWR_CONFIG`; deleted `/api/fitbit/profile`, `/api/fitbit/health`, `fitbit-health.ts`. (worker-1)
+- **Task 21 (FOO-1091):** Renamed the Claude tool-schema property `unit_id`→`serving_unit` (string enum, 8 members) in BOTH `REPORT_NUTRITION_TOOL` and `REPORT_SESSION_ITEMS_TOOL` (properties + required + input_examples); `validateFoodAnalysis`/`validateSessionItems`/`isValidFoodAnalysisFields`/analysis-session match-validator now treat the unit as a `ServingUnit` string (tolerant coerce→'serving'). (worker-2)
+
+### Lead Merge-Resolution + Bug Fixes
+Cross-worker integration issues caught at the post-merge gate (worker-1's fixtures predate worker-2's parallel validator change) and fixed by the lead:
+- **swr.test.ts** still imported the renamed `FITBIT_BACKED_SWR_CONFIG` → updated to `HEALTH_BACKED_SWR_CONFIG`.
+- **log-food/edit-food test fixtures** used numeric `unit_id: 147` (worker-1 left a "Task 21 migrates it" note); after worker-2 made `isValidFoodAnalysisFields` require a `ServingUnit` string, these payloads 400'd → migrated fixtures to `"g"`.
+- **claude-triage.test.ts** asserted the old `unit_id` in `REPORT_SESSION_ITEMS_TOOL` → updated to `serving_unit` (assertion + fixtures).
+
+bug-hunter (Sonnet) findings — all fixed with regression tests:
+- **[HIGH] daily-goals.ts:467** caught the stale string `"FITBIT_SCOPE_MISSING"`; `google-health.ts` throws `"HEALTH_SCOPE_MISSING"`, so a real 403 never mapped to `scope_mismatch` (the test mock used the same wrong string, hiding it). Fixed code + both test sites.
+- **[HIGH] edit-food/route.ts** top-level `ensureFreshToken` calls (fast + regular paths) were unwrapped → a token-refresh failure escaped as an unhandled 500. Added a `mapHealthErrorToResponse` helper mirroring log-food (HEALTH_TOKEN_INVALID→401, TIMEOUT→504, RATE_LIMIT_LOW→503, RATE_LIMIT→429) and wrapped both calls.
+- **[MEDIUM] log-food/route.ts** idempotency cache was never written in the **reuse** flow (only new-food) → reuse-flow retries duplicated the log. Added the cache write to the reuse success path.
+- **[MEDIUM] log-food/route.ts** mapped exhausted `HEALTH_RATE_LIMIT` to HTTP 500; corrected to **429** (matching v1/activity-summary).
+
+### Interpretations / decisions (documented per Autonomous-Execution rules)
+- **Worker labels:** the "Worker 1"/"Worker 2" Linear labels referenced in older runs do not exist in this workspace; worker attribution is cosmetic, so the lead skipped creating them and relied on real-time Todo→In Progress→Review state transitions (the substantive Linear coordination).
+- **Post-merge gate scope:** full `npm test`/build/E2E is structurally impossible mid-cutover (unmigrated Phase-4 test files import deleted modules). The lead ran the broad Phase-3 + foundation vitest set (874 tests) as the integration gate, exactly as Iterations 1–3 did.
+- **Numeric-`unit_id` fixtures in `food-log.test.ts`/`food-matching.test.ts`** are pre-existing Phase-1 test-fixture type debt (vitest strips types and runs green); left for the Phase-4 Task 22 fixture sweep per its note.
+
+### Tasks Remaining
+Resume at **Phase 4, Task 22** (FOO-1092 — `use-log-to-fitbit`→`use-log-food` rename + retype `healthLogId` across 5 consumers + unit-renderer components + `chat-tools.ts`), then Tasks 23–28 (UI connect-Google-Health flow + settings strip, Anthropic Core A2/A3 cache/context-editing, non-migration review fixes, real-Postgres integration suite, E2E/docs sweep), then Phase 5 (Tasks 29–30: lead-only `drizzle-kit generate` + release env/token-clear). The global typecheck returns to green around Task 23 (last UI/route/claude consumers); the full verifier + E2E gate runs after Phase 4 completes.
+
+### Verification
+- Phase-3 migrated suites (all green): google-health, health-cache, health-connection, daily-goals, swr, log-food, edit-food, food-history/[id], health-profile, health-status, v1/activity-summary, claude, food-validation, analysis-session, claude-triage — plus foundation regression (food-log, food-matching, session, health-tokens, auth, callback, types, schema, rate-limit, claude-usage/retry). **874 tests pass.**
+- 4 lead regression tests added (log-food reuse idempotency + HEALTH_RATE_LIMIT→429; edit-food token-failure→401 + rate-limit-low→503).
+- `npm run typecheck` — **intentionally red (251 errors), all in unmigrated Phase-4 consumers**; the Phase-3 migrated source files are typecheck-clean.
+- bug-hunter (Sonnet): 4 real bugs found and all fixed (2 HIGH, 2 MEDIUM).
+- Full build/lint/E2E **deferred** to migration end (structurally impossible mid-cutover).
+
+### Files Changed
+- `src/lib/google-health.ts` (modify — nutrition write/delete + 3 reads), `src/lib/__tests__/google-health.test.ts` (modify)
+- `src/lib/health-cache.ts` (create, from fitbit-cache.ts), `src/lib/__tests__/health-cache.test.ts` (create); `src/lib/fitbit-cache.ts` + test (delete)
+- `src/lib/health-connection.ts` (create), `src/lib/__tests__/health-connection.test.ts` (create); `src/lib/fitbit-health.ts` (delete)
+- `src/lib/fitbit.ts` + `src/lib/__tests__/fitbit.test.ts` (delete)
+- `src/lib/daily-goals.ts` (modify — health-cache imports + scope-string fix), `src/lib/__tests__/daily-goals.test.ts` (modify)
+- `src/lib/swr.ts` (modify — HEALTH_BACKED_SWR_CONFIG), `src/lib/__tests__/swr.test.ts` (modify — lead rename fix)
+- `src/lib/claude.ts` (modify — serving_unit schema), `src/lib/__tests__/claude.test.ts` + `claude-triage.test.ts` (modify)
+- `src/lib/food-validation.ts` (modify) + test; `src/lib/analysis-session.ts` (modify) + test
+- `src/app/api/log-food/route.ts` (modify — idempotency, 429 fix) + test; `src/app/api/edit-food/route.ts` (modify — token-error mapping) + test; `src/app/api/food-history/[id]/route.ts` (modify) + test
+- `src/app/api/health-profile/route.ts` (create) + test; `src/app/api/health-status/route.ts` (create) + test
+- `src/app/api/fitbit/profile/route.ts` + test, `src/app/api/fitbit/health/route.ts` + test (delete)
+- `src/app/api/v1/activity-summary/route.ts` (modify) + cache-integration test
+- `MIGRATIONS.md` (modify — Phase 3 section: API/route-contract + staging-QA body-shape notes)
+
+### Linear Updates
+- FOO-1086 → Todo → In Progress → Review
+- FOO-1087 → Todo → In Progress → Review
+- FOO-1088 → Todo → In Progress → Review
+- FOO-1089 → Todo → In Progress → Review
+- FOO-1090 → Todo → In Progress → Review
+- FOO-1091 → Todo → In Progress → Review
+
+### Work Partition
+- Worker 1: Tasks 16, 17, 18, 19, 20 (sequential transport/routes/cache chain — `google-health.ts`, write/read routes, `fitbit.ts` deletion, `health-cache.ts`, profile/v1/health-status routes)
+- Worker 2: Task 21 (Claude `serving_unit` tool schema + validation)
+
+### Merge Summary
+- Worker 1 (foundation/service + routes): fast-forward, no conflicts
+- Worker 2 (Claude analysis): ort merge, no conflicts (zero file overlap)
+- Lead post-merge: 3 cross-worker merge fixes + 4 bug-hunter bug fixes + 4 regression tests
+
+### Continuation Status
+Phase boundary reached (workers-mode checkpoint). Phase 3 complete and merged; resume at Phase 4, Task 22.

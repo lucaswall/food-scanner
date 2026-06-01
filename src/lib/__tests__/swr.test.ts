@@ -3,7 +3,7 @@ import {
   apiFetcher,
   ApiError,
   invalidateFoodCaches,
-  FITBIT_BACKED_SWR_CONFIG,
+  HEALTH_BACKED_SWR_CONFIG,
 } from "@/lib/swr";
 
 // Mock SWR at the top level using vi.hoisted()
@@ -200,10 +200,10 @@ describe("invalidateFoodCaches", () => {
   });
 });
 
-describe("FITBIT_BACKED_SWR_CONFIG (FOO-1003)", () => {
+describe("HEALTH_BACKED_SWR_CONFIG (FOO-1003)", () => {
   it("disables revalidateOnFocus and sets dedupe to 30 minutes", () => {
-    expect(FITBIT_BACKED_SWR_CONFIG.revalidateOnFocus).toBe(false);
-    expect(FITBIT_BACKED_SWR_CONFIG.revalidateOnReconnect).toBe(true);
-    expect(FITBIT_BACKED_SWR_CONFIG.dedupingInterval).toBe(30 * 60 * 1000);
+    expect(HEALTH_BACKED_SWR_CONFIG.revalidateOnFocus).toBe(false);
+    expect(HEALTH_BACKED_SWR_CONFIG.revalidateOnReconnect).toBe(true);
+    expect(HEALTH_BACKED_SWR_CONFIG.dedupingInterval).toBe(30 * 60 * 1000);
   });
 });

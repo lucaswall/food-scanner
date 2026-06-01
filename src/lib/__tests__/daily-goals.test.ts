@@ -412,10 +412,10 @@ describe("getOrComputeDailyGoals — blocked reasons", () => {
     expect(mockDb.insert).not.toHaveBeenCalled();
   });
 
-  it("returns blocked/scope_mismatch when getCachedFitbitProfile throws FITBIT_SCOPE_MISSING", async () => {
+  it("returns blocked/scope_mismatch when getCachedFitbitProfile throws HEALTH_SCOPE_MISSING", async () => {
     mockSelectOnce([USER_SETTINGS]);
     mockSelectOnce([]);
-    mockGetCachedFitbitProfile.mockRejectedValueOnce(new Error("FITBIT_SCOPE_MISSING"));
+    mockGetCachedFitbitProfile.mockRejectedValueOnce(new Error("HEALTH_SCOPE_MISSING"));
 
     const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
     expect(result).toEqual({ status: "blocked", reason: "scope_mismatch" });
@@ -748,11 +748,11 @@ describe("getOrComputeDailyGoals — log conversions (FOO-1052)", () => {
     );
   });
 
-  it("warns when getCachedFitbitProfile throws FITBIT_SCOPE_MISSING", async () => {
+  it("warns when getCachedFitbitProfile throws HEALTH_SCOPE_MISSING", async () => {
     const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
     mockSelectOnce([USER_SETTINGS]);
     mockSelectOnce([]);
-    mockGetCachedFitbitProfile.mockRejectedValueOnce(new Error("FITBIT_SCOPE_MISSING"));
+    mockGetCachedFitbitProfile.mockRejectedValueOnce(new Error("HEALTH_SCOPE_MISSING"));
 
     await getOrComputeDailyGoals("user-1", "2026-05-08", log as unknown as Logger);
 
