@@ -25,13 +25,20 @@ This release promotes the entire Fitbit→Google Health cutover. **Classificatio
 
 **Data-only op (run after deploy/migrate):** `DELETE FROM health_tokens;` is unnecessary if the table is created fresh by the manual migration, but harmless — both Lucas and Mariana re-consent once via login → `/app/connect-health`.
 
-**Railway env changes (Task 30 — agent-applied at release, NO human action):**
-- **staging:** set `HEALTH_DRY_RUN=true`; remove `FITBIT_DRY_RUN`, `FITBIT_CLIENT_ID`, `FITBIT_CLIENT_SECRET`.
-- **production:** set `HEALTH_DRY_RUN=false` (live writes); remove `FITBIT_CLIENT_ID`, `FITBIT_CLIENT_SECRET`.
-- **Invariant:** staging always `HEALTH_DRY_RUN=true` (write/delete are no-ops, everything else real); production always `false`. Only drop `FITBIT_DRY_RUN` AFTER the migrated code (which reads `HEALTH_DRY_RUN`) is live.
-- **GCP precondition (enable Google Health API + the 4 scopes): already done** (verified by the user).
+**Drizzle migration files:** `0027` (consolidated cutover, above) **and `0028_cold_white_queen.sql`** (`users.sex` nullable column + CHECK — FOO-1116; safe nullable add on populated tables). Both are committed; the manual migration must journal-insert BOTH so startup-migrate skips them.
 
-**Staging-QA caveat:** the Google Health REST request/response field paths are inferred from docs (see Phase-3 notes); confirm them against the real API on staging and correct only the isolated `buildNutritionLogBody`/parser helpers if a path differs.
+**🟠 Railway env changes — MANUAL operator steps (NOT automated).** `push-to-production`'s Railway tools are READ-ONLY (`get_logs`, `list_deployments`, `environment_status`); it CANNOT set variables. Set these by hand in the Railway dashboard at release:
+- **staging:** `HEALTH_DRY_RUN=true`; remove `FITBIT_DRY_RUN`, `FITBIT_CLIENT_ID`, `FITBIT_CLIENT_SECRET`.
+- **production:** `HEALTH_DRY_RUN=false` (live writes); remove `FITBIT_CLIENT_ID`, `FITBIT_CLIENT_SECRET`.
+- **Invariant:** staging always `HEALTH_DRY_RUN=true` (write/delete are no-ops, everything else real); production always `false`. Only drop `FITBIT_DRY_RUN` AFTER the migrated code (which reads `HEALTH_DRY_RUN`) is live.
+- **GCP precondition (Google Health API enabled + the 4 scopes incl. `googlehealth.nutrition.writeonly`): done** (verified by the user — the write scope is real; the discovery `auth.oauth2.scopes` listing only `.readonly` is incomplete).
+
+**🔴 PRE-PROMOTION LIVE VALIDATION GATES (must pass before merging `main`→`release`):**
+The Google Health REST request/response shapes are now **confirmed against the v4 discovery document** (commit history; see Phase-3 notes) — NOT guesses. But two things can only be verified against the LIVE API, because **staging skips writes** (`HEALTH_DRY_RUN=true`):
+1. **Nutrition WRITE end-to-end (the core gate).** Temporarily set `HEALTH_DRY_RUN=false` on staging, connect Google Health, then log → edit → delete a food. Confirm the dataPoint is created with correct nutrients/time/meal-type (check via the Google Health app or a direct `GET .../dataTypes/nutrition-log/dataPoints`), and that `batchDelete` removes it. If a field is rejected, correct ONLY the isolated `buildNutritionLogBody`/parser helpers in `google-health.ts`. Re-enable `HEALTH_DRY_RUN=true` on staging afterward.
+2. **`getHealthActivitySummary` dailyRollUp range body** (`/api/v1/activity-summary`, optional/non-blocking — degrades to null). The `CivilTimeInterval` field names (`start`/`end` vs `startTime`/`endTime`, exclusive-end) and the `total-calories` data-type id are unconfirmed; validate live if/when the external activity API is needed. (Codex finding, deferred.)
+
+**🔴 POST-CUTOVER USER ACTION (or daily goals stay blocked):** both Lucas and Mariana must, after re-consenting, **set their biological sex** in Settings → Daily Goals (FOO-1116 — the v4 profile does not expose sex). Until set, `getOrComputeDailyGoals` returns `goals_not_set` and the home banner shows.
 
 ---
 
