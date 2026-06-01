@@ -820,7 +820,7 @@ describe("google-health", () => {
   // ─── getHealthActivitySummary ─────────────────────────────────────────────────
 
   describe("getHealthActivitySummary", () => {
-    it("POSTs a dailyRollUp on the v4 total-calories data type", async () => {
+    it("POSTs a dailyRollUp with a CivilTimeInterval range body (not startDate/endDate)", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({ rollupDataPoints: [{ totalCalories: { kcalSum: 2345 } }] }));
 
       await getHealthActivitySummary("token", "2026-05-31", fakeLog, "user-1");
@@ -828,6 +828,13 @@ describe("google-health", () => {
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(url).toContain("dataTypes/total-calories/dataPoints:dailyRollUp");
       expect(init.method).toBe("POST");
+      const body = JSON.parse(init.body as string);
+      expect(body).toEqual({
+        range: {
+          startTime: { date: { year: 2026, month: 5, day: 31 } },
+          endTime: { date: { year: 2026, month: 5, day: 31 } },
+        },
+      });
     });
 
     it("sums kcalSum from the v4 rollupDataPoints[] into { caloriesOut }", async () => {

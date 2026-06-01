@@ -849,7 +849,10 @@ export async function getHealthActivitySummary(
   const l = log ?? logger;
   l.debug({ action: "health_get_activity_summary", date }, "fetching activity summary from Google Health");
 
-  // v4 daily roll-up of total daily energy expenditure (the caloriesOut analogue).
+  // v4 DailyRollUp requires a `range` (CivilTimeInterval of CivilDateTime{date}),
+  // NOT {startDate,endDate} — confirmed via the v4 client + discovery Date schema.
+  const [y, mo, d] = date.split("-").map(Number);
+  const civil = { date: { year: y, month: mo, day: d } };
   const response = await fetchWithRetry(
     `${dataPointsUrl("total-calories")}:dailyRollUp`,
     {
@@ -858,7 +861,7 @@ export async function getHealthActivitySummary(
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ startDate: date, endDate: date }),
+      body: JSON.stringify({ range: { startTime: civil, endTime: civil } }),
     },
     0, Date.now(), l, userId, criticality,
   );
