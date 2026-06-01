@@ -465,4 +465,23 @@ describe("GET /api/auth/google/callback", () => {
     const response = await GET(makeCallbackRequest("health-code", healthState));
     expect(response.status).toBe(400);
   });
+
+  it("health-connect: returns 500 HEALTH_TOKEN_SAVE_FAILED when upsert throws", async () => {
+    const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect" });
+    mockRawSession.oauthState = healthState;
+    mockRawSession.sessionId = "existing-session-id";
+    mockGetSessionById.mockResolvedValue(fakeDbSession);
+    mockExchangeGoogleHealthCode.mockResolvedValue({
+      access_token: "health-at",
+      refresh_token: "health-rt",
+      expires_in: 3600,
+    });
+    mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
+    mockUpsertHealthTokens.mockRejectedValue(new Error("db connection lost"));
+
+    const response = await GET(makeCallbackRequest("health-code", healthState));
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_TOKEN_SAVE_FAILED");
+  });
 });

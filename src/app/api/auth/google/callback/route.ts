@@ -102,17 +102,25 @@ export async function GET(request: Request) {
       ? new Date(Date.now() + healthTokens.expires_in * 1000)
       : new Date(Date.now() + 3600 * 1000);
 
-    await upsertHealthTokens(
-      dbSession.userId,
-      {
-        healthUserId,
-        accessToken: healthTokens.access_token,
-        refreshToken: healthTokens.refresh_token,
-        expiresAt,
-        scope: healthTokens.scope,
-      },
-      log,
-    );
+    try {
+      await upsertHealthTokens(
+        dbSession.userId,
+        {
+          healthUserId,
+          accessToken: healthTokens.access_token,
+          refreshToken: healthTokens.refresh_token,
+          expiresAt,
+          scope: healthTokens.scope,
+        },
+        log,
+      );
+    } catch (error) {
+      log.error(
+        { action: "health_token_upsert_error", error: error instanceof Error ? error.message : String(error) },
+        "failed to persist google health tokens",
+      );
+      return errorResponse("HEALTH_TOKEN_SAVE_FAILED", "Failed to save Google Health tokens", 500);
+    }
 
     log.info({ action: "health_connect_success" }, "google health connected successfully");
     return Response.redirect(buildUrl(returnTo ?? "/app"), 302);

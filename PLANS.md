@@ -856,3 +856,57 @@ Resume at **Phase 2, Task 11** (FOO-1081 — `buildGoogleHealthAuthUrl`/`getGoog
 - `src/lib/users.ts` (modify — weightGoalType helpers), `src/lib/__tests__/users.test.ts` (modify)
 - `src/lib/session.ts` (modify), `src/lib/__tests__/session.test.ts` (modify)
 - `MIGRATIONS.md` (modify — Tasks 4–10 migration notes)
+
+---
+
+## Iteration 3: Phase 2 — Google Health OAuth connect flow + transport/rate-limit cores
+
+**Date:** 2026-05-31
+**Status:** PARTIAL — 15 tasks remaining (Phases 3–5, Tasks 16–30)
+**Method:** Agent team (2 workers, worktree-isolated)
+
+### Summary
+Completed all of **Phase 2 (Tasks 11–15)** — the Google Health OAuth connect flow plus the google-health transport + rate-limit cores. Two independent work units ran in parallel: **worker-1** (auth/OAuth: Tasks 11–13) and **worker-2** (transport: Tasks 14–15). No file overlap, both merges clean (worker-2 fast-forward, worker-1 ort merge). All **216 Phase-2 unit tests pass** (108 across the 5 directly-touched files; full Phase-2 suite incl. rate-limit/transport). bug-hunter found **1 HIGH bug** (naked `upsertHealthTokens` in the health-connect callback branch) — fixed by the lead with a typed `HEALTH_TOKEN_SAVE_FAILED` 500 + a regression test.
+
+**Expected red global typecheck (385 errors):** unchanged in nature from Iteration 2 — all in unmigrated Phase 3–4 Fitbit consumers (`fitbit.ts`, `fitbit-cache.ts`, `claude.ts`, components, old `/api/auth/fitbit/*` + `/api/fitbit/*` routes). Deleting `fitbit-rate-limit.ts` (Task 14) added a couple of new `fitbit.ts` import errors — expected (`fitbit.ts` is deleted in Task 18). The Phase-2 merged source files are themselves typecheck-clean (filtered `tsc` output for them → empty). Full build/verifier/E2E remain deferred to migration end.
+
+### Tasks Completed This Iteration
+- **Task 11 (FOO-1081):** Added `GOOGLE_HEALTH_SCOPES` (4 exact full URLs), `buildGoogleHealthAuthUrl` (mirrors login builder, `access_type=offline`+`prompt=consent`), `getGoogleHealthIdentity` (`health.googleapis.com/v4/users/me/identity`, Bearer, timeout+AbortController, logs `google_health_identity_fetch_failed`), and `emailVerified` parsing on `getGoogleProfile` (boolean `true` OR string `'true'` → true, else false, no throw). (worker-1)
+- **Task 12 (FOO-1082):** Created `/api/auth/google-health/route.ts` (POST+GET → `initiate()`): `getSession()`+`validateSession()`, state `{nonce, flow:'health-connect'}` into `rawSession.oauthState`, reuses `buildUrl('/api/auth/google/callback')`, 302-redirects. (worker-1)
+- **Task 13 (FOO-1083):** Added `exchangeGoogleHealthCode` (validates `refresh_token` present, throws typed error if absent); rewrote the callback to branch on `flow==='health-connect'` (require `getSessionById` DB session, exchange + `getGoogleHealthIdentity` + `upsertHealthTokens`, 302 `/app`, no `createSession`) vs login (email_verified gate → 403 `AUTH_INVALID_EMAIL` before allowlist; post-login redirect to `/app` when health tokens exist else `/app/setup-health`); removed `fitbit-tokens`/`fitbit-credentials` imports. (worker-1)
+- **Task 14 (FOO-1084):** Created `src/lib/google-health-rate-limit.ts` (per-user Map, injected logger, recent-429 `cooldownUntil` model; exports `HealthCallCriticality`, `assertRateLimitAllowed`, `recordRateLimitHeaders`, `getRateLimitSnapshot`, `_resetForTests`; never blocks `critical`); deleted `fitbit-rate-limit.ts` + test. (worker-2)
+- **Task 15 (FOO-1085):** Created `src/lib/google-health.ts` (`fetchWithRetry`: 401→`HEALTH_TOKEN_INVALID`, 403→`HEALTH_SCOPE_MISSING`, 429 single-retry then `HEALTH_RATE_LIMIT`, 5xx backoff, `DEADLINE_MS` budget→`HEALTH_TIMEOUT`; `refreshGoogleHealthToken` preserves the input refresh token; **race-safe `ensureFreshToken`** registers the in-flight promise BEFORE the refresh decision and re-reads the row inside the deduped IIFE, closing the read-then-check window present in `fitbit.ts`; upsert failure → `HEALTH_TOKEN_SAVE_FAILED`). Concurrency test: 5 concurrent calls → token endpoint hit exactly once. (worker-2)
+
+### Tasks Remaining
+Resume at **Phase 3, Task 16** (FOO-1086 — `createNutritionLog`/`deleteNutritionLogs` on google-health.ts with `HEALTH_DRY_RUN`), then Tasks 17–21 (write-route rewires, fitbit.ts deletion + reads, health-cache rename, profile/v1 routes, Claude serving_unit schema), Phase 4 (Tasks 22–28), Phase 5 (Tasks 29–30: lead-only `drizzle-kit generate` + release env/token-clear). Global typecheck returns to green around Task 23; full verifier + E2E gate runs after Phase 4.
+
+### Files Modified
+- `src/lib/auth.ts` (modify), `src/lib/__tests__/auth.test.ts` (modify — 15 new tests, 38 total)
+- `src/app/api/auth/google-health/route.ts` (create), `src/app/api/auth/google-health/__tests__/route.test.ts` (create — 10 tests)
+- `src/app/api/auth/google/callback/route.ts` (modify — flow-branching rewrite + lead's upsert try/catch), `src/app/api/auth/google/callback/__tests__/route.test.ts` (modify — 29 tests incl. lead's HEALTH_TOKEN_SAVE_FAILED regression test)
+- `src/lib/google-health-rate-limit.ts` (create), `src/lib/__tests__/google-health-rate-limit.test.ts` (create — 13 tests)
+- `src/lib/google-health.ts` (create), `src/lib/__tests__/google-health.test.ts` (create — 19 tests)
+- `src/lib/fitbit-rate-limit.ts` (delete), `src/lib/__tests__/fitbit-rate-limit.test.ts` (delete)
+
+### Linear Updates
+- FOO-1081 → Todo → In Progress → Review
+- FOO-1082 → Todo → In Progress → Review
+- FOO-1083 → Todo → In Progress → Review
+- FOO-1084 → Todo → In Progress → Review
+- FOO-1085 → Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter (Sonnet): Found 1 HIGH bug — naked `upsertHealthTokens` in the health-connect callback branch (DB failure after token exchange → unstructured 500). Fixed by the lead: wrapped in try/catch returning `errorResponse("HEALTH_TOKEN_SAVE_FAILED", …, 500)` + added a regression test. Verified-clean: ensureFreshToken dedup, AbortController/setTimeout cleanup, OAuth state/nonce, email_verified gate, returnTo open-redirect guard, token-logging.
+- verifier (full build/lint/E2E): **deferred** to migration end (structurally impossible mid-cutover). Per-file verification via `npx vitest run`: all 108 directly-touched Phase-2 tests pass; `npm run typecheck` red (385) only in unmigrated consumers, 0 in Phase-2 files.
+
+### Work Partition
+- Worker 1: Tasks 11, 12, 13 (auth/OAuth domain — `auth.ts`, google-health initiation route, callback branching)
+- Worker 2: Tasks 14, 15 (transport domain — google-health rate-limit + transport cores)
+
+### Merge Summary
+- Worker 2 (foundation/service layer): fast-forward, no conflicts
+- Worker 1 (auth + routes): ort merge, no conflicts
+- Lead post-merge: bug fix in `callback/route.ts` (HIGH bug from bug-hunter) + regression test
+
+### Continuation Status
+Phase boundary reached (workers-mode checkpoint). Phase 2 complete and merged; resume at Phase 3, Task 16.
