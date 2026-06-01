@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Logger } from "@/lib/logger";
 
-// ─── Fitbit-cache mocks ──────────────────────────────────────────────────────
+// ─── Health-cache mocks ──────────────────────────────────────────────────────
 const mockGetCachedFitbitProfile = vi.fn();
 const mockGetCachedFitbitWeightKg = vi.fn();
 
-vi.mock("@/lib/fitbit-cache", () => ({
-  getCachedFitbitProfile: (...args: unknown[]) => mockGetCachedFitbitProfile(...args),
-  getCachedFitbitWeightKg: (...args: unknown[]) => mockGetCachedFitbitWeightKg(...args),
+vi.mock("@/lib/health-cache", () => ({
+  getCachedHealthProfile: (...args: unknown[]) => mockGetCachedFitbitProfile(...args),
+  getCachedHealthWeightKg: (...args: unknown[]) => mockGetCachedFitbitWeightKg(...args),
 }));
 
 // ─── DB mock ─────────────────────────────────────────────────────────────────

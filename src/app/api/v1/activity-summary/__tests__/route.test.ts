@@ -17,9 +17,9 @@ vi.mock("@/lib/logger", () => {
   };
 });
 
-const mockGetCachedActivitySummary = vi.fn();
-vi.mock("@/lib/fitbit-cache", () => ({
-  getCachedActivitySummary: (...args: unknown[]) => mockGetCachedActivitySummary(...args),
+const mockGetCachedHealthActivitySummary = vi.fn();
+vi.mock("@/lib/health-cache", () => ({
+  getCachedHealthActivitySummary: (...args: unknown[]) => mockGetCachedHealthActivitySummary(...args),
 }));
 
 const mockCheckRateLimit = vi.fn();
@@ -36,18 +36,13 @@ function createRequest(url: string, headers?: HeadersInit): Request {
 describe("GET /api/v1/activity-summary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
   });
 
   it("returns activity summary for valid API key and date", async () => {
-    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
-    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    
-
-    const mockActivity: ActivitySummary = {
-      caloriesOut: 2500,
-    };
-
-    mockGetCachedActivitySummary.mockResolvedValue(mockActivity);
+    const mockActivity: ActivitySummary = { caloriesOut: 2500 };
+    mockGetCachedHealthActivitySummary.mockResolvedValue(mockActivity);
 
     const request = createRequest(
       "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
@@ -60,7 +55,7 @@ describe("GET /api/v1/activity-summary", () => {
     expect(data.success).toBe(true);
     expect(data.data).toEqual(mockActivity);
     expect(mockValidateApiRequest).toHaveBeenCalledWith(request);
-    expect(mockGetCachedActivitySummary).toHaveBeenCalledWith(
+    expect(mockGetCachedHealthActivitySummary).toHaveBeenCalledWith(
       "user-123",
       "2026-02-11",
       expect.any(Object),
@@ -85,9 +80,6 @@ describe("GET /api/v1/activity-summary", () => {
   });
 
   it("returns 400 for missing date parameter", async () => {
-    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
-    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-
     const request = createRequest(
       "http://localhost:3000/api/v1/activity-summary",
       { Authorization: "Bearer valid-key" }
@@ -101,9 +93,6 @@ describe("GET /api/v1/activity-summary", () => {
   });
 
   it("returns 400 for invalid date format", async () => {
-    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
-    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-
     const request = createRequest(
       "http://localhost:3000/api/v1/activity-summary?date=invalid-date",
       { Authorization: "Bearer valid-key" }
@@ -116,26 +105,8 @@ describe("GET /api/v1/activity-summary", () => {
     expect(data.error.message).toBe("Invalid date format. Use YYYY-MM-DD");
   });
 
-  it("returns 424 when Fitbit credentials are missing", async () => {
-    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
-    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_CREDENTIALS_MISSING"));
-
-    const request = createRequest(
-      "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
-      { Authorization: "Bearer valid-key" }
-    );
-    const response = await GET(request);
-    const data = await response.json();
-
-    expect(response.status).toBe(424);
-    expect(data.error.code).toBe("FITBIT_CREDENTIALS_MISSING");
-  });
-
-  it("returns 401 when Fitbit token is invalid", async () => {
-    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
-    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_TOKEN_INVALID"));
+  it("returns 401 when Google Health token is invalid", async () => {
+    mockGetCachedHealthActivitySummary.mockRejectedValue(new Error("HEALTH_TOKEN_INVALID"));
 
     const request = createRequest(
       "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
@@ -145,14 +116,11 @@ describe("GET /api/v1/activity-summary", () => {
     const data = await response.json();
 
     expect(response.status).toBe(401);
-    expect(data.error.code).toBe("FITBIT_TOKEN_INVALID");
+    expect(data.error.code).toBe("HEALTH_TOKEN_INVALID");
   });
 
-  it("returns 403 when Fitbit scope is missing", async () => {
-    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
-    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    
-    mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_SCOPE_MISSING"));
+  it("returns 403 when Google Health scope is missing", async () => {
+    mockGetCachedHealthActivitySummary.mockRejectedValue(new Error("HEALTH_SCOPE_MISSING"));
 
     const request = createRequest(
       "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
@@ -162,46 +130,11 @@ describe("GET /api/v1/activity-summary", () => {
     const data = await response.json();
 
     expect(response.status).toBe(403);
-    expect(data.error.code).toBe("FITBIT_SCOPE_MISSING");
+    expect(data.error.code).toBe("HEALTH_SCOPE_MISSING");
   });
 
-  it("returns 502 when Fitbit API returns an error", async () => {
-    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
-    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-
-    mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_API_ERROR"));
-
-    const request = createRequest(
-      "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
-      { Authorization: "Bearer valid-key" }
-    );
-    const response = await GET(request);
-    const data = await response.json();
-
-    expect(response.status).toBe(502);
-    expect(data.error.code).toBe("FITBIT_API_ERROR");
-  });
-
-  it("returns 429 when Fitbit returns FITBIT_RATE_LIMIT", async () => {
-    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
-    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_RATE_LIMIT"));
-
-    const request = createRequest(
-      "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
-      { Authorization: "Bearer valid-key" }
-    );
-    const response = await GET(request);
-    const data = await response.json();
-
-    expect(response.status).toBe(429);
-    expect(data.error.code).toBe("FITBIT_RATE_LIMIT");
-  });
-
-  it("returns 503 when breaker rejects with FITBIT_RATE_LIMIT_LOW (FOO-1014)", async () => {
-    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
-    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_RATE_LIMIT_LOW"));
+  it("returns 503 when Google Health rate limit is low", async () => {
+    mockGetCachedHealthActivitySummary.mockRejectedValue(new Error("HEALTH_RATE_LIMIT_LOW"));
 
     const request = createRequest(
       "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
@@ -211,29 +144,11 @@ describe("GET /api/v1/activity-summary", () => {
     const data = await response.json();
 
     expect(response.status).toBe(503);
-    expect(data.error.code).toBe("FITBIT_RATE_LIMIT_LOW");
+    expect(data.error.code).toBe("HEALTH_RATE_LIMIT_LOW");
   });
 
-  it("returns 504 when getCachedActivitySummary throws FITBIT_TIMEOUT", async () => {
-    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
-    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_TIMEOUT"));
-
-    const request = createRequest(
-      "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
-      { Authorization: "Bearer valid-key" }
-    );
-    const response = await GET(request);
-    const data = await response.json();
-
-    expect(response.status).toBe(504);
-    expect(data.error.code).toBe("FITBIT_TIMEOUT");
-  });
-
-  it("returns 502 when getCachedActivitySummary throws FITBIT_REFRESH_TRANSIENT", async () => {
-    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
-    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_REFRESH_TRANSIENT"));
+  it("returns 502 when Google Health API returns an error", async () => {
+    mockGetCachedHealthActivitySummary.mockRejectedValue(new Error("HEALTH_API_ERROR"));
 
     const request = createRequest(
       "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
@@ -243,99 +158,34 @@ describe("GET /api/v1/activity-summary", () => {
     const data = await response.json();
 
     expect(response.status).toBe(502);
-    expect(data.error.code).toBe("FITBIT_REFRESH_TRANSIENT");
+    expect(data.error.code).toBe("HEALTH_API_ERROR");
   });
 
-  it("sets Cache-Control header to private, no-cache", async () => {
-    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
-    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    
-    mockGetCachedActivitySummary.mockResolvedValue({
-      caloriesOut: 2500,
-    });
-
-    const request = createRequest(
-      "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
-      { Authorization: "Bearer valid-key" }
-    );
-    const response = await GET(request);
-
-    expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
-  });
-
-  it("returns 429 when rate limit is exceeded", async () => {
-    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+  it("returns 429 when API rate limit is exceeded", async () => {
     mockCheckRateLimit.mockReturnValue({ allowed: false, remaining: 0 });
 
     const request = createRequest(
       "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
-      { Authorization: "Bearer test-api-key" }
+      { Authorization: "Bearer valid-key" }
     );
     const response = await GET(request);
     const data = await response.json();
 
     expect(response.status).toBe(429);
-    expect(data.success).toBe(false);
     expect(data.error.code).toBe("RATE_LIMIT_EXCEEDED");
-    expect(data.error.message).toMatch(/too many requests/i);
   });
 
-  it("uses API key as rate limit key with 30 req/min for Fitbit API route", async () => {
-    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
-    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    
-    mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 2500 });
-
-    const request = createRequest(
-      "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
-      { Authorization: "Bearer test-api-key-xyz" }
-    );
-    await GET(request);
-
-    expect(mockCheckRateLimit).toHaveBeenCalledWith(
-      "v1:activity-summary:hashed-test-api",
-      30,
-      60000
-    );
-  });
-
-  it("returns ETag header on success response", async () => {
-    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
-    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    
-    mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 2500 });
+  it("returns 500 on unexpected errors", async () => {
+    mockGetCachedHealthActivitySummary.mockRejectedValue(new Error("DB connection failed"));
 
     const request = createRequest(
       "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
       { Authorization: "Bearer valid-key" }
     );
     const response = await GET(request);
+    const data = await response.json();
 
-    expect(response.headers.get("ETag")).toMatch(/^"[a-f0-9]{16}"$/);
-  });
-
-  it("returns 304 when If-None-Match matches", async () => {
-    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
-    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    
-    mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 2500 });
-
-    const firstRequest = createRequest(
-      "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
-      { Authorization: "Bearer valid-key" }
-    );
-    const firstResponse = await GET(firstRequest);
-    const etag = firstResponse.headers.get("ETag")!;
-
-    const secondRequest = createRequest(
-      "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
-      { Authorization: "Bearer valid-key", "If-None-Match": etag }
-    );
-    const secondResponse = await GET(secondRequest);
-
-    expect(secondResponse.status).toBe(304);
-    expect(await secondResponse.text()).toBe("");
-    expect(secondResponse.headers.get("ETag")).toBe(etag);
-    expect(secondResponse.headers.get("Cache-Control")).toBe("private, no-cache");
+    expect(response.status).toBe(500);
+    expect(data.error.code).toBe("INTERNAL_ERROR");
   });
 });

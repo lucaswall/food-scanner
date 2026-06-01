@@ -2,7 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse, conditionalResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getFoodLogEntry, deleteFoodLogEntry, getFoodLogEntryDetail } from "@/lib/food-log";
-import { ensureFreshToken, deleteFoodLog } from "@/lib/fitbit";
+import { ensureFreshToken, deleteNutritionLogs } from "@/lib/google-health";
 
 export async function GET(
   request: Request,
@@ -43,7 +43,7 @@ export async function DELETE(
   const log = createRequestLogger("DELETE", "/api/food-history/[id]");
   const session = await getSession();
 
-  const validationError = validateSession(session, { requireFitbit: true });
+  const validationError = validateSession(session, { requireHealth: true });
   if (validationError) return validationError;
 
   const { id: idParam } = await params;
@@ -67,12 +67,12 @@ export async function DELETE(
   }
 
   try {
-    const isDryRun = process.env.FITBIT_DRY_RUN === "true";
+    const isDryRun = process.env.HEALTH_DRY_RUN === "true";
 
-    // Delete from Fitbit first (if applicable), then local DB
-    if (entry.fitbitLogId && !isDryRun) {
+    // Delete from Google Health first (if applicable), then local DB
+    if (entry.healthLogId && !isDryRun) {
       const accessToken = await ensureFreshToken(session!.userId, log);
-      await deleteFoodLog(accessToken, entry.fitbitLogId, log, session!.userId);
+      await deleteNutritionLogs(accessToken, [entry.healthLogId], log, session!.userId);
     }
 
     try {
@@ -80,19 +80,19 @@ export async function DELETE(
     } catch (dbErr) {
       log.error(
         { action: "delete_food_log_db_error", entryId: id, error: dbErr instanceof Error ? dbErr.message : String(dbErr) },
-        "Fitbit delete succeeded but local DB delete failed",
+        "Health delete succeeded but local DB delete failed",
       );
-      return errorResponse("INTERNAL_ERROR", "Fitbit log deleted but local delete failed. Entry may be orphaned.", 500);
+      return errorResponse("INTERNAL_ERROR", "Health log deleted but local delete failed. Entry may be orphaned.", 500);
     }
 
     if (isDryRun) {
       log.info(
-        { action: "delete_food_log", entryId: id, fitbitLogId: entry.fitbitLogId },
-        "food log entry deleted in dry-run mode (Fitbit API skipped)",
+        { action: "delete_food_log", entryId: id, healthLogId: entry.healthLogId },
+        "food log entry deleted in dry-run mode (Health API skipped)",
       );
     } else {
       log.info(
-        { action: "delete_food_log", entryId: id, fitbitLogId: entry.fitbitLogId },
+        { action: "delete_food_log", entryId: id, healthLogId: entry.healthLogId },
         "food log entry deleted",
       );
     }
@@ -101,15 +101,27 @@ export async function DELETE(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
 
-    if (errorMessage === "FITBIT_TOKEN_INVALID") {
+    if (errorMessage === "HEALTH_TOKEN_INVALID") {
       log.warn(
         { action: "delete_food_log_token_invalid" },
-        "Fitbit token invalid, reconnect required",
+        "Google Health token invalid, reconnect required",
       );
       return errorResponse(
-        "FITBIT_TOKEN_INVALID",
-        "Fitbit session expired. Please reconnect your Fitbit account.",
+        "HEALTH_TOKEN_INVALID",
+        "Google Health session expired. Please reconnect your account.",
         401,
+      );
+    }
+
+    if (errorMessage === "HEALTH_RATE_LIMIT_LOW") {
+      log.warn(
+        { action: "delete_food_log_rate_limit_low" },
+        "Google Health rate limit headroom low",
+      );
+      return errorResponse(
+        "HEALTH_RATE_LIMIT_LOW",
+        "Google Health rate-limit headroom is low. Please try again in a few minutes.",
+        503,
       );
     }
 
@@ -117,6 +129,6 @@ export async function DELETE(
       { action: "delete_food_log_error", error: errorMessage },
       "failed to delete food log entry",
     );
-    return errorResponse("FITBIT_API_ERROR", "Failed to delete food log entry", 502);
+    return errorResponse("HEALTH_API_ERROR", "Failed to delete food log entry", 502);
   }
 }

@@ -4,9 +4,9 @@ import { eq, and, gte, sql } from "drizzle-orm";
 import { getTodayDate } from "@/lib/date-utils";
 import { computeMacroTargets } from "@/lib/macro-engine";
 import {
-  getCachedFitbitProfile,
-  getCachedFitbitWeightKg,
-} from "@/lib/fitbit-cache";
+  getCachedHealthProfile,
+  getCachedHealthWeightKg,
+} from "@/lib/health-cache";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import type { ActivityLevel, NutritionGoals, NutritionGoalsAudit } from "@/types";
@@ -332,8 +332,8 @@ async function doCompute(
 
     // ── Step 3: Read Fitbit profile + weight (parallel) ─────────────────────
     const [profile, weightLog] = await Promise.all([
-      getCachedFitbitProfile(userId, l, "important"),
-      getCachedFitbitWeightKg(userId, date, l, "important"),
+      getCachedHealthProfile(userId, l, "important"),
+      getCachedHealthWeightKg(userId, date, l, "important"),
     ]);
 
     if (profile.sex === "NA") {

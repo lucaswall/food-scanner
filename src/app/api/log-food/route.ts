@@ -1,21 +1,41 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
-import { ensureFreshToken, findOrCreateFood, logFood, deleteFoodLog } from "@/lib/fitbit";
+import { ensureFreshToken, createNutritionLog, deleteNutritionLogs } from "@/lib/google-health";
 import { insertCustomFoodWithLogEntry, insertFoodLogEntry, getCustomFoodById, updateCustomFoodMetadata } from "@/lib/food-log";
 import { isValidDateFormat, isValidTimeFormat } from "@/lib/date-utils";
 import { isValidFoodAnalysisFields } from "@/lib/food-validation";
-import type { FoodLogRequest, FoodLogResponse } from "@/types";
-import { FitbitMealType } from "@/types";
+import type { FoodLogRequest, FoodLogResponse, ServingUnit } from "@/types";
+import { MealType } from "@/types";
+import { coerceServingUnit } from "@/types";
 
 const VALID_MEAL_TYPE_IDS = [
-  FitbitMealType.Breakfast,
-  FitbitMealType.MorningSnack,
-  FitbitMealType.Lunch,
-  FitbitMealType.AfternoonSnack,
-  FitbitMealType.Dinner,
-  FitbitMealType.Anytime,
+  MealType.Breakfast,
+  MealType.MorningSnack,
+  MealType.Lunch,
+  MealType.AfternoonSnack,
+  MealType.Dinner,
+  MealType.Anytime,
 ];
+
+/**
+ * Per-user clientToken idempotency cache.
+ * Keyed by "userId:clientToken" → cached result.
+ * TTL: 5 minutes per entry (resets on deploy — acceptable for a 2-user app).
+ */
+const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000;
+const idempotencyCache = new Map<
+  string,
+  { healthLogId?: string; foodLogId?: number; expiresAt: number }
+>();
+
+function getIdempotencyKey(userId: string, clientToken: string): string {
+  return `${userId}:${clientToken}`;
+}
+
+function isValidClientToken(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 128;
+}
 
 function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
   if (!body || typeof body !== "object") return false;
@@ -25,6 +45,9 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
   if (typeof req.mealTypeId !== "number") return false;
   if (typeof req.date !== "string") return false;
   if (typeof req.time !== "string") return false;
+
+  // Validate optional clientToken
+  if (req.clientToken !== undefined && !isValidClientToken(req.clientToken)) return false;
 
   // Reuse flow: reuseCustomFoodId + mealTypeId + date + time needed, optional metadata
   if (req.reuseCustomFoodId !== undefined) {
@@ -51,7 +74,7 @@ export async function POST(request: Request) {
   const log = createRequestLogger("POST", "/api/log-food");
   const session = await getSession();
 
-  const validationError = validateSession(session, { requireFitbit: true });
+  const validationError = validateSession(session, { requireHealth: true });
   if (validationError) return validationError;
 
   let body: unknown;
@@ -71,7 +94,6 @@ export async function POST(request: Request) {
   }
 
   // Round calories at the API boundary — Claude can return fractional values
-  // for non-whole portions (e.g., 1.5 servings), but the DB column is integer
   if (!body.reuseCustomFoodId) {
     body.calories = Math.round(body.calories);
   }
@@ -89,27 +111,13 @@ export async function POST(request: Request) {
   }
 
   if (!isValidDateFormat(body.date)) {
-    log.warn(
-      { action: "log_food_validation" },
-      "invalid date format"
-    );
-    return errorResponse(
-      "VALIDATION_ERROR",
-      "Invalid date format. Use YYYY-MM-DD",
-      400
-    );
+    log.warn({ action: "log_food_validation" }, "invalid date format");
+    return errorResponse("VALIDATION_ERROR", "Invalid date format. Use YYYY-MM-DD", 400);
   }
 
   if (!isValidTimeFormat(body.time)) {
-    log.warn(
-      { action: "log_food_validation" },
-      "invalid time format"
-    );
-    return errorResponse(
-      "VALIDATION_ERROR",
-      "Invalid time format. Use HH:mm or HH:mm:ss",
-      400
-    );
+    log.warn({ action: "log_food_validation" }, "invalid time format");
+    return errorResponse("VALIDATION_ERROR", "Invalid time format. Use HH:mm or HH:mm:ss", 400);
   }
 
   if (body.zoneOffset !== undefined && !/^[+-]\d{2}:\d{2}$/.test(body.zoneOffset)) {
@@ -132,32 +140,39 @@ export async function POST(request: Request) {
     "processing food log request"
   );
 
-  const isDryRun = process.env.FITBIT_DRY_RUN === "true";
+  const isDryRun = process.env.HEALTH_DRY_RUN === "true";
+  const userId = session!.userId;
+  const clientToken = (body as unknown as Record<string, unknown>).clientToken as string | undefined;
+
+  // ── Idempotency check ─────────────────────────────────────────────────────
+  if (clientToken) {
+    const cacheKey = getIdempotencyKey(userId, clientToken);
+    const cached = idempotencyCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      log.info({ action: "log_food_idempotent", clientToken }, "returning cached idempotent response");
+      const response: FoodLogResponse = {
+        success: true,
+        healthLogId: cached.healthLogId,
+        reusedFood: false,
+        foodLogId: cached.foodLogId,
+      };
+      return successResponse(response);
+    }
+  }
 
   try {
     const { date, time, zoneOffset } = body;
     let foodLogId: number | undefined;
+    let healthLogId: string | undefined;
 
     if (body.reuseCustomFoodId) {
-      // Reuse flow: skip food creation, use existing custom food
-      const existingFood = await getCustomFoodById(session!.userId, body.reuseCustomFoodId);
+      // Reuse flow: use stored custom food nutrients
+      const existingFood = await getCustomFoodById(userId, body.reuseCustomFoodId);
       if (!existingFood) {
-        return errorResponse(
-          "VALIDATION_ERROR",
-          "Custom food not found",
-          400
-        );
-      }
-      if (!isDryRun && !existingFood.fitbitFoodId) {
-        return errorResponse(
-          "VALIDATION_ERROR",
-          "Custom food has no Fitbit food ID",
-          400
-        );
+        return errorResponse("VALIDATION_ERROR", "Custom food not found", 400);
       }
 
       // Cross-check: if client sent expectedCalories, verify the reused food is plausible
-      // This catches hallucinated sourceCustomFoodId values from Claude
       const expectedCalories = (body as unknown as Record<string, unknown>).expectedCalories;
       if (typeof expectedCalories === "number" && expectedCalories > 0) {
         const calorieDiff = Math.abs(existingFood.calories - expectedCalories);
@@ -180,36 +195,42 @@ export async function POST(request: Request) {
         }
       }
 
-      const reused = true;
-      let fitbitLogId: number | undefined;
-
       if (!isDryRun) {
-        const accessToken = await ensureFreshToken(session!.userId, log);
-        const logResult = await logFood(
-          accessToken,
-          existingFood.fitbitFoodId!,
-          body.mealTypeId,
-          Number(existingFood.amount),
-          existingFood.unitId,
-          date,
-          time,
-          log,
-          session!.userId,
-        );
-        fitbitLogId = logResult.foodLog.logId;
+        const accessToken = await ensureFreshToken(userId, log);
+        // Build FoodAnalysis from stored custom food nutrients
+        const foodAnalysis = {
+          food_name: existingFood.foodName,
+          amount: Number(existingFood.amount),
+          unit_id: coerceServingUnit(existingFood.unitId),
+          calories: existingFood.calories,
+          protein_g: Number(existingFood.proteinG),
+          carbs_g: Number(existingFood.carbsG),
+          fat_g: Number(existingFood.fatG),
+          fiber_g: Number(existingFood.fiberG),
+          sodium_mg: Number(existingFood.sodiumMg),
+          saturated_fat_g: existingFood.saturatedFatG != null ? Number(existingFood.saturatedFatG) : null,
+          trans_fat_g: existingFood.transFatG != null ? Number(existingFood.transFatG) : null,
+          sugars_g: existingFood.sugarsG != null ? Number(existingFood.sugarsG) : null,
+          calories_from_fat: existingFood.caloriesFromFat != null ? Number(existingFood.caloriesFromFat) : null,
+          confidence: (existingFood.confidence ?? "high") as "high" | "medium" | "low",
+          notes: existingFood.notes ?? "",
+          description: existingFood.description ?? "",
+          keywords: existingFood.keywords ?? [],
+        };
+        const createResult = await createNutritionLog(accessToken, foodAnalysis, log, userId);
+        healthLogId = createResult.healthLogId;
       }
 
-      // Log entry only (no new custom_food)
       try {
-        const logEntryResult = await insertFoodLogEntry(session!.userId, {
+        const logEntryResult = await insertFoodLogEntry(userId, {
           customFoodId: existingFood.id,
           mealTypeId: body.mealTypeId,
           amount: Number(existingFood.amount),
-          unitId: existingFood.unitId,
+          unitId: coerceServingUnit(existingFood.unitId),
           date,
           time,
           zoneOffset,
-          fitbitLogId: fitbitLogId ?? null,
+          healthLogId: healthLogId ?? null,
         });
         foodLogId = logEntryResult.id;
 
@@ -233,7 +254,7 @@ export async function POST(request: Request) {
           if (body.newConfidence !== undefined) metadataUpdate.confidence = body.newConfidence as "high" | "medium" | "low";
 
           Promise.race([
-            updateCustomFoodMetadata(session!.userId, existingFood.id, metadataUpdate),
+            updateCustomFoodMetadata(userId, existingFood.id, metadataUpdate),
             new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000)),
           ]).catch((err) => {
             const isTimeout = err instanceof Error && err.message === "timeout";
@@ -246,19 +267,19 @@ export async function POST(request: Request) {
       } catch (dbErr) {
         log.error(
           { action: "food_log_db_error", error: dbErr instanceof Error ? dbErr.message : String(dbErr) },
-          "DB write failed after Fitbit success, attempting compensation"
+          "DB write failed after health log creation, attempting compensation"
         );
-        if (fitbitLogId && !isDryRun) {
+        if (healthLogId && !isDryRun) {
           try {
-            const accessToken = await ensureFreshToken(session!.userId, log);
-            await deleteFoodLog(accessToken, fitbitLogId, log, session!.userId);
-            log.info({ action: "food_log_compensation", fitbitLogId }, "Fitbit log rolled back after DB failure");
+            const accessToken = await ensureFreshToken(userId, log);
+            await deleteNutritionLogs(accessToken, [healthLogId], log, userId);
+            log.info({ action: "food_log_compensation", healthLogId }, "health log rolled back after DB failure");
           } catch (compensationErr) {
             log.error(
-              { action: "food_log_compensation_failed", fitbitLogId, error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr) },
-              "CRITICAL: Fitbit log exists but DB write failed and compensation failed"
+              { action: "food_log_compensation_failed", healthLogId, error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr) },
+              "CRITICAL: health log exists but DB write failed and compensation failed"
             );
-            return errorResponse("PARTIAL_ERROR", "Food logged to Fitbit but local save failed. Manual cleanup may be needed.", 500);
+            return errorResponse("PARTIAL_ERROR", "Food logged to Google Health but local save failed. Manual cleanup may be needed.", 500);
           }
         }
         return errorResponse("INTERNAL_ERROR", "Failed to save food log", 500);
@@ -266,82 +287,81 @@ export async function POST(request: Request) {
 
       const response: FoodLogResponse = {
         success: true,
-        fitbitFoodId: existingFood.fitbitFoodId ?? undefined,
-        fitbitLogId,
-        reusedFood: reused,
+        healthLogId,
+        reusedFood: true,
         foodLogId,
         ...(isDryRun && { dryRun: true }),
       };
 
       log.info(
-        {
-          action: "log_food_success",
-          foodId: existingFood.fitbitFoodId,
-          logId: fitbitLogId,
-          reused,
-          foodLogId,
-          dryRun: isDryRun || undefined,
-        },
-        isDryRun ? "food logged in dry-run mode (Fitbit API skipped)" : "food logged successfully (reused)"
+        { action: "log_food_success", healthLogId, reused: true, foodLogId, dryRun: isDryRun || undefined },
+        isDryRun ? "food logged in dry-run mode (Health API skipped)" : "food logged successfully (reused)"
       );
 
       return successResponse(response);
     }
 
     // New food flow
-    let fitbitFoodId: number | undefined;
-    let fitbitLogId: number | undefined;
-    let reused = false;
-
     if (!isDryRun) {
-      const accessToken = await ensureFreshToken(session!.userId, log);
-      const createResult = await findOrCreateFood(accessToken, body, log, session!.userId);
-      fitbitFoodId = createResult.foodId;
-      reused = createResult.reused;
-
-      const logResult = await logFood(
+      const accessToken = await ensureFreshToken(userId, log);
+      const createResult = await createNutritionLog(
         accessToken,
-        fitbitFoodId,
-        body.mealTypeId,
-        body.amount,
-        body.unit_id,
-        date,
-        time,
+        {
+          food_name: body.food_name,
+          amount: body.amount,
+          unit_id: body.unit_id as ServingUnit,
+          calories: body.calories,
+          protein_g: body.protein_g,
+          carbs_g: body.carbs_g,
+          fat_g: body.fat_g,
+          fiber_g: body.fiber_g,
+          sodium_mg: body.sodium_mg,
+          saturated_fat_g: body.saturated_fat_g ?? null,
+          trans_fat_g: body.trans_fat_g ?? null,
+          sugars_g: body.sugars_g ?? null,
+          calories_from_fat: body.calories_from_fat ?? null,
+          confidence: body.confidence,
+          notes: body.notes ?? "",
+          description: body.description ?? "",
+          keywords: body.keywords ?? [],
+        },
         log,
-        session!.userId,
+        userId,
       );
-      fitbitLogId = logResult.foodLog.logId;
+      healthLogId = createResult.healthLogId;
     }
 
     // Log to database — DB is authoritative, failures trigger compensation
-    // Both inserts are wrapped in a transaction to prevent orphaned custom_foods rows
     try {
       const dbResult = await insertCustomFoodWithLogEntry(
-        session!.userId,
+        userId,
         {
           foodName: body.food_name,
           amount: body.amount,
-          unitId: body.unit_id,
+          unitId: body.unit_id as ServingUnit,
           calories: body.calories,
           proteinG: body.protein_g,
           carbsG: body.carbs_g,
           fatG: body.fat_g,
           fiberG: body.fiber_g,
           sodiumMg: body.sodium_mg,
+          saturatedFatG: body.saturated_fat_g ?? null,
+          transFatG: body.trans_fat_g ?? null,
+          sugarsG: body.sugars_g ?? null,
+          caloriesFromFat: body.calories_from_fat ?? null,
           confidence: body.confidence,
-          notes: body.notes,
-          description: body.description,
-          fitbitFoodId: fitbitFoodId ?? null,
+          notes: body.notes || null,
+          description: body.description || null,
           keywords: body.keywords,
         },
         {
           mealTypeId: body.mealTypeId,
           amount: body.amount,
-          unitId: body.unit_id,
+          unitId: body.unit_id as ServingUnit,
           date,
           time,
           zoneOffset,
-          fitbitLogId: fitbitLogId ?? null,
+          healthLogId: healthLogId ?? null,
         },
         log,
       );
@@ -349,95 +369,80 @@ export async function POST(request: Request) {
     } catch (dbErr) {
       log.error(
         { action: "food_log_db_error", error: dbErr instanceof Error ? dbErr.message : String(dbErr) },
-        "DB write failed after Fitbit success, attempting compensation"
+        "DB write failed after health log creation, attempting compensation"
       );
-      if (fitbitLogId && !isDryRun) {
+      if (healthLogId && !isDryRun) {
         try {
-          const accessToken = await ensureFreshToken(session!.userId, log);
-          await deleteFoodLog(accessToken, fitbitLogId, log, session!.userId);
-          log.info({ action: "food_log_compensation", fitbitLogId }, "Fitbit log rolled back after DB failure");
+          const accessToken = await ensureFreshToken(userId, log);
+          await deleteNutritionLogs(accessToken, [healthLogId], log, userId);
+          log.info({ action: "food_log_compensation", healthLogId }, "health log rolled back after DB failure");
         } catch (compensationErr) {
           log.error(
-            { action: "food_log_compensation_failed", fitbitLogId, error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr) },
-            "CRITICAL: Fitbit log exists but DB write failed and compensation failed"
+            { action: "food_log_compensation_failed", healthLogId, error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr) },
+            "CRITICAL: health log exists but DB write failed and compensation failed"
           );
-          return errorResponse("PARTIAL_ERROR", "Food logged to Fitbit but local save failed. Manual cleanup may be needed.", 500);
+          return errorResponse("PARTIAL_ERROR", "Food logged to Google Health but local save failed. Manual cleanup may be needed.", 500);
         }
       }
       return errorResponse("INTERNAL_ERROR", "Failed to save food log", 500);
     }
 
+    // Store in idempotency cache if clientToken provided
+    if (clientToken) {
+      const cacheKey = getIdempotencyKey(userId, clientToken);
+      idempotencyCache.set(cacheKey, {
+        healthLogId,
+        foodLogId,
+        expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
+      });
+    }
+
     const response: FoodLogResponse = {
       success: true,
-      fitbitFoodId,
-      fitbitLogId,
-      reusedFood: reused,
+      healthLogId,
+      reusedFood: false,
       foodLogId,
       ...(isDryRun && { dryRun: true }),
     };
 
     log.info(
-      {
-        action: "log_food_success",
-        foodId: fitbitFoodId,
-        logId: fitbitLogId,
-        reused,
-        foodLogId,
-        dryRun: isDryRun || undefined,
-      },
-      isDryRun ? "food logged in dry-run mode (Fitbit API skipped)" : "food logged successfully"
+      { action: "log_food_success", healthLogId, reused: false, foodLogId, dryRun: isDryRun || undefined },
+      isDryRun ? "food logged in dry-run mode (Health API skipped)" : "food logged successfully"
     );
 
     return successResponse(response);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
 
-    if (errorMessage === "FITBIT_CREDENTIALS_MISSING") {
-      log.warn(
-        { action: "log_food_credentials_missing" },
-        "Fitbit credentials not configured"
-      );
+    if (errorMessage === "HEALTH_TOKEN_INVALID") {
+      log.warn({ action: "log_food_token_invalid" }, "Google Health token invalid, reconnect required");
       return errorResponse(
-        "FITBIT_CREDENTIALS_MISSING",
-        "Fitbit credentials not configured. Please set up your credentials in Settings.",
-        424
-      );
-    }
-
-    if (errorMessage === "FITBIT_TOKEN_INVALID") {
-      log.warn(
-        { action: "log_food_token_invalid" },
-        "Fitbit token invalid, reconnect required"
-      );
-      return errorResponse(
-        "FITBIT_TOKEN_INVALID",
-        "Fitbit session expired. Please reconnect your Fitbit account.",
+        "HEALTH_TOKEN_INVALID",
+        "Google Health session expired. Please reconnect your account.",
         401
       );
     }
 
-    if (errorMessage === "FITBIT_TIMEOUT") {
-      log.warn({ action: "log_food_timeout" }, "Fitbit request timed out");
+    if (errorMessage === "HEALTH_TIMEOUT") {
+      log.warn({ action: "log_food_timeout" }, "Google Health request timed out");
+      return errorResponse("HEALTH_TIMEOUT", "Request to Google Health timed out. Please try again.", 504);
+    }
+
+    if (errorMessage === "HEALTH_RATE_LIMIT_LOW") {
+      log.warn({ action: "log_food_rate_limit_low" }, "Google Health rate limit headroom low");
       return errorResponse(
-        "FITBIT_TIMEOUT",
-        "Request to Fitbit timed out. Please try again.",
-        504
+        "HEALTH_RATE_LIMIT_LOW",
+        "Google Health rate-limit headroom is low. Please try again in a few minutes.",
+        503
       );
     }
 
-    if (errorMessage === "FITBIT_RATE_LIMIT") {
-      log.warn({ action: "log_food_rate_limited" }, "Fitbit rate limited");
-      return errorResponse(
-        "FITBIT_API_ERROR",
-        "Fitbit API rate limited. Please try again later.",
-        500
-      );
+    if (errorMessage === "HEALTH_RATE_LIMIT") {
+      log.warn({ action: "log_food_rate_limited" }, "Google Health rate limited");
+      return errorResponse("HEALTH_API_ERROR", "Google Health API rate limited. Please try again later.", 500);
     }
 
-    log.error(
-      { action: "log_food_error", error: errorMessage },
-      "Fitbit API error"
-    );
-    return errorResponse("FITBIT_API_ERROR", "Failed to log food to Fitbit", 500);
+    log.error({ action: "log_food_error", error: errorMessage }, "Google Health API error");
+    return errorResponse("HEALTH_API_ERROR", "Failed to log food to Google Health", 500);
   }
 }

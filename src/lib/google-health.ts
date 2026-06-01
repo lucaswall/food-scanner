@@ -13,6 +13,7 @@ import {
   sanitizeErrorBody,
   jsonWithTimeout,
 } from "@/lib/http";
+import type { FoodAnalysis, HealthProfile, HealthWeightLog, ActivitySummary } from "@/types";
 
 export type { HealthCallCriticality } from "@/lib/google-health-rate-limit";
 export { parseErrorBody, sanitizeErrorBody, jsonWithTimeout };
@@ -368,4 +369,418 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
 
   refreshInFlight.set(userId, promise);
   return promise;
+}
+
+// ─── Nutrition write API ──────────────────────────────────────────────────────
+
+const GOOGLE_HEALTH_API_BASE = "https://health.googleapis.com/v1";
+
+/** Module-level dry-run gate — single source of truth for both write functions. */
+function isHealthDryRun(): boolean {
+  return process.env.HEALTH_DRY_RUN === "true";
+}
+
+/**
+ * Build the JSON body for a Google Health nutrition-log dataPoint.
+ *
+ * Ports the nutrient-param logic from fitbit.ts (createFood body builder):
+ *   - Required nutrients are always included.
+ *   - Conditional tier-1 nutrients (saturated_fat, trans_fat, sugars,
+ *     calories_from_fat) are omitted when null and included when present.
+ *   - Calories and calories_from_fat are rounded via Math.round.
+ *
+ * NOTE: JSON field paths are inferred from Google Health Connect REST API docs
+ * and must be confirmed during staging QA (FOO-1086).
+ */
+function buildNutritionLogBody(food: FoodAnalysis): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    food_display_name: food.food_name,
+    amount: food.amount,
+    serving_unit: food.unit_id, // ServingUnit is already a string
+    energy: Math.round(food.calories),
+    protein: food.protein_g,
+    total_carbohydrate: food.carbs_g,
+    total_fat: food.fat_g,
+    dietary_fiber: food.fiber_g,
+    sodium: food.sodium_mg,
+  };
+
+  // Conditional tier-1 nutrients — omit when null (port from fitbit.ts:211-223)
+  if (food.saturated_fat_g != null) {
+    body.saturated_fat = food.saturated_fat_g;
+  }
+  if (food.trans_fat_g != null) {
+    body.trans_fat = food.trans_fat_g;
+  }
+  if (food.sugars_g != null) {
+    body.sugars = food.sugars_g;
+  }
+  if (food.calories_from_fat != null) {
+    body.calories_from_fat = Math.round(food.calories_from_fat);
+  }
+
+  return body;
+}
+
+/**
+ * Create a single anonymous nutrition-log dataPoint in Google Health.
+ *
+ * Collapses Fitbit's two-step createFood + logFood into one API call.
+ * Anonymous logs are not editable in place — the app always does
+ * delete-old + create-new on edit.
+ *
+ * Returns { healthLogId } — the string id from the created dataPoint.
+ * Throws HEALTH_API_ERROR on non-ok response or missing id in response body.
+ *
+ * NOTE: endpoint and body shape inferred from docs; confirm during staging QA.
+ */
+export async function createNutritionLog(
+  accessToken: string,
+  food: FoodAnalysis,
+  log?: Logger,
+  userId?: string,
+): Promise<{ healthLogId: string }> {
+  const l = log ?? logger;
+
+  if (isHealthDryRun()) {
+    l.debug({ action: "health_create_nutrition_log_dry_run" }, "dry run: skipping nutrition log creation");
+    return { healthLogId: "dry-run" };
+  }
+
+  const body = buildNutritionLogBody(food);
+
+  const response = await fetchWithRetry(
+    `${GOOGLE_HEALTH_API_BASE}/users/me/nutrition-log/dataPoints`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+    0, Date.now(), l, userId, "critical",
+  );
+
+  if (!response.ok) {
+    const rawBody = await parseErrorBody(response);
+    const errorBody = sanitizeErrorBody(rawBody);
+    l.error(
+      { action: "health_create_nutrition_log_failed", status: response.status, errorBody },
+      "nutrition log creation failed",
+    );
+    throw new Error("HEALTH_API_ERROR");
+  }
+
+  const data = await jsonWithTimeout<Record<string, unknown>>(response);
+  if (typeof data.id !== "string") {
+    l.error(
+      { action: "health_create_nutrition_log_invalid_response" },
+      "nutrition log response missing string id",
+    );
+    throw new Error("HEALTH_API_ERROR");
+  }
+
+  l.info({ action: "health_create_nutrition_log_success", healthLogId: data.id }, "nutrition log created");
+  return { healthLogId: data.id };
+}
+
+/**
+ * Delete one or more Google Health nutrition-log dataPoints by id.
+ *
+ * Replaces Fitbit's deleteFoodLog (single) — batchDelete handles multi-delete
+ * and makes compensation simpler (one call for edit-old-delete).
+ *
+ * 404 resolves without error (already-deleted idempotency — port from
+ * fitbit.ts:343-349 not-found handling).
+ * Other non-ok responses throw HEALTH_API_ERROR.
+ */
+export async function deleteNutritionLogs(
+  accessToken: string,
+  ids: string[],
+  log?: Logger,
+  userId?: string,
+): Promise<void> {
+  const l = log ?? logger;
+
+  if (isHealthDryRun()) {
+    l.debug({ action: "health_delete_nutrition_logs_dry_run" }, "dry run: skipping nutrition log deletion");
+    return;
+  }
+
+  const response = await fetchWithRetry(
+    `${GOOGLE_HEALTH_API_BASE}/users/me/nutrition-log/dataPoints:batchDelete`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ids }),
+    },
+    0, Date.now(), l, userId, "critical",
+  );
+
+  // 404 = already deleted — treat as success (idempotency)
+  if (response.status === 404) {
+    l.warn(
+      { action: "health_delete_nutrition_logs_not_found", ids },
+      "nutrition logs not found on Google Health, treating as already deleted",
+    );
+    return;
+  }
+
+  if (!response.ok) {
+    const rawBody = await parseErrorBody(response);
+    const errorBody = sanitizeErrorBody(rawBody);
+    l.error(
+      { action: "health_delete_nutrition_logs_failed", status: response.status, errorBody },
+      "nutrition log deletion failed",
+    );
+    throw new Error("HEALTH_API_ERROR");
+  }
+
+  l.info({ action: "health_delete_nutrition_logs_success", idCount: ids.length }, "nutrition logs deleted");
+}
+
+// ─── Profile + biometric read API ────────────────────────────────────────────
+
+const GOOGLE_HEALTH_API_V4 = "https://health.googleapis.com/v4";
+
+/** Subtract days from a YYYY-MM-DD date string, returning YYYY-MM-DD. */
+function subtractDays(dateStr: string, days: number): string {
+  const date = new Date(dateStr + "T00:00:00Z");
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Compute integer age from a date-of-birth object { year, month, day } and now. */
+function computeAge(dob: { year: number; month: number; day: number }): number {
+  const now = new Date();
+  let age = now.getUTCFullYear() - dob.year;
+  const birthdayThisYear = new Date(Date.UTC(now.getUTCFullYear(), dob.month - 1, dob.day));
+  if (now < birthdayThisYear) {
+    age--;
+  }
+  return age;
+}
+
+/**
+ * Map a Google Health sex string to the internal enum.
+ * Unknown/absent defaults to 'NA' — keeps the daily-goals sex_unset path alive.
+ * NOTE: Google Health may return lowercase ('male'/'female') — handle both.
+ */
+function parseSex(value: unknown): "MALE" | "FEMALE" | "NA" {
+  if (typeof value !== "string") return "NA";
+  const upper = value.toUpperCase();
+  if (upper === "MALE") return "MALE";
+  if (upper === "FEMALE") return "FEMALE";
+  return "NA";
+}
+
+/**
+ * Parse height from the Google Health response into cm.
+ * Height is expected as { value: number, unit: string } where unit is "METER".
+ * Converts metres → cm by multiplying by 100.
+ *
+ * NOTE: field paths inferred from docs — confirm during staging QA (FOO-1088).
+ */
+function parseHeightCm(height: Record<string, unknown>): number {
+  const value = height.value as number;
+  const unit = typeof height.unit === "string" ? height.unit.toUpperCase() : "METER";
+  if (unit === "CENTIMETER" || unit === "CM") return value;
+  // Default: treat as meters → cm
+  return value * 100;
+}
+
+/**
+ * Fetch and parse the user's Google Health profile.
+ *
+ * Returns { ageYears, sex, heightCm }.
+ * Unknown sex defaults to 'NA' (not a throw — keeps sex_unset daily-goals path alive).
+ * Height is always returned in cm.
+ * Age is derived from the dateOfBirth field using the current date.
+ *
+ * NOTE: endpoint and body shape inferred from Google Health Connect REST API v4 docs;
+ * confirm during staging QA (FOO-1088).
+ */
+export async function getHealthProfile(
+  accessToken: string,
+  log?: Logger,
+  userId?: string,
+  criticality: HealthCallCriticality = "optional",
+): Promise<HealthProfile> {
+  const l = log ?? logger;
+  l.debug({ action: "health_get_profile" }, "fetching Google Health profile");
+
+  const response = await fetchWithRetry(
+    `${GOOGLE_HEALTH_API_V4}/users/me`,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+    0, Date.now(), l, userId, criticality,
+  );
+
+  if (!response.ok) {
+    const rawBody = await parseErrorBody(response);
+    const errorBody = sanitizeErrorBody(rawBody);
+    l.error({ action: "health_get_profile_failed", status: response.status, errorBody }, "profile fetch failed");
+    throw new Error("HEALTH_API_ERROR");
+  }
+
+  const data = await jsonWithTimeout<Record<string, unknown>>(response);
+
+  const sex = parseSex(data.sex);
+
+  const heightRaw = data.height as Record<string, unknown> | undefined;
+  if (!heightRaw || typeof heightRaw.value !== "number") {
+    throw new Error("HEALTH_API_ERROR");
+  }
+  const heightCm = parseHeightCm(heightRaw);
+
+  const dobRaw = data.dateOfBirth as Record<string, unknown> | undefined;
+  if (!dobRaw || typeof dobRaw.year !== "number") {
+    throw new Error("HEALTH_API_ERROR");
+  }
+  const ageYears = computeAge({
+    year: dobRaw.year as number,
+    month: (dobRaw.month as number) ?? 1,
+    day: (dobRaw.day as number) ?? 1,
+  });
+
+  l.debug({ action: "health_get_profile_success" }, "profile fetched");
+  return { ageYears, sex, heightCm };
+}
+
+/**
+ * Fetch the most recent weight log on or before targetDate from Google Health.
+ *
+ * Issues a SINGLE ranged fetch over [targetDate-13d, targetDate] (14-day window)
+ * rather than a 14-day walk-back (replaces fitbit.ts getFitbitLatestWeightKg).
+ * Returns the most-recent data point on/before targetDate, or null if empty.
+ * Converts non-kg units to kg.
+ *
+ * NOTE: endpoint and body shape inferred from docs — confirm during staging QA (FOO-1088).
+ */
+export async function getHealthLatestWeightKg(
+  accessToken: string,
+  targetDate: string,
+  log?: Logger,
+  userId?: string,
+  criticality: HealthCallCriticality = "optional",
+): Promise<HealthWeightLog | null> {
+  const l = log ?? logger;
+  const startDate = subtractDays(targetDate, 13); // 14 days inclusive
+  l.debug(
+    { action: "health_get_weight", targetDate, startDate, windowDays: 14 },
+    "fetching weight from Google Health (14-day window)",
+  );
+
+  const url = new URL(`${GOOGLE_HEALTH_API_V4}/users/me/weight-log`);
+  url.searchParams.set("startDate", startDate);
+  url.searchParams.set("endDate", targetDate);
+
+  const response = await fetchWithRetry(
+    url.toString(),
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+    0, Date.now(), l, userId, criticality,
+  );
+
+  if (!response.ok) {
+    const rawBody = await parseErrorBody(response);
+    const errorBody = sanitizeErrorBody(rawBody);
+    l.error({ action: "health_get_weight_failed", status: response.status, errorBody }, "weight fetch failed");
+    throw new Error("HEALTH_API_ERROR");
+  }
+
+  const data = await jsonWithTimeout<Record<string, unknown>>(response);
+  const points = data.weightPoints as Array<Record<string, unknown>> | undefined;
+
+  if (!Array.isArray(points) || points.length === 0) {
+    l.debug({ action: "health_get_weight_not_found", targetDate }, "no weight found in 14-day window");
+    return null;
+  }
+
+  // Filter to only points on/before targetDate, then sort descending by date
+  const valid = points.filter((p) => {
+    return typeof p.date === "string" && p.date <= targetDate;
+  });
+
+  if (valid.length === 0) {
+    l.debug({ action: "health_get_weight_all_future", targetDate }, "all weight points are after targetDate");
+    return null;
+  }
+
+  // Sort by date descending → take the most recent
+  valid.sort((a, b) => (b.date as string).localeCompare(a.date as string));
+  const latest = valid[0];
+
+  if (typeof latest.weightKg !== "number") {
+    throw new Error("HEALTH_API_ERROR");
+  }
+
+  l.debug({ action: "health_get_weight_success", loggedDate: latest.date, weightKg: latest.weightKg }, "weight fetched");
+  return { weightKg: latest.weightKg, loggedDate: latest.date as string };
+}
+
+/**
+ * Fetch the daily activity summary (caloriesOut) from Google Health.
+ *
+ * Returns { caloriesOut: number } from dailyRollUp, or { caloriesOut: null }
+ * if the roll-up is empty or caloriesOut is not yet available (no throw).
+ * Converts kJ → kcal if energyUnit is "kJ".
+ *
+ * NOTE: endpoint and body shape inferred from docs — confirm during staging QA (FOO-1088).
+ */
+export async function getHealthActivitySummary(
+  accessToken: string,
+  date: string,
+  log?: Logger,
+  userId?: string,
+  criticality: HealthCallCriticality = "optional",
+): Promise<ActivitySummary> {
+  const l = log ?? logger;
+  l.debug({ action: "health_get_activity_summary", date }, "fetching activity summary from Google Health");
+
+  const url = new URL(`${GOOGLE_HEALTH_API_V4}/users/me/activity-summary`);
+  url.searchParams.set("date", date);
+
+  const response = await fetchWithRetry(
+    url.toString(),
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+    0, Date.now(), l, userId, criticality,
+  );
+
+  if (!response.ok) {
+    const rawBody = await parseErrorBody(response);
+    const errorBody = sanitizeErrorBody(rawBody);
+    l.error({ action: "health_get_activity_summary_failed", status: response.status, errorBody }, "activity summary fetch failed");
+    throw new Error("HEALTH_API_ERROR");
+  }
+
+  const data = await jsonWithTimeout<Record<string, unknown>>(response);
+  const rollUp = data.dailyRollUp as Record<string, unknown> | undefined;
+
+  if (!rollUp || typeof rollUp.caloriesOut !== "number") {
+    l.debug({ action: "health_get_activity_summary_empty", date }, "activity summary caloriesOut not yet available");
+    return { caloriesOut: null };
+  }
+
+  let caloriesOut = rollUp.caloriesOut;
+
+  // Convert kJ → kcal if the energy unit is specified as kJ
+  const energyUnit = typeof rollUp.energyUnit === "string" ? rollUp.energyUnit : "";
+  if (energyUnit.toLowerCase() === "kj") {
+    caloriesOut = Math.round(caloriesOut / 4.184);
+  }
+
+  l.debug({ action: "health_get_activity_summary_success", date, caloriesOut }, "activity summary fetched");
+  return { caloriesOut };
 }

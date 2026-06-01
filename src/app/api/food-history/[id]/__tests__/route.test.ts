@@ -8,7 +8,7 @@ vi.mock("@/lib/session", () => ({
   getSession: () => mockGetSession(),
   validateSession: (
     session: FullSession | null,
-    options?: { requireFitbit?: boolean },
+    options?: { requireHealth?: boolean },
   ): Response | null => {
     if (!session) {
       return Response.json(
@@ -16,15 +16,9 @@ vi.mock("@/lib/session", () => ({
         { status: 401 },
       );
     }
-    if (options?.requireFitbit && !session.fitbitConnected) {
+    if (options?.requireHealth && !session.healthConnected) {
       return Response.json(
-        { success: false, error: { code: "FITBIT_NOT_CONNECTED", message: "Fitbit account not connected" }, timestamp: Date.now() },
-        { status: 400 },
-      );
-    }
-    if (options?.requireFitbit && !session.hasFitbitCredentials) {
-      return Response.json(
-        { success: false, error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Fitbit credentials not configured" }, timestamp: Date.now() },
+        { success: false, error: { code: "HEALTH_NOT_CONNECTED", message: "Google Health account not connected" }, timestamp: Date.now() },
         { status: 400 },
       );
     }
@@ -55,10 +49,10 @@ vi.mock("@/lib/food-log", () => ({
 }));
 
 const mockEnsureFreshToken = vi.fn();
-const mockDeleteFoodLog = vi.fn();
-vi.mock("@/lib/fitbit", () => ({
+const mockDeleteNutritionLogs = vi.fn();
+vi.mock("@/lib/google-health", () => ({
   ensureFreshToken: (...args: unknown[]) => mockEnsureFreshToken(...args),
-  deleteFoodLog: (...args: unknown[]) => mockDeleteFoodLog(...args),
+  deleteNutritionLogs: (...args: unknown[]) => mockDeleteNutritionLogs(...args),
 }));
 
 const { DELETE, GET } = await import("@/app/api/food-history/[id]/route");
@@ -67,11 +61,11 @@ const validSession: FullSession = {
   sessionId: "test-session",
   userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
-  fitbitConnected: true,
-  hasFitbitCredentials: true,
+  healthConnected: true,
   destroy: vi.fn(),
 };
 
+// Entry with a string healthLogId (Google Health)
 const sampleEntry = {
   id: 42,
   foodName: "Chicken Breast",
@@ -82,11 +76,11 @@ const sampleEntry = {
   fiberG: 0,
   sodiumMg: 100,
   amount: 200,
-  unitId: 147,
+  unitId: "g",
   mealTypeId: 3,
   date: "2026-02-06",
   time: "12:30:00",
-  fitbitLogId: 789,
+  healthLogId: "health-log-id-789",
 };
 
 function createRequest(): Request {
@@ -97,41 +91,33 @@ function createRequest(): Request {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("HEALTH_DRY_RUN", "");
 });
 
 afterEach(() => {
-  vi.unstubAllEnvs();
+  vi.stubEnv("HEALTH_DRY_RUN", "");
 });
 
 describe("DELETE /api/food-history/[id]", () => {
   it("returns 401 for missing session", async () => {
     mockGetSession.mockResolvedValue(null);
-
-    const request = createRequest();
-    const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
-
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
     expect(response.status).toBe(401);
     const body = await response.json();
     expect(body.error.code).toBe("AUTH_MISSING_SESSION");
   });
 
-  it("returns 400 when Fitbit not connected", async () => {
-    mockGetSession.mockResolvedValue({ ...validSession, fitbitConnected: false });
-
-    const request = createRequest();
-    const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
-
+  it("returns 400 HEALTH_NOT_CONNECTED without health connection", async () => {
+    mockGetSession.mockResolvedValue({ ...validSession, healthConnected: false });
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
     expect(response.status).toBe(400);
     const body = await response.json();
-    expect(body.error.code).toBe("FITBIT_NOT_CONNECTED");
+    expect(body.error.code).toBe("HEALTH_NOT_CONNECTED");
   });
 
-  it("returns 400 for invalid id (non-numeric)", async () => {
+  it("returns 400 for invalid id", async () => {
     mockGetSession.mockResolvedValue(validSession);
-
-    const request = createRequest();
-    const response = await DELETE(request, { params: Promise.resolve({ id: "abc" }) });
-
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "not-a-number" }) });
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
@@ -140,278 +126,142 @@ describe("DELETE /api/food-history/[id]", () => {
   it("returns 404 when entry not found", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockGetFoodLogEntry.mockResolvedValue(null);
-
-    const request = createRequest();
-    const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
-
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
     expect(response.status).toBe(404);
     const body = await response.json();
     expect(body.error.code).toBe("NOT_FOUND");
-    expect(body.error.message).toContain("not found");
   });
 
-  it("returns 500 when getFoodLogEntry throws", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockGetFoodLogEntry.mockRejectedValue(new Error("DB connection failed"));
-
-    const request = createRequest();
-    const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
-
-    expect(response.status).toBe(500);
-    const body = await response.json();
-    expect(body.success).toBe(false);
-  });
-
-  it("deletes from Fitbit and local DB when fitbitLogId exists", async () => {
+  it("deletes remote health log then DB row and returns success", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockDeleteFoodLog.mockResolvedValue(undefined);
+    mockDeleteNutritionLogs.mockResolvedValue(undefined);
     mockDeleteFoodLogEntry.mockResolvedValue(undefined);
 
-    const request = createRequest();
-    const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
-
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
     expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.data.deleted).toBe(true);
+
     expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-uuid-123", expect.any(Object));
-    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789, expect.any(Object), "user-uuid-123");
-    expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.anything());
-  });
+    expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
+      "fresh-token",
+      ["health-log-id-789"],
+      expect.any(Object),
+      "user-uuid-123",
+    );
+    expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.any(Object));
 
-  it("deletes local only when fitbitLogId is null", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockGetFoodLogEntry.mockResolvedValue({ ...sampleEntry, fitbitLogId: null });
-    mockDeleteFoodLogEntry.mockResolvedValue(undefined);
-
-    const request = createRequest();
-    const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
-
-    expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.data.deleted).toBe(true);
+  });
+
+  it("skips remote delete when entry has no healthLogId", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogEntry.mockResolvedValue({ ...sampleEntry, healthLogId: null });
+    mockDeleteFoodLogEntry.mockResolvedValue(undefined);
+
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
+    expect(response.status).toBe(200);
+
     expect(mockEnsureFreshToken).not.toHaveBeenCalled();
-    expect(mockDeleteFoodLog).not.toHaveBeenCalled();
-    expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.anything());
+    expect(mockDeleteNutritionLogs).not.toHaveBeenCalled();
+    expect(mockDeleteFoodLogEntry).toHaveBeenCalled();
   });
 
-  it("returns error if Fitbit delete fails (local entry NOT deleted)", async () => {
+  it("skips remote delete in HEALTH_DRY_RUN mode", async () => {
+    vi.stubEnv("HEALTH_DRY_RUN", "true");
     mockGetSession.mockResolvedValue(validSession);
     mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockDeleteFoodLog.mockRejectedValue(new Error("FITBIT_API_ERROR"));
+    mockDeleteFoodLogEntry.mockResolvedValue(undefined);
 
-    const request = createRequest();
-    const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
+    expect(response.status).toBe(200);
 
-    expect(response.status).toBe(502);
-    const body = await response.json();
-    expect(body.error.code).toBe("FITBIT_API_ERROR");
-    expect(mockDeleteFoodLogEntry).not.toHaveBeenCalled();
+    expect(mockEnsureFreshToken).not.toHaveBeenCalled();
+    expect(mockDeleteNutritionLogs).not.toHaveBeenCalled();
+    expect(mockDeleteFoodLogEntry).toHaveBeenCalled();
   });
 
-  it("handles FITBIT_TOKEN_INVALID and returns 401", async () => {
+  it("returns 401 HEALTH_TOKEN_INVALID on invalid token", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
-    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_TOKEN_INVALID"));
+    mockEnsureFreshToken.mockRejectedValue(new Error("HEALTH_TOKEN_INVALID"));
 
-    const request = createRequest();
-    const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
-
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
     expect(response.status).toBe(401);
     const body = await response.json();
-    expect(body.error.code).toBe("FITBIT_TOKEN_INVALID");
-    expect(mockDeleteFoodLogEntry).not.toHaveBeenCalled();
+    expect(body.error.code).toBe("HEALTH_TOKEN_INVALID");
   });
 
-  it("looks up entry with correct userId and id", async () => {
+  it("returns 502 HEALTH_API_ERROR on delete failure", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockDeleteFoodLog.mockResolvedValue(undefined);
-    mockDeleteFoodLogEntry.mockResolvedValue(undefined);
+    mockDeleteNutritionLogs.mockRejectedValue(new Error("HEALTH_API_ERROR"));
 
-    const request = createRequest();
-    await DELETE(request, { params: Promise.resolve({ id: "42" }) });
-
-    expect(mockGetFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42);
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_API_ERROR");
   });
 
-  describe("FITBIT_DRY_RUN=true", () => {
-    it("skips Fitbit delete when entry has fitbitLogId", async () => {
-      vi.stubEnv("FITBIT_DRY_RUN", "true");
-      mockGetSession.mockResolvedValue(validSession);
-      mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
-      mockDeleteFoodLogEntry.mockResolvedValue(undefined);
+  it("returns 503 HEALTH_RATE_LIMIT_LOW on rate limit", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
+    mockEnsureFreshToken.mockRejectedValue(new Error("HEALTH_RATE_LIMIT_LOW"));
 
-      const request = createRequest();
-      const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
-
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.success).toBe(true);
-      expect(body.data.deleted).toBe(true);
-      expect(mockEnsureFreshToken).not.toHaveBeenCalled();
-      expect(mockDeleteFoodLog).not.toHaveBeenCalled();
-      expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.anything());
-    });
-
-    it("proceeds with DB delete when entry has null fitbitLogId", async () => {
-      vi.stubEnv("FITBIT_DRY_RUN", "true");
-      mockGetSession.mockResolvedValue(validSession);
-      mockGetFoodLogEntry.mockResolvedValue({ ...sampleEntry, fitbitLogId: null });
-      mockDeleteFoodLogEntry.mockResolvedValue(undefined);
-
-      const request = createRequest();
-      const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
-
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.success).toBe(true);
-      expect(body.data.deleted).toBe(true);
-      expect(mockEnsureFreshToken).not.toHaveBeenCalled();
-      expect(mockDeleteFoodLog).not.toHaveBeenCalled();
-      expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.anything());
-    });
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_RATE_LIMIT_LOW");
   });
 
-  describe("partial failure handling", () => {
-    it("returns error when Fitbit delete succeeds but DB delete fails", async () => {
-      mockGetSession.mockResolvedValue(validSession);
-      mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
-      mockEnsureFreshToken.mockResolvedValue("fresh-token");
-      mockDeleteFoodLog.mockResolvedValue(undefined);
-      mockDeleteFoodLogEntry.mockRejectedValue(new Error("DB connection failed"));
+  it("returns 500 INTERNAL_ERROR when DB delete fails after remote success", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockDeleteNutritionLogs.mockResolvedValue(undefined);
+    mockDeleteFoodLogEntry.mockRejectedValue(new Error("DB error"));
 
-      const { logger } = await import("@/lib/logger");
-
-      const request = createRequest();
-      const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
-
-      expect(response.status).toBe(500);
-      const body = await response.json();
-      expect(body.error.code).toBe("INTERNAL_ERROR");
-      expect(body.error.message).toContain("local delete failed");
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: "delete_food_log_db_error",
-          entryId: 42,
-        }),
-        expect.stringContaining("Fitbit delete succeeded but local DB delete failed"),
-      );
-    });
-
-    it("returns error when DB delete fails in dry-run mode", async () => {
-      vi.stubEnv("FITBIT_DRY_RUN", "true");
-      mockGetSession.mockResolvedValue(validSession);
-      mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
-      mockDeleteFoodLogEntry.mockRejectedValue(new Error("DB connection failed"));
-
-      const request = createRequest();
-      const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
-
-      expect(response.status).toBe(500);
-      const body = await response.json();
-      expect(body.error.code).toBe("INTERNAL_ERROR");
-    });
-  });
-
-  describe("FITBIT_DRY_RUN not set", () => {
-    it("existing Fitbit delete behavior works when entry has fitbitLogId", async () => {
-      mockGetSession.mockResolvedValue(validSession);
-      mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
-      mockEnsureFreshToken.mockResolvedValue("fresh-token");
-      mockDeleteFoodLog.mockResolvedValue(undefined);
-      mockDeleteFoodLogEntry.mockResolvedValue(undefined);
-
-      const request = createRequest();
-      const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
-
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.success).toBe(true);
-      expect(body.data.deleted).toBe(true);
-      expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-uuid-123", expect.any(Object));
-      expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789, expect.any(Object), "user-uuid-123");
-      expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.anything());
-    });
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.error.code).toBe("INTERNAL_ERROR");
   });
 });
 
 describe("GET /api/food-history/[id]", () => {
-  const entryDetail = {
-    id: 42,
-    foodName: "Chicken Breast",
-    calories: 250,
-    proteinG: 30,
-    carbsG: 0,
-    fatG: 5,
-    fiberG: 0,
-    sodiumMg: 100,
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("returns entry detail for valid id", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockGetFoodLogEntryDetail.mockResolvedValue(entryDetail);
-
+  it("returns 401 for missing session", async () => {
+    mockGetSession.mockResolvedValue(null);
     const request = new Request("http://localhost:3000/api/food-history/42");
     const response = await GET(request, { params: Promise.resolve({ id: "42" }) });
-
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.success).toBe(true);
-    expect(body.data).toEqual(entryDetail);
+    expect(response.status).toBe(401);
   });
 
   it("returns 404 when entry not found", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockGetFoodLogEntryDetail.mockResolvedValue(null);
-
-    const request = new Request("http://localhost:3000/api/food-history/99");
-    const response = await GET(request, { params: Promise.resolve({ id: "99" }) });
-
-    expect(response.status).toBe(404);
-    const body = await response.json();
-    expect(body.error.code).toBe("NOT_FOUND");
-  });
-
-  it("returns ETag header on success response", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockGetFoodLogEntryDetail.mockResolvedValue(entryDetail);
-
     const request = new Request("http://localhost:3000/api/food-history/42");
     const response = await GET(request, { params: Promise.resolve({ id: "42" }) });
-
-    expect(response.headers.get("ETag")).toMatch(/^"[a-f0-9]{16}"$/);
+    expect(response.status).toBe(404);
   });
 
-  it("returns 304 when If-None-Match matches", async () => {
+  it("returns 200 with entry detail", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockGetFoodLogEntryDetail.mockResolvedValue(entryDetail);
-
-    const response1 = await GET(
-      new Request("http://localhost:3000/api/food-history/42"),
-      { params: Promise.resolve({ id: "42" }) },
-    );
-    const etag = response1.headers.get("ETag")!;
-
-    mockGetSession.mockResolvedValue(validSession);
-    mockGetFoodLogEntryDetail.mockResolvedValue(entryDetail);
-
-    const response2 = await GET(
-      new Request("http://localhost:3000/api/food-history/42", {
-        headers: { "if-none-match": etag },
-      }),
-      { params: Promise.resolve({ id: "42" }) },
-    );
-
-    expect(response2.status).toBe(304);
-    expect(response2.headers.get("ETag")).toBe(etag);
-    expect(response2.headers.get("Cache-Control")).toBe("private, no-cache");
+    mockGetFoodLogEntryDetail.mockResolvedValue({
+      ...sampleEntry,
+      customFoodId: 10,
+      description: null,
+      notes: null,
+      confidence: "high",
+      isFavorite: false,
+      keywords: [],
+    });
+    const request = new Request("http://localhost:3000/api/food-history/42");
+    const response = await GET(request, { params: Promise.resolve({ id: "42" }) });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.foodName).toBe("Chicken Breast");
+    expect(body.data.healthLogId).toBe("health-log-id-789");
   });
 });

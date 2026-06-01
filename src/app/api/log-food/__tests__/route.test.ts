@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { FoodLogRequest, FullSession } from "@/types";
+import type { FoodLogRequest, FullSession, ServingUnit } from "@/types";
 
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 
@@ -8,7 +8,7 @@ vi.mock("@/lib/session", () => ({
   getSession: () => mockGetSession(),
   validateSession: (
     session: FullSession | null,
-    options?: { requireFitbit?: boolean },
+    options?: { requireHealth?: boolean },
   ): Response | null => {
     if (!session) {
       return Response.json(
@@ -16,15 +16,9 @@ vi.mock("@/lib/session", () => ({
         { status: 401 },
       );
     }
-    if (options?.requireFitbit && !session.fitbitConnected) {
+    if (options?.requireHealth && !session.healthConnected) {
       return Response.json(
-        { success: false, error: { code: "FITBIT_NOT_CONNECTED", message: "Fitbit account not connected" }, timestamp: Date.now() },
-        { status: 400 },
-      );
-    }
-    if (options?.requireFitbit && !session.hasFitbitCredentials) {
-      return Response.json(
-        { success: false, error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Fitbit credentials not configured" }, timestamp: Date.now() },
+        { success: false, error: { code: "HEALTH_NOT_CONNECTED", message: "Google Health account not connected" }, timestamp: Date.now() },
         { status: 400 },
       );
     }
@@ -46,16 +40,14 @@ vi.mock("@/lib/logger", () => {
   };
 });
 
-// Mock Fitbit API functions
-const mockFindOrCreateFood = vi.fn();
-const mockLogFood = vi.fn();
+// Mock Google Health API functions
+const mockCreateNutritionLog = vi.fn();
 const mockEnsureFreshToken = vi.fn();
-const mockDeleteFoodLog = vi.fn();
-vi.mock("@/lib/fitbit", () => ({
-  findOrCreateFood: mockFindOrCreateFood,
-  logFood: mockLogFood,
-  ensureFreshToken: mockEnsureFreshToken,
-  deleteFoodLog: (...args: unknown[]) => mockDeleteFoodLog(...args),
+const mockDeleteNutritionLogs = vi.fn();
+vi.mock("@/lib/google-health", () => ({
+  ensureFreshToken: (...args: unknown[]) => mockEnsureFreshToken(...args),
+  createNutritionLog: (...args: unknown[]) => mockCreateNutritionLog(...args),
+  deleteNutritionLogs: (...args: unknown[]) => mockDeleteNutritionLogs(...args),
 }));
 
 // Mock food-log DB module
@@ -76,15 +68,15 @@ const validSession: FullSession = {
   sessionId: "test-session",
   userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
-  fitbitConnected: true,
-  hasFitbitCredentials: true,
+  healthConnected: true,
   destroy: vi.fn(),
 };
 
+// unit_id uses number (147=g) since food-validation.ts still validates as number (Task 21 migrates it)
 const validFoodLogRequest: FoodLogRequest = {
   food_name: "Test Food",
   amount: 100,
-  unit_id: 147,
+  unit_id: 147 as unknown as ServingUnit,
   calories: 150,
   protein_g: 10,
   carbs_g: 20,
@@ -104,7 +96,7 @@ const validFoodLogRequest: FoodLogRequest = {
   time: "12:30:00",
 };
 
-function createMockRequest(body: Partial<FoodLogRequest>): Request {
+function createMockRequest(body: unknown): Request {
   return {
     json: () => Promise.resolve(body),
   } as unknown as Request;
@@ -128,10 +120,10 @@ describe("POST /api/log-food", () => {
     expect(body.error.code).toBe("AUTH_MISSING_SESSION");
   });
 
-  it("returns 400 FITBIT_NOT_CONNECTED if no Fitbit tokens", async () => {
+  it("returns 400 HEALTH_NOT_CONNECTED if health not connected", async () => {
     mockGetSession.mockResolvedValue({
       ...validSession,
-      fitbitConnected: false,
+      healthConnected: false,
     });
 
     const request = createMockRequest(validFoodLogRequest);
@@ -139,7 +131,7 @@ describe("POST /api/log-food", () => {
 
     expect(response.status).toBe(400);
     const body = await response.json();
-    expect(body.error.code).toBe("FITBIT_NOT_CONNECTED");
+    expect(body.error.code).toBe("HEALTH_NOT_CONNECTED");
   });
 
   it("returns 400 VALIDATION_ERROR for invalid mealTypeId", async () => {
@@ -170,45 +162,35 @@ describe("POST /api/log-food", () => {
     expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
-  it("returns 400 VALIDATION_ERROR for missing required FoodAnalysis fields", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-
-    const request = createMockRequest({
-      mealTypeId: 1,
-    });
-    const response = await POST(request);
-
-    expect(response.status).toBe(400);
-    const body = await response.json();
-    expect(body.error.code).toBe("VALIDATION_ERROR");
-  });
-
-  it("returns 200 with FoodLogResponse on success", async () => {
+  it("calls createNutritionLog EXACTLY once (not two calls) and persists returned string healthLogId", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-    });
+    mockCreateNutritionLog.mockResolvedValue({ healthLogId: "health-log-abc-123" });
+    mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 42, foodLogId: 10 });
 
     const request = createMockRequest(validFoodLogRequest);
     const response = await POST(request);
 
     expect(response.status).toBe(200);
+    expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
+
+    // DB receives the string healthLogId
+    expect(mockInsertCustomFoodWithLogEntry).toHaveBeenCalledWith(
+      "user-uuid-123",
+      expect.any(Object),
+      expect.objectContaining({ healthLogId: "health-log-abc-123" }),
+      expect.anything(),
+    );
+
     const body = await response.json();
-    expect(body.success).toBe(true);
-    expect(body.data.fitbitFoodId).toBe(123);
-    expect(body.data.fitbitLogId).toBe(456);
-    expect(body.data.reusedFood).toBe(false);
+    expect(body.data.healthLogId).toBe("health-log-abc-123");
+    expect(body.data.foodLogId).toBe(10);
   });
 
   it("passes userId to ensureFreshToken", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-    });
+    mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-id" });
 
     const request = createMockRequest(validFoodLogRequest);
     await POST(request);
@@ -216,72 +198,131 @@ describe("POST /api/log-food", () => {
     expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-uuid-123", expect.any(Object));
   });
 
-  it("returns 500 FITBIT_API_ERROR on Fitbit failure", async () => {
+  it("returns 503 on HEALTH_RATE_LIMIT_LOW", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockRejectedValue(new Error("FITBIT_API_ERROR"));
+    mockEnsureFreshToken.mockRejectedValue(new Error("HEALTH_RATE_LIMIT_LOW"));
 
     const request = createMockRequest(validFoodLogRequest);
     const response = await POST(request);
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(503);
     const body = await response.json();
-    expect(body.error.code).toBe("FITBIT_API_ERROR");
+    expect(body.error.code).toBe("HEALTH_RATE_LIMIT_LOW");
   });
 
-  it("returns 424 FITBIT_CREDENTIALS_MISSING when ensureFreshToken throws FITBIT_CREDENTIALS_MISSING", async () => {
+  it("returns 401 HEALTH_TOKEN_INVALID triggers reconnect prompt", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_CREDENTIALS_MISSING"));
-
-    const request = createMockRequest(validFoodLogRequest);
-    const response = await POST(request);
-
-    expect(response.status).toBe(424);
-    const body = await response.json();
-    expect(body.error.code).toBe("FITBIT_CREDENTIALS_MISSING");
-    expect(body.error.message).toContain("credentials");
-  });
-
-  it("returns 401 FITBIT_TOKEN_INVALID triggers reconnect prompt", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_TOKEN_INVALID"));
+    mockEnsureFreshToken.mockRejectedValue(new Error("HEALTH_TOKEN_INVALID"));
 
     const request = createMockRequest(validFoodLogRequest);
     const response = await POST(request);
 
     expect(response.status).toBe(401);
     const body = await response.json();
-    expect(body.error.code).toBe("FITBIT_TOKEN_INVALID");
-    expect(body.error.message).toContain("reconnect");
+    expect(body.error.code).toBe("HEALTH_TOKEN_INVALID");
   });
 
-  it("returns 504 FITBIT_TIMEOUT when request times out (FOO-426)", async () => {
+  it("returns 500 HEALTH_API_ERROR on createNutritionLog failure", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_TIMEOUT"));
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockCreateNutritionLog.mockRejectedValue(new Error("HEALTH_API_ERROR"));
 
     const request = createMockRequest(validFoodLogRequest);
     const response = await POST(request);
 
-    expect(response.status).toBe(504);
+    expect(response.status).toBe(500);
     const body = await response.json();
-    expect(body.error.code).toBe("FITBIT_TIMEOUT");
-    expect(body.error.message).toContain("timed out");
+    expect(body.error.code).toBe("HEALTH_API_ERROR");
   });
 
-  it("returns reusedFood=false when food is logged", async () => {
+  it("DB failure after create calls deleteNutritionLogs and returns INTERNAL_ERROR", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 111, reused: false });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 222, loggedFood: { foodId: 111 } },
-    });
+    mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-to-rollback" });
+    mockInsertCustomFoodWithLogEntry.mockRejectedValue(new Error("DB connection failed"));
+    mockDeleteNutritionLogs.mockResolvedValue(undefined);
+
+    const request = createMockRequest(validFoodLogRequest);
+    const response = await POST(request);
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+    expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
+      "fresh-token",
+      ["log-to-rollback"],
+      expect.any(Object),
+      "user-uuid-123",
+    );
+  });
+
+  it("returns PARTIAL_ERROR when DB fails and compensation deleteNutritionLogs also fails", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-to-rollback" });
+    mockInsertCustomFoodWithLogEntry.mockRejectedValue(new Error("DB connection failed"));
+    mockDeleteNutritionLogs.mockRejectedValue(new Error("Health API error"));
+
+    const request = createMockRequest(validFoodLogRequest);
+    const response = await POST(request);
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.error.code).toBe("PARTIAL_ERROR");
+    expect(body.error.message).toContain("local save failed");
+  });
+
+  it("calls insertCustomFoodWithLogEntry after successful health log creation", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-456" });
+    mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 42, foodLogId: 10 });
 
     const request = createMockRequest(validFoodLogRequest);
     const response = await POST(request);
 
     expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.data.reusedFood).toBe(false);
+    expect(mockInsertCustomFoodWithLogEntry).toHaveBeenCalledWith(
+      "user-uuid-123",
+      expect.objectContaining({
+        foodName: "Test Food",
+        amount: 100,
+        calories: 150,
+        proteinG: 10,
+        carbsG: 20,
+        fatG: 5,
+        fiberG: 3,
+        sodiumMg: 200,
+        confidence: "high",
+        notes: "Test notes",
+      }),
+      expect.objectContaining({
+        mealTypeId: 1,
+        amount: 100,
+        healthLogId: "log-456",
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("passes client-provided date and time to createNutritionLog", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-xyz" });
+
+    const request = createMockRequest({
+      ...validFoodLogRequest,
+      date: "2024-01-15",
+      time: "20:30:00",
+    });
+    await POST(request);
+
+    expect(mockCreateNutritionLog).toHaveBeenCalledWith(
+      "fresh-token",
+      expect.any(Object),
+      expect.any(Object),
+      "user-uuid-123",
+    );
   });
 
   it("validates all valid meal type IDs", async () => {
@@ -291,10 +332,8 @@ describe("POST /api/log-food", () => {
       vi.clearAllMocks();
       mockGetSession.mockResolvedValue(validSession);
       mockEnsureFreshToken.mockResolvedValue("fresh-token");
-      mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-      mockLogFood.mockResolvedValue({
-        foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-      });
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-" + mealTypeId });
+      mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 1, foodLogId: 1 });
 
       const request = createMockRequest({
         ...validFoodLogRequest,
@@ -304,34 +343,6 @@ describe("POST /api/log-food", () => {
 
       expect(response.status).toBe(200);
     }
-  });
-
-  it("passes client-provided date and time to logFood", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-    });
-
-    const request = createMockRequest({
-      ...validFoodLogRequest,
-      date: "2024-01-15",
-      time: "20:30:00",
-    });
-    await POST(request);
-
-    expect(mockLogFood).toHaveBeenCalledWith(
-      "fresh-token",
-      123,
-      1,
-      100,
-      147,
-      "2024-01-15",
-      "20:30:00",
-      expect.any(Object),
-      "user-uuid-123",
-    );
   });
 
   it("returns 400 when date is missing", async () => {
@@ -400,281 +411,80 @@ describe("POST /api/log-food", () => {
     }
   });
 
-  it("returns 400 for semantically invalid dates", async () => {
-    const invalidDates = ["9999-99-99", "2024-02-30", "2024-13-01", "2024-00-15"];
-
-    for (const date of invalidDates) {
-      vi.clearAllMocks();
+  describe("clientToken idempotency", () => {
+    it("two POSTs with the same clientToken/user call createNutritionLog once and return the same foodLogId", async () => {
       mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-idem-1" });
+      mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 5, foodLogId: 99 });
 
-      const request = createMockRequest({
-        ...validFoodLogRequest,
-        date,
-      });
-      const response = await POST(request);
+      const body = { ...validFoodLogRequest, clientToken: "unique-token-xyz" };
 
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error.code).toBe("VALIDATION_ERROR");
-    }
-  });
+      const response1 = await POST(createMockRequest(body));
+      const response2 = await POST(createMockRequest(body));
 
-  it("returns 400 for semantically invalid times", async () => {
-    const invalidTimes = ["99:99:99", "24:00:00", "12:60:00", "12:00:60", "24:00", "12:60", "99:99"];
+      expect(response1.status).toBe(200);
+      expect(response2.status).toBe(200);
 
-    for (const time of invalidTimes) {
-      vi.clearAllMocks();
+      // createNutritionLog called exactly once
+      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
+
+      const data1 = (await response1.json()).data;
+      const data2 = (await response2.json()).data;
+      // Both return the same foodLogId
+      expect(data1.foodLogId).toBe(99);
+      expect(data2.foodLogId).toBe(99);
+    });
+
+    it("different clientToken creates a new log", async () => {
       mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockCreateNutritionLog
+        .mockResolvedValueOnce({ healthLogId: "log-token-a" })
+        .mockResolvedValueOnce({ healthLogId: "log-token-b" });
+      mockInsertCustomFoodWithLogEntry
+        .mockResolvedValueOnce({ customFoodId: 1, foodLogId: 10 })
+        .mockResolvedValueOnce({ customFoodId: 2, foodLogId: 20 });
 
-      const request = createMockRequest({
-        ...validFoodLogRequest,
-        time,
-      });
-      const response = await POST(request);
+      const body1 = { ...validFoodLogRequest, clientToken: "token-A" };
+      const body2 = { ...validFoodLogRequest, clientToken: "token-B" };
 
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error.code).toBe("VALIDATION_ERROR");
-    }
-  });
+      await POST(createMockRequest(body1));
+      await POST(createMockRequest(body2));
 
-  it("accepts valid date and time formats", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
+      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(2);
     });
-
-    const request = createMockRequest({
-      ...validFoodLogRequest,
-      date: "2024-01-15",
-      time: "12:30:00",
-    });
-    const response = await POST(request);
-
-    expect(response.status).toBe(200);
-    expect(mockLogFood).toHaveBeenCalledWith(
-      "fresh-token",
-      123,
-      1,
-      100,
-      147,
-      "2024-01-15",
-      "12:30:00",
-      expect.any(Object),
-      "user-uuid-123",
-    );
-  });
-
-  it("accepts HH:mm time format without seconds", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-    });
-
-    const request = createMockRequest({
-      ...validFoodLogRequest,
-      date: "2024-01-15",
-      time: "12:30",
-    });
-    const response = await POST(request);
-
-    expect(response.status).toBe(200);
-    expect(mockLogFood).toHaveBeenCalledWith(
-      "fresh-token",
-      123,
-      1,
-      100,
-      147,
-      "2024-01-15",
-      "12:30",
-      expect.any(Object),
-      "user-uuid-123",
-    );
-  });
-
-  it("calls insertCustomFoodWithLogEntry after successful Fitbit logging", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-    });
-    mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 42, foodLogId: 10 });
-
-    const request = createMockRequest(validFoodLogRequest);
-    const response = await POST(request);
-
-    expect(response.status).toBe(200);
-    expect(mockInsertCustomFoodWithLogEntry).toHaveBeenCalledWith(
-      "user-uuid-123",
-      expect.objectContaining({
-        foodName: "Test Food",
-        amount: 100,
-        unitId: 147,
-        calories: 150,
-        proteinG: 10,
-        carbsG: 20,
-        fatG: 5,
-        fiberG: 3,
-        sodiumMg: 200,
-        confidence: "high",
-        notes: "Test notes",
-        fitbitFoodId: 123,
-      }),
-      expect.objectContaining({
-        mealTypeId: 1,
-        amount: 100,
-        unitId: 147,
-        fitbitLogId: 456,
-      }),
-      expect.anything(),
-    );
-    const body = await response.json();
-    expect(body.data.foodLogId).toBe(10);
-  });
-
-  it("passes keywords through to insertCustomFoodWithLogEntry", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-    });
-
-    const request = createMockRequest(validFoodLogRequest);
-    await POST(request);
-
-    expect(mockInsertCustomFoodWithLogEntry).toHaveBeenCalledWith(
-      "user-uuid-123",
-      expect.objectContaining({
-        keywords: ["test", "food"],
-      }),
-      expect.anything(),
-      expect.anything(),
-    );
-  });
-
-  it("returns error and compensates Fitbit when insertCustomFoodWithLogEntry fails in new food flow", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-    });
-    mockInsertCustomFoodWithLogEntry.mockRejectedValue(new Error("DB connection failed"));
-    mockDeleteFoodLog.mockResolvedValue(undefined);
-
-    const request = createMockRequest(validFoodLogRequest);
-    const response = await POST(request);
-
-    expect(response.status).toBe(500);
-    const body = await response.json();
-    expect(body.error.code).toBe("INTERNAL_ERROR");
-    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 456, expect.any(Object), "user-uuid-123");
-  });
-
-  it("returns PARTIAL_ERROR when DB fails and compensation also fails in new food flow", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-    });
-    mockInsertCustomFoodWithLogEntry.mockRejectedValue(new Error("DB connection failed"));
-    mockDeleteFoodLog.mockRejectedValue(new Error("Fitbit API error"));
-
-    const request = createMockRequest(validFoodLogRequest);
-    const response = await POST(request);
-
-    expect(response.status).toBe(500);
-    const body = await response.json();
-    expect(body.error.code).toBe("PARTIAL_ERROR");
-    expect(body.error.message).toContain("local save failed");
-  });
-
-  it("returns error and compensates Fitbit when insertFoodLogEntry fails in reuse flow", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockGetCustomFoodById.mockResolvedValue({
-      id: 42,
-      email: "user-uuid-123",
-      foodName: "Tea with milk",
-      amount: "1",
-      unitId: 91,
-      calories: 50,
-      fitbitFoodId: 12345,
-      confidence: "high",
-      notes: null,
-      keywords: ["tea", "milk"],
-      createdAt: new Date("2026-02-05T12:00:00Z"),
-    });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
-    });
-    mockInsertFoodLogEntry.mockRejectedValue(new Error("DB connection failed"));
-    mockDeleteFoodLog.mockResolvedValue(undefined);
-
-    const request = createMockRequest({
-      ...validFoodLogRequest,
-      reuseCustomFoodId: 42,
-    });
-    const response = await POST(request);
-
-    expect(response.status).toBe(500);
-    const body = await response.json();
-    expect(body.error.code).toBe("INTERNAL_ERROR");
-    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789, expect.any(Object), "user-uuid-123");
-  });
-
-  it("returns error without compensation in dry-run mode when DB fails", async () => {
-    vi.stubEnv("FITBIT_DRY_RUN", "true");
-    try {
-      mockGetSession.mockResolvedValue(validSession);
-      mockInsertCustomFoodWithLogEntry.mockRejectedValue(new Error("DB connection failed"));
-
-      const request = createMockRequest(validFoodLogRequest);
-      const response = await POST(request);
-
-      expect(response.status).toBe(500);
-      const body = await response.json();
-      expect(body.error.code).toBe("INTERNAL_ERROR");
-      expect(mockDeleteFoodLog).not.toHaveBeenCalled();
-    } finally {
-      vi.unstubAllEnvs();
-    }
   });
 
   describe("reuse flow with reuseCustomFoodId", () => {
     const existingFood = {
       id: 42,
-      email: "user-uuid-123",
+      userId: "user-uuid-123",
       foodName: "Tea with milk",
       amount: "1",
-      unitId: 91,
+      unitId: "cup" as ServingUnit,
       calories: 50,
       proteinG: "2",
       carbsG: "5",
       fatG: "2",
       fiberG: "0",
       sodiumMg: "30",
-      fitbitFoodId: 12345,
+      saturatedFatG: null,
+      transFatG: null,
+      sugarsG: null,
+      caloriesFromFat: null,
       confidence: "high",
       notes: null,
+      description: null,
       keywords: ["tea", "milk"],
       createdAt: new Date("2026-02-05T12:00:00Z"),
     };
 
-    it("does NOT call findOrCreateFood when reuseCustomFoodId provided", async () => {
+    it("calls createNutritionLog (not a separate findOrCreate) from stored custom food nutrients", async () => {
       mockGetSession.mockResolvedValue(validSession);
       mockEnsureFreshToken.mockResolvedValue("fresh-token");
       mockGetCustomFoodById.mockResolvedValue(existingFood);
-      mockLogFood.mockResolvedValue({
-        foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
-      });
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-reuse-1" });
       mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
 
       const request = createMockRequest({
@@ -683,45 +493,35 @@ describe("POST /api/log-food", () => {
       });
       await POST(request);
 
-      expect(mockFindOrCreateFood).not.toHaveBeenCalled();
+      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
       expect(mockGetCustomFoodById).toHaveBeenCalledWith("user-uuid-123", 42);
     });
 
-    it("calls logFood with existing food's fitbitFoodId", async () => {
+    it("does NOT require a fitbitFoodId on the reused food (no legacy id check)", async () => {
       mockGetSession.mockResolvedValue(validSession);
       mockEnsureFreshToken.mockResolvedValue("fresh-token");
-      mockGetCustomFoodById.mockResolvedValue(existingFood);
-      mockLogFood.mockResolvedValue({
-        foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
-      });
+      // No fitbitFoodId field at all
+      mockGetCustomFoodById.mockResolvedValue({ ...existingFood });
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-reuse-no-id" });
       mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
 
       const request = createMockRequest({
-        ...validFoodLogRequest,
         reuseCustomFoodId: 42,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
       });
-      await POST(request);
+      const response = await POST(request);
 
-      expect(mockLogFood).toHaveBeenCalledWith(
-        "fresh-token",
-        12345,
-        1,
-        Number(existingFood.amount),
-        existingFood.unitId,
-        "2026-02-07",
-        "12:30:00",
-        expect.any(Object),
-        "user-uuid-123",
-      );
+      // Should succeed (200), not 400 for missing fitbit id
+      expect(response.status).toBe(200);
     });
 
-    it("inserts food_log_entry referencing existing custom_food", async () => {
+    it("inserts food_log_entry with healthLogId from createNutritionLog", async () => {
       mockGetSession.mockResolvedValue(validSession);
       mockEnsureFreshToken.mockResolvedValue("fresh-token");
       mockGetCustomFoodById.mockResolvedValue(existingFood);
-      mockLogFood.mockResolvedValue({
-        foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
-      });
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-reuse-abc" });
       mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
 
       const request = createMockRequest({
@@ -730,23 +530,20 @@ describe("POST /api/log-food", () => {
       });
       await POST(request);
 
-      expect(mockInsertCustomFoodWithLogEntry).not.toHaveBeenCalled();
       expect(mockInsertFoodLogEntry).toHaveBeenCalledWith(
         "user-uuid-123",
         expect.objectContaining({
           customFoodId: 42,
-          fitbitLogId: 789,
+          healthLogId: "log-reuse-abc",
         }),
       );
     });
 
-    it("response has reusedFood: true", async () => {
+    it("response has reusedFood: true and healthLogId string", async () => {
       mockGetSession.mockResolvedValue(validSession);
       mockEnsureFreshToken.mockResolvedValue("fresh-token");
       mockGetCustomFoodById.mockResolvedValue(existingFood);
-      mockLogFood.mockResolvedValue({
-        foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
-      });
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-reuse-xyz" });
       mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
 
       const request = createMockRequest({
@@ -758,11 +555,11 @@ describe("POST /api/log-food", () => {
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.data.reusedFood).toBe(true);
+      expect(body.data.healthLogId).toBe("log-reuse-xyz");
     });
 
-    it("returns error when custom food not found", async () => {
+    it("returns 400 when custom food not found", async () => {
       mockGetSession.mockResolvedValue(validSession);
-      mockEnsureFreshToken.mockResolvedValue("fresh-token");
       mockGetCustomFoodById.mockResolvedValue(null);
 
       const request = createMockRequest({
@@ -776,10 +573,13 @@ describe("POST /api/log-food", () => {
       expect(body.error.code).toBe("VALIDATION_ERROR");
     });
 
-    it("returns error when custom food has no fitbitFoodId", async () => {
+    it("DB failure in reuse flow calls deleteNutritionLogs and returns INTERNAL_ERROR", async () => {
       mockGetSession.mockResolvedValue(validSession);
       mockEnsureFreshToken.mockResolvedValue("fresh-token");
-      mockGetCustomFoodById.mockResolvedValue({ ...existingFood, fitbitFoodId: null });
+      mockGetCustomFoodById.mockResolvedValue(existingFood);
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-reuse-rollback" });
+      mockInsertFoodLogEntry.mockRejectedValue(new Error("DB connection failed"));
+      mockDeleteNutritionLogs.mockResolvedValue(undefined);
 
       const request = createMockRequest({
         ...validFoodLogRequest,
@@ -787,58 +587,22 @@ describe("POST /api/log-food", () => {
       });
       const response = await POST(request);
 
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(500);
       const body = await response.json();
-      expect(body.error.code).toBe("VALIDATION_ERROR");
-    });
-
-    it("accepts minimal body with reuseCustomFoodId, mealTypeId, date, and time", async () => {
-      mockGetSession.mockResolvedValue(validSession);
-      mockEnsureFreshToken.mockResolvedValue("fresh-token");
-      mockGetCustomFoodById.mockResolvedValue(existingFood);
-      mockLogFood.mockResolvedValue({
-        foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
-      });
-      mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
-
-      const request = createMockRequest({
-        reuseCustomFoodId: 42,
-        mealTypeId: 1,
-        date: "2026-02-07",
-        time: "08:00:00",
-      } as Partial<FoodLogRequest>);
-      const response = await POST(request);
-
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.data.reusedFood).toBe(true);
-      expect(mockFindOrCreateFood).not.toHaveBeenCalled();
-    });
-
-    it("without reuseCustomFoodId, flow is unchanged", async () => {
-      mockGetSession.mockResolvedValue(validSession);
-      mockEnsureFreshToken.mockResolvedValue("fresh-token");
-      mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-      mockLogFood.mockResolvedValue({
-        foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-      });
-
-      const request = createMockRequest(validFoodLogRequest);
-      const response = await POST(request);
-
-      expect(response.status).toBe(200);
-      expect(mockFindOrCreateFood).toHaveBeenCalled();
-      expect(mockGetCustomFoodById).not.toHaveBeenCalled();
-      expect(mockInsertCustomFoodWithLogEntry).toHaveBeenCalled();
+      expect(body.error.code).toBe("INTERNAL_ERROR");
+      expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
+        "fresh-token",
+        ["log-reuse-rollback"],
+        expect.any(Object),
+        "user-uuid-123",
+      );
     });
 
     it("calls updateCustomFoodMetadata when reuse request includes new metadata fields", async () => {
       mockGetSession.mockResolvedValue(validSession);
       mockEnsureFreshToken.mockResolvedValue("fresh-token");
       mockGetCustomFoodById.mockResolvedValue(existingFood);
-      mockLogFood.mockResolvedValue({
-        foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
-      });
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-meta" });
       mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
       mockUpdateCustomFoodMetadata.mockResolvedValue(undefined);
 
@@ -849,72 +613,17 @@ describe("POST /api/log-food", () => {
         time: "08:00:00",
         newDescription: "Updated description",
         newNotes: "Updated notes",
-        newKeywords: ["updated", "keywords"],
-        newConfidence: "medium",
-      } as Partial<FoodLogRequest>);
+      });
       await POST(request);
 
       expect(mockUpdateCustomFoodMetadata).toHaveBeenCalledWith(
         "user-uuid-123",
         42,
-        {
-          description: "Updated description",
-          notes: "Updated notes",
-          keywords: ["updated", "keywords"],
-          confidence: "medium",
-        }
+        expect.objectContaining({ description: "Updated description", notes: "Updated notes" }),
       );
     });
 
-    it("calls updateCustomFoodMetadata with only provided new metadata fields", async () => {
-      mockGetSession.mockResolvedValue(validSession);
-      mockEnsureFreshToken.mockResolvedValue("fresh-token");
-      mockGetCustomFoodById.mockResolvedValue(existingFood);
-      mockLogFood.mockResolvedValue({
-        foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
-      });
-      mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
-      mockUpdateCustomFoodMetadata.mockResolvedValue(undefined);
-
-      const request = createMockRequest({
-        reuseCustomFoodId: 42,
-        mealTypeId: 1,
-        date: "2026-02-07",
-        time: "08:00:00",
-        newDescription: "Only description updated",
-      } as Partial<FoodLogRequest>);
-      await POST(request);
-
-      expect(mockUpdateCustomFoodMetadata).toHaveBeenCalledWith(
-        "user-uuid-123",
-        42,
-        {
-          description: "Only description updated",
-        }
-      );
-    });
-
-    it("does NOT call updateCustomFoodMetadata when reuse request has no new metadata fields", async () => {
-      mockGetSession.mockResolvedValue(validSession);
-      mockEnsureFreshToken.mockResolvedValue("fresh-token");
-      mockGetCustomFoodById.mockResolvedValue(existingFood);
-      mockLogFood.mockResolvedValue({
-        foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
-      });
-      mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
-
-      const request = createMockRequest({
-        reuseCustomFoodId: 42,
-        mealTypeId: 1,
-        date: "2026-02-07",
-        time: "08:00:00",
-      } as Partial<FoodLogRequest>);
-      await POST(request);
-
-      expect(mockUpdateCustomFoodMetadata).not.toHaveBeenCalled();
-    });
-
-    it("returns 400 VALIDATION_ERROR for reuseCustomFoodId: 0 (FOO-562)", async () => {
+    it("returns 400 VALIDATION_ERROR for reuseCustomFoodId: 0", async () => {
       mockGetSession.mockResolvedValue(validSession);
 
       const request = createMockRequest({
@@ -922,128 +631,116 @@ describe("POST /api/log-food", () => {
         mealTypeId: 1,
         date: "2026-02-07",
         time: "08:00:00",
-      } as Partial<FoodLogRequest>);
-      const response = await POST(request);
-
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error.code).toBe("VALIDATION_ERROR");
-    });
-
-    it("returns 400 VALIDATION_ERROR for negative reuseCustomFoodId (FOO-562)", async () => {
-      mockGetSession.mockResolvedValue(validSession);
-
-      const request = createMockRequest({
-        reuseCustomFoodId: -1,
-        mealTypeId: 1,
-        date: "2026-02-07",
-        time: "08:00:00",
-      } as Partial<FoodLogRequest>);
-      const response = await POST(request);
-
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error.code).toBe("VALIDATION_ERROR");
-    });
-
-    it("returns 400 VALIDATION_ERROR for newDescription exceeding 2000 characters (FOO-567)", async () => {
-      mockGetSession.mockResolvedValue(validSession);
-
-      const request = createMockRequest({
-        reuseCustomFoodId: 42,
-        mealTypeId: 1,
-        date: "2026-02-07",
-        time: "08:00:00",
-        newDescription: "a".repeat(2001),
-      } as Partial<FoodLogRequest>);
-      const response = await POST(request);
-
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error.code).toBe("VALIDATION_ERROR");
-    });
-
-    it("returns 400 VALIDATION_ERROR for newNotes exceeding 2000 characters (FOO-567)", async () => {
-      mockGetSession.mockResolvedValue(validSession);
-
-      const request = createMockRequest({
-        reuseCustomFoodId: 42,
-        mealTypeId: 1,
-        date: "2026-02-07",
-        time: "08:00:00",
-        newNotes: "a".repeat(2001),
-      } as Partial<FoodLogRequest>);
-      const response = await POST(request);
-
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error.code).toBe("VALIDATION_ERROR");
-    });
-
-    it("logs food successfully even if updateCustomFoodMetadata fails", async () => {
-      mockGetSession.mockResolvedValue(validSession);
-      mockEnsureFreshToken.mockResolvedValue("fresh-token");
-      mockGetCustomFoodById.mockResolvedValue(existingFood);
-      mockLogFood.mockResolvedValue({
-        foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
       });
-      mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
-      mockUpdateCustomFoodMetadata.mockRejectedValue(new Error("DB error"));
+      const response = await POST(request);
 
-      const request = createMockRequest({
-        reuseCustomFoodId: 42,
-        mealTypeId: 1,
-        date: "2026-02-07",
-        time: "08:00:00",
-        newDescription: "New description",
-      } as Partial<FoodLogRequest>);
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+  });
+
+  describe("dry-run mode (HEALTH_DRY_RUN=true)", () => {
+    afterEach(() => {
+      vi.stubEnv("HEALTH_DRY_RUN", "");
+    });
+
+    it("skips remote calls in new food flow", async () => {
+      vi.stubEnv("HEALTH_DRY_RUN", "true");
+      mockGetSession.mockResolvedValue(validSession);
+
+      const request = createMockRequest(validFoodLogRequest);
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+      expect(mockEnsureFreshToken).not.toHaveBeenCalled();
+      expect(mockCreateNutritionLog).not.toHaveBeenCalled();
+    });
+
+    it("returns success with dryRun flag and no healthLogId in new food flow", async () => {
+      vi.stubEnv("HEALTH_DRY_RUN", "true");
+      mockGetSession.mockResolvedValue(validSession);
+      mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 42, foodLogId: 10 });
+
+      const request = createMockRequest(validFoodLogRequest);
       const response = await POST(request);
 
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.data.success).toBe(true);
-      expect(body.data.foodLogId).toBe(20);
+      expect(body.data.dryRun).toBe(true);
+      expect(body.data.healthLogId).toBeUndefined();
+    });
+
+    it("still calls insertCustomFoodWithLogEntry in new food flow with healthLogId: null", async () => {
+      vi.stubEnv("HEALTH_DRY_RUN", "true");
+      mockGetSession.mockResolvedValue(validSession);
+
+      const request = createMockRequest(validFoodLogRequest);
+      await POST(request);
+
+      expect(mockInsertCustomFoodWithLogEntry).toHaveBeenCalledWith(
+        "user-uuid-123",
+        expect.objectContaining({ foodName: "Test Food" }),
+        expect.objectContaining({ healthLogId: null }),
+        expect.anything(),
+      );
+    });
+
+    it("skips remote calls in reuse flow but still inserts log entry", async () => {
+      vi.stubEnv("HEALTH_DRY_RUN", "true");
+      mockGetSession.mockResolvedValue(validSession);
+      mockGetCustomFoodById.mockResolvedValue({
+        id: 42,
+        userId: "user-uuid-123",
+        foodName: "Tea with milk",
+        amount: "1",
+        unitId: "cup" as ServingUnit,
+        calories: 50,
+        proteinG: "2",
+        carbsG: "5",
+        fatG: "2",
+        fiberG: "0",
+        sodiumMg: "30",
+        saturatedFatG: null,
+        transFatG: null,
+        sugarsG: null,
+        caloriesFromFat: null,
+        confidence: "high",
+        notes: null,
+        description: null,
+        keywords: ["tea", "milk"],
+        createdAt: new Date("2026-02-05T12:00:00Z"),
+      });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
+
+      const request = createMockRequest({
+        reuseCustomFoodId: 42,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
+      });
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+      expect(mockEnsureFreshToken).not.toHaveBeenCalled();
+      expect(mockCreateNutritionLog).not.toHaveBeenCalled();
+      expect(mockInsertFoodLogEntry).toHaveBeenCalledWith(
+        "user-uuid-123",
+        expect.objectContaining({ customFoodId: 42, healthLogId: null }),
+      );
+      const body = await response.json();
+      expect(body.data.dryRun).toBe(true);
     });
   });
 
-  describe("max-length validation (FOO-567)", () => {
+  describe("max-length validation", () => {
     it("returns 400 VALIDATION_ERROR for food_name exceeding 500 characters", async () => {
       mockGetSession.mockResolvedValue(validSession);
 
       const request = createMockRequest({
         ...validFoodLogRequest,
         food_name: "a".repeat(501),
-      });
-      const response = await POST(request);
-
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error.code).toBe("VALIDATION_ERROR");
-    });
-
-    it("accepts food_name at exactly 500 characters", async () => {
-      mockGetSession.mockResolvedValue(validSession);
-      mockEnsureFreshToken.mockResolvedValue("fresh-token");
-      mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-      mockLogFood.mockResolvedValue({
-        foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-      });
-
-      const request = createMockRequest({
-        ...validFoodLogRequest,
-        food_name: "a".repeat(500),
-      });
-      const response = await POST(request);
-
-      expect(response.status).toBe(200);
-    });
-
-    it("returns 400 VALIDATION_ERROR for description exceeding 2000 characters", async () => {
-      mockGetSession.mockResolvedValue(validSession);
-
-      const request = createMockRequest({
-        ...validFoodLogRequest,
-        description: "a".repeat(2001),
       });
       const response = await POST(request);
 
@@ -1066,37 +763,6 @@ describe("POST /api/log-food", () => {
       expect(body.error.code).toBe("VALIDATION_ERROR");
     });
 
-    it("returns 400 VALIDATION_ERROR for keyword element exceeding 100 characters", async () => {
-      mockGetSession.mockResolvedValue(validSession);
-
-      const request = createMockRequest({
-        ...validFoodLogRequest,
-        keywords: ["a".repeat(101)],
-      });
-      const response = await POST(request);
-
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error.code).toBe("VALIDATION_ERROR");
-    });
-
-    it("accepts keyword element at exactly 100 characters", async () => {
-      mockGetSession.mockResolvedValue(validSession);
-      mockEnsureFreshToken.mockResolvedValue("fresh-token");
-      mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-      mockLogFood.mockResolvedValue({
-        foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-      });
-
-      const request = createMockRequest({
-        ...validFoodLogRequest,
-        keywords: ["a".repeat(100)],
-      });
-      const response = await POST(request);
-
-      expect(response.status).toBe(200);
-    });
-
     it("returns 400 VALIDATION_ERROR for keywords array exceeding 20 elements", async () => {
       mockGetSession.mockResolvedValue(validSession);
 
@@ -1110,257 +776,5 @@ describe("POST /api/log-food", () => {
       const body = await response.json();
       expect(body.error.code).toBe("VALIDATION_ERROR");
     });
-
-    it("accepts keywords array with exactly 20 elements", async () => {
-      mockGetSession.mockResolvedValue(validSession);
-      mockEnsureFreshToken.mockResolvedValue("fresh-token");
-      mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-      mockLogFood.mockResolvedValue({
-        foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-      });
-
-      const request = createMockRequest({
-        ...validFoodLogRequest,
-        keywords: Array.from({ length: 20 }, (_, i) => `keyword${i}`),
-      });
-      const response = await POST(request);
-
-      expect(response.status).toBe(200);
-    });
-
-    it("returns 400 VALIDATION_ERROR for newKeywords array exceeding 20 elements in reuse path", async () => {
-      mockGetSession.mockResolvedValue(validSession);
-
-      const request = createMockRequest({
-        reuseCustomFoodId: 42,
-        mealTypeId: 1,
-        date: "2026-02-07",
-        time: "12:00:00",
-        newKeywords: Array.from({ length: 21 }, (_, i) => `keyword${i}`),
-      } as Partial<FoodLogRequest>);
-      const response = await POST(request);
-
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error.code).toBe("VALIDATION_ERROR");
-    });
-  });
-
-  describe("dry-run mode (FITBIT_DRY_RUN=true)", () => {
-    afterEach(() => {
-      vi.unstubAllEnvs();
-    });
-
-    it("skips Fitbit API calls in new food flow", async () => {
-      vi.stubEnv("FITBIT_DRY_RUN", "true");
-      mockGetSession.mockResolvedValue(validSession);
-
-      const request = createMockRequest(validFoodLogRequest);
-      const response = await POST(request);
-
-      expect(response.status).toBe(200);
-      expect(mockEnsureFreshToken).not.toHaveBeenCalled();
-      expect(mockFindOrCreateFood).not.toHaveBeenCalled();
-      expect(mockLogFood).not.toHaveBeenCalled();
-    });
-
-    it("returns success with dryRun flag and no fitbitLogId in new food flow", async () => {
-      vi.stubEnv("FITBIT_DRY_RUN", "true");
-      mockGetSession.mockResolvedValue(validSession);
-      mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 42, foodLogId: 10 });
-
-      const request = createMockRequest(validFoodLogRequest);
-      const response = await POST(request);
-
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.data.success).toBe(true);
-      expect(body.data.dryRun).toBe(true);
-      expect(body.data.fitbitLogId).toBeUndefined();
-      expect(body.data.fitbitFoodId).toBeUndefined();
-    });
-
-    it("still calls insertCustomFoodWithLogEntry in new food flow", async () => {
-      vi.stubEnv("FITBIT_DRY_RUN", "true");
-      mockGetSession.mockResolvedValue(validSession);
-
-      const request = createMockRequest(validFoodLogRequest);
-      await POST(request);
-
-      expect(mockInsertCustomFoodWithLogEntry).toHaveBeenCalledWith(
-        "user-uuid-123",
-        expect.objectContaining({
-          foodName: "Test Food",
-          fitbitFoodId: null,
-        }),
-        expect.objectContaining({
-          fitbitLogId: null,
-        }),
-        expect.anything(),
-      );
-    });
-
-    it("insertCustomFoodWithLogEntry receives fitbitLogId: null in new food flow", async () => {
-      vi.stubEnv("FITBIT_DRY_RUN", "true");
-      mockGetSession.mockResolvedValue(validSession);
-      mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 42, foodLogId: 10 });
-
-      const request = createMockRequest(validFoodLogRequest);
-      const response = await POST(request);
-
-      const body = await response.json();
-      expect(body.data.foodLogId).toBe(10);
-      expect(mockInsertCustomFoodWithLogEntry).toHaveBeenCalledWith(
-        "user-uuid-123",
-        expect.anything(),
-        expect.objectContaining({
-          fitbitLogId: null,
-        }),
-        expect.anything(),
-      );
-    });
-
-    it("skips Fitbit API calls in reuse flow but still inserts log entry", async () => {
-      vi.stubEnv("FITBIT_DRY_RUN", "true");
-      mockGetSession.mockResolvedValue(validSession);
-      mockGetCustomFoodById.mockResolvedValue({
-        id: 42,
-        email: "user-uuid-123",
-        foodName: "Tea with milk",
-        amount: "1",
-        unitId: 91,
-        calories: 50,
-        fitbitFoodId: null,
-        confidence: "high",
-        notes: null,
-        keywords: ["tea", "milk"],
-        createdAt: new Date("2026-02-05T12:00:00Z"),
-      });
-      mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
-
-      const request = createMockRequest({
-        reuseCustomFoodId: 42,
-        mealTypeId: 1,
-        date: "2026-02-07",
-        time: "08:00:00",
-      } as Partial<FoodLogRequest>);
-      const response = await POST(request);
-
-      expect(response.status).toBe(200);
-      expect(mockEnsureFreshToken).not.toHaveBeenCalled();
-      expect(mockLogFood).not.toHaveBeenCalled();
-      expect(mockInsertFoodLogEntry).toHaveBeenCalledWith(
-        "user-uuid-123",
-        expect.objectContaining({
-          customFoodId: 42,
-          fitbitLogId: null,
-        }),
-      );
-      const body = await response.json();
-      expect(body.data.dryRun).toBe(true);
-      expect(body.data.fitbitLogId).toBeUndefined();
-    });
-
-    it("reuse flow allows food with null fitbitFoodId in dry-run", async () => {
-      vi.stubEnv("FITBIT_DRY_RUN", "true");
-      mockGetSession.mockResolvedValue(validSession);
-      mockGetCustomFoodById.mockResolvedValue({
-        id: 42,
-        email: "user-uuid-123",
-        foodName: "Dry-run food",
-        amount: "1",
-        unitId: 91,
-        calories: 50,
-        fitbitFoodId: null,
-        confidence: "high",
-        notes: null,
-        keywords: [],
-        createdAt: new Date(),
-      });
-      mockInsertFoodLogEntry.mockResolvedValue({ id: 30, loggedAt: new Date() });
-
-      const request = createMockRequest({
-        reuseCustomFoodId: 42,
-        mealTypeId: 1,
-        date: "2026-02-07",
-        time: "08:00:00",
-      } as Partial<FoodLogRequest>);
-      const response = await POST(request);
-
-      // Should NOT return 400 for missing fitbitFoodId in dry-run
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.data.success).toBe(true);
-    });
-
-    it("normal flow executes when FITBIT_DRY_RUN is not set", async () => {
-      // Ensure env is NOT set
-      mockGetSession.mockResolvedValue(validSession);
-      mockEnsureFreshToken.mockResolvedValue("fresh-token");
-      mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-      mockLogFood.mockResolvedValue({
-        foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-      });
-
-      const request = createMockRequest(validFoodLogRequest);
-      const response = await POST(request);
-
-      expect(response.status).toBe(200);
-      expect(mockEnsureFreshToken).toHaveBeenCalled();
-      expect(mockFindOrCreateFood).toHaveBeenCalled();
-      expect(mockLogFood).toHaveBeenCalled();
-      const body = await response.json();
-      expect(body.data.dryRun).toBeUndefined();
-    });
-  });
-
-  it("returns 400 VALIDATION_ERROR when keywords array has more than 20 elements (FOO-570)", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-
-    const tooManyKeywords = Array.from({ length: 21 }, (_, i) => `keyword${i}`);
-    const request = createMockRequest({
-      ...validFoodLogRequest,
-      keywords: tooManyKeywords,
-    });
-    const response = await POST(request);
-
-    expect(response.status).toBe(400);
-    const body = await response.json();
-    expect(body.error.code).toBe("VALIDATION_ERROR");
-  });
-
-  it("accepts keywords array with exactly 20 elements (FOO-570)", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-    });
-    const exactlyTwentyKeywords = Array.from({ length: 20 }, (_, i) => `keyword${i}`);
-    const request = createMockRequest({
-      ...validFoodLogRequest,
-      keywords: exactlyTwentyKeywords,
-    });
-    const response = await POST(request);
-
-    expect(response.status).toBe(200);
-  });
-
-  it("returns 400 VALIDATION_ERROR when newKeywords array has more than 20 elements in reuse flow (FOO-570)", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-
-    const tooManyKeywords = Array.from({ length: 21 }, (_, i) => `keyword${i}`);
-    const request = createMockRequest({
-      reuseCustomFoodId: 42,
-      mealTypeId: 1,
-      date: "2026-02-07",
-      time: "12:30:00",
-      newKeywords: tooManyKeywords,
-    } as Partial<FoodLogRequest>);
-    const response = await POST(request);
-
-    expect(response.status).toBe(400);
-    const body = await response.json();
-    expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 });

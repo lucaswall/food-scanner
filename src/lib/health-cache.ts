@@ -1,14 +1,13 @@
-import type { FitbitProfile, FitbitWeightLog, FitbitWeightGoal, ActivitySummary } from "@/types";
+import type { HealthProfile, HealthWeightLog, ActivitySummary } from "@/types";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import {
   ensureFreshToken,
-  getFitbitProfile,
-  getFitbitLatestWeightKg,
-  getFitbitWeightGoal,
-  getActivitySummary,
-  type FitbitCallCriticality,
-} from "@/lib/fitbit";
+  getHealthProfile,
+  getHealthLatestWeightKg,
+  getHealthActivitySummary,
+  type HealthCallCriticality,
+} from "@/lib/google-health";
 
 const TTL_24H = 24 * 60 * 60 * 1000;
 const TTL_1H = 60 * 60 * 1000;
@@ -35,14 +34,14 @@ function getUserGeneration(userId: string): number {
 
 // ─── Profile cache ─────────────────────────────────────────────────────────
 
-const profileCache = new Map<string, CacheEntry<FitbitProfile>>();
-const profileInFlight = new Map<string, Promise<FitbitProfile>>();
+const profileCache = new Map<string, CacheEntry<HealthProfile>>();
+const profileInFlight = new Map<string, Promise<HealthProfile>>();
 
-export async function getCachedFitbitProfile(
+export async function getCachedHealthProfile(
   userId: string,
   log?: Logger,
-  criticality: FitbitCallCriticality = "optional",
-): Promise<FitbitProfile> {
+  criticality: HealthCallCriticality = "optional",
+): Promise<HealthProfile> {
   const l = log ?? logger;
 
   const cached = profileCache.get(userId);
@@ -57,12 +56,12 @@ export async function getCachedFitbitProfile(
   const generationAtStart = getUserGeneration(userId);
   // `let !` so the IIFE's `finally` can compare against the bound promise:
   // by the time finally runs (after both awaits), assignment has completed.
-  let promise!: Promise<FitbitProfile>;
+  let promise!: Promise<HealthProfile>;
   // eslint-disable-next-line prefer-const
   promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
-      const profile = await getFitbitProfile(accessToken, l, userId, criticality);
+      const profile = await getHealthProfile(accessToken, l, userId, criticality);
       if (getUserGeneration(userId) === generationAtStart) {
         profileCache.set(userId, { value: profile, expiresAt: Date.now() + TTL_24H });
       }
@@ -80,15 +79,15 @@ export async function getCachedFitbitProfile(
 
 // ─── Weight cache ───────────────────────────────────────────────────────────
 
-const weightCache = new Map<string, CacheEntry<FitbitWeightLog | null>>();
-const weightInFlight = new Map<string, Promise<FitbitWeightLog | null>>();
+const weightCache = new Map<string, CacheEntry<HealthWeightLog | null>>();
+const weightInFlight = new Map<string, Promise<HealthWeightLog | null>>();
 
-export async function getCachedFitbitWeightKg(
+export async function getCachedHealthWeightKg(
   userId: string,
   targetDate: string,
   log?: Logger,
-  criticality: FitbitCallCriticality = "optional",
-): Promise<FitbitWeightLog | null> {
+  criticality: HealthCallCriticality = "optional",
+): Promise<HealthWeightLog | null> {
   const l = log ?? logger;
   const key = `${userId}:${targetDate}`;
 
@@ -102,14 +101,14 @@ export async function getCachedFitbitWeightKg(
   if (existing) return existing;
 
   const generationAtStart = getUserGeneration(userId);
-  let promise!: Promise<FitbitWeightLog | null>;
+  let promise!: Promise<HealthWeightLog | null>;
   // eslint-disable-next-line prefer-const
   promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
-      const weight = await getFitbitLatestWeightKg(accessToken, targetDate, l, userId, criticality);
+      const weight = await getHealthLatestWeightKg(accessToken, targetDate, l, userId, criticality);
       if (getUserGeneration(userId) === generationAtStart) {
-        // FOO-1010: keep null TTL short so the user-feedback loop is tight
+        // Keep null TTL short so the user-feedback loop is tight
         // when "no weight" is the blocking factor. Positive results stay 1h.
         const ttl = weight === null ? TTL_10MIN : TTL_1H;
         weightCache.set(key, { value: weight, expiresAt: Date.now() + ttl });
@@ -126,59 +125,16 @@ export async function getCachedFitbitWeightKg(
   return promise;
 }
 
-// ─── Weight goal cache ──────────────────────────────────────────────────────
-
-const weightGoalCache = new Map<string, CacheEntry<FitbitWeightGoal | null>>();
-const weightGoalInFlight = new Map<string, Promise<FitbitWeightGoal | null>>();
-
-export async function getCachedFitbitWeightGoal(
-  userId: string,
-  log?: Logger,
-  criticality: FitbitCallCriticality = "optional",
-): Promise<FitbitWeightGoal | null> {
-  const l = log ?? logger;
-
-  const cached = weightGoalCache.get(userId);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.value;
-  }
-
-  const inflightKey = `${userId}:${criticality}`;
-  const existing = weightGoalInFlight.get(inflightKey);
-  if (existing) return existing;
-
-  const generationAtStart = getUserGeneration(userId);
-  let promise!: Promise<FitbitWeightGoal | null>;
-  // eslint-disable-next-line prefer-const
-  promise = (async () => {
-    try {
-      const accessToken = await ensureFreshToken(userId, l);
-      const goal = await getFitbitWeightGoal(accessToken, l, userId, criticality);
-      if (getUserGeneration(userId) === generationAtStart) {
-        weightGoalCache.set(userId, { value: goal, expiresAt: Date.now() + TTL_24H });
-      }
-      return goal;
-    } finally {
-      if (weightGoalInFlight.get(inflightKey) === promise) {
-        weightGoalInFlight.delete(inflightKey);
-      }
-    }
-  })();
-
-  weightGoalInFlight.set(inflightKey, promise);
-  return promise;
-}
-
 // ─── Activity summary cache ─────────────────────────────────────────────────
 
 const activityCache = new Map<string, CacheEntry<ActivitySummary>>();
 const activityInFlight = new Map<string, Promise<ActivitySummary>>();
 
-export async function getCachedActivitySummary(
+export async function getCachedHealthActivitySummary(
   userId: string,
   targetDate: string,
   log?: Logger,
-  criticality: FitbitCallCriticality = "optional",
+  criticality: HealthCallCriticality = "optional",
 ): Promise<ActivitySummary> {
   const l = log ?? logger;
   const key = `${userId}:${targetDate}`;
@@ -198,7 +154,7 @@ export async function getCachedActivitySummary(
   promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
-      const activity = await getActivitySummary(accessToken, targetDate, l, userId, criticality);
+      const activity = await getHealthActivitySummary(accessToken, targetDate, l, userId, criticality);
       if (getUserGeneration(userId) === generationAtStart) {
         activityCache.set(key, { value: activity, expiresAt: Date.now() + TTL_5MIN });
       }
@@ -217,14 +173,16 @@ export async function getCachedActivitySummary(
 // ─── Cache invalidation ─────────────────────────────────────────────────────
 
 /**
- * Clears all profile, weight, weight-goal, and activity cache entries for the
- * given user, plus any in-flight dedup entries across all criticality tiers.
- * Called by the settings "Refresh from Fitbit" button.
+ * Clears all profile, weight, and activity cache entries for the given user,
+ * plus any in-flight dedup entries across all criticality tiers.
+ * Called by the settings "Refresh from Google Health" button.
+ *
+ * Weight-goal cache is omitted — it was removed in Task 19 (replaced by
+ * local users.weightGoalType from Task 9).
  */
-export function invalidateFitbitProfileCache(userId: string): void {
+export function invalidateHealthProfileCache(userId: string): void {
   userCacheGeneration.set(userId, getUserGeneration(userId) + 1);
   profileCache.delete(userId);
-  weightGoalCache.delete(userId);
 
   const userPrefix = `${userId}:`;
   for (const key of weightCache.keys()) {
@@ -235,9 +193,6 @@ export function invalidateFitbitProfileCache(userId: string): void {
   }
   for (const key of profileInFlight.keys()) {
     if (key.startsWith(userPrefix)) profileInFlight.delete(key);
-  }
-  for (const key of weightGoalInFlight.keys()) {
-    if (key.startsWith(userPrefix)) weightGoalInFlight.delete(key);
   }
   for (const key of weightInFlight.keys()) {
     if (key.startsWith(userPrefix)) weightInFlight.delete(key);
