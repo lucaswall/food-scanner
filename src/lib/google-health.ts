@@ -373,7 +373,23 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
 
 // ─── Nutrition write API ──────────────────────────────────────────────────────
 
-const GOOGLE_HEALTH_API_BASE = "https://health.googleapis.com/v1";
+// Google Health API v4 base. Data points live under
+// `${BASE}/users/me/dataTypes/{data-type}/dataPoints` (data-type id is kebab-case).
+// Confirmed against developers.google.com/health/endpoints (FOO-1115).
+const GOOGLE_HEALTH_API_BASE = "https://health.googleapis.com/v4";
+
+/** Kebab-case v4 data-type id for the nutrition log. */
+const NUTRITION_LOG_DATA_TYPE = "nutrition-log";
+
+/** v4 dataPoints collection URL for a data-type (kebab-case id). */
+function dataPointsUrl(dataType: string): string {
+  return `${GOOGLE_HEALTH_API_BASE}/users/me/dataTypes/${dataType}/dataPoints`;
+}
+
+/** Full resource name of a single dataPoint — used for batchDelete `names`. */
+function dataPointName(dataType: string, id: string): string {
+  return `users/me/dataTypes/${dataType}/dataPoints/${id}`;
+}
 
 /** Module-level dry-run gate — single source of truth for both write functions. */
 function isHealthDryRun(): boolean {
@@ -404,58 +420,65 @@ function buildHealthTimestamp(timing: HealthLogTiming): string | undefined {
 }
 
 /**
- * Build the JSON body for a Google Health nutrition-log dataPoint.
- *
- * Ports the nutrient-param logic from fitbit.ts (createFood body builder):
- *   - Required nutrients are always included.
- *   - Conditional tier-1 nutrients (saturated_fat, trans_fat, sugars,
- *     calories_from_fat) are omitted when null and included when present.
- *   - Calories and calories_from_fat are rounded via Math.round.
- *   - The meal timestamp (start_time/end_time) + meal_type carry the user's selected
- *     date/time/meal context so the Health entry isn't stamped at "now" (FOO-1113).
- *
- * NOTE: JSON field paths (including start_time/end_time/meal_type) are inferred from
- * Google Health Connect REST API docs and must be confirmed against the real API
- * (production — staging is dry-run) — see FOO-1086 / FOO-1113.
+ * Map the app's internal mealTypeId (1..7) to the Google Health MealType enum.
+ * INFERRED enum values — validate against the live API (FOO-1115).
  */
-function buildNutritionLogBody(food: FoodAnalysis, timing: HealthLogTiming): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    food_display_name: food.food_name,
-    amount: food.amount,
-    serving_unit: food.unit_id, // ServingUnit is already a string
-    energy: Math.round(food.calories),
-    protein: food.protein_g,
-    total_carbohydrate: food.carbs_g,
-    total_fat: food.fat_g,
-    dietary_fiber: food.fiber_g,
-    sodium: food.sodium_mg,
+function mapMealType(mealTypeId: number): string {
+  switch (mealTypeId) {
+    case 1: return "BREAKFAST";        // Breakfast
+    case 2: return "SNACK";            // Morning snack
+    case 3: return "LUNCH";            // Lunch
+    case 4: return "SNACK";            // Afternoon snack
+    case 5: return "DINNER";           // Dinner
+    default: return "UNKNOWN";         // 7 = Anytime / unspecified
+  }
+}
+
+/**
+ * Build a Google Health **v4** nutrition-log DataPoint body.
+ *
+ * The OUTER structure is confirmed against developers.google.com/health v4:
+ *   - A DataPoint is `{ name, <dataType-member>: {...} }`; for nutrition-log the
+ *     member is `nutritionLog`. `name` is the client-providable resource name, which
+ *     lets us know the id without parsing the async Operation the create returns.
+ *   - `nutritionLog` carries `sampleTime` (the meal instant), `food` (display name +
+ *     energy), `nutrients[]` (macros), and `mealType`.
+ *
+ * The INNER nutritionLog field names (food/energy/nutrient enums/mealType enum/serving)
+ * are BEST-EFFORT from the v4 schema and MUST be validated against the live API —
+ * staging is HEALTH_DRY_RUN so writes are never exercised there (FOO-1115).
+ */
+function buildNutritionLogBody(name: string, food: FoodAnalysis, timing: HealthLogTiming): Record<string, unknown> {
+  const nutrients: Array<Record<string, unknown>> = [
+    { nutrient: "PROTEIN", amount: { grams: food.protein_g } },
+    { nutrient: "TOTAL_CARBOHYDRATE", amount: { grams: food.carbs_g } },
+    { nutrient: "TOTAL_FAT", amount: { grams: food.fat_g } },
+    { nutrient: "DIETARY_FIBER", amount: { grams: food.fiber_g } },
+    { nutrient: "SODIUM", amount: { milligrams: food.sodium_mg } },
+  ];
+  if (food.saturated_fat_g != null) nutrients.push({ nutrient: "SATURATED_FAT", amount: { grams: food.saturated_fat_g } });
+  if (food.trans_fat_g != null) nutrients.push({ nutrient: "TRANS_FAT", amount: { grams: food.trans_fat_g } });
+  if (food.sugars_g != null) nutrients.push({ nutrient: "SUGARS", amount: { grams: food.sugars_g } });
+
+  const nutritionLog: Record<string, unknown> = {
+    food: {
+      name: food.food_name,
+      energy: { kilocalories: Math.round(food.calories) },
+      servingSize: { amount: food.amount, unit: food.unit_id },
+    },
+    nutrients,
   };
 
-  // Conditional tier-1 nutrients — omit when null (port from fitbit.ts:211-223)
-  if (food.saturated_fat_g != null) {
-    body.saturated_fat = food.saturated_fat_g;
-  }
-  if (food.trans_fat_g != null) {
-    body.trans_fat = food.trans_fat_g;
-  }
-  if (food.sugars_g != null) {
-    body.sugars = food.sugars_g;
-  }
-  if (food.calories_from_fat != null) {
-    body.calories_from_fat = Math.round(food.calories_from_fat);
-  }
-
-  // Meal timing + context — the user's selected date/time, not "now".
-  const startTime = buildHealthTimestamp(timing);
-  if (startTime) {
-    body.start_time = startTime;
-    body.end_time = startTime; // point-in-time meal event
+  // Meal instant — the user's selected date/time, not "now" (FOO-1113).
+  const sampleTime = buildHealthTimestamp(timing);
+  if (sampleTime) {
+    nutritionLog.sampleTime = { sampleTime };
   }
   if (timing.mealTypeId != null) {
-    body.meal_type = timing.mealTypeId;
+    nutritionLog.mealType = mapMealType(timing.mealTypeId);
   }
 
-  return body;
+  return { name, nutritionLog };
 }
 
 /**
@@ -465,10 +488,17 @@ function buildNutritionLogBody(food: FoodAnalysis, timing: HealthLogTiming): Rec
  * Anonymous logs are not editable in place — the app always does
  * delete-old + create-new on edit.
  *
- * Returns { healthLogId } — the string id from the created dataPoint.
- * Throws HEALTH_API_ERROR on non-ok response or missing id in response body.
+ * POSTs to the v4 dataPoints collection. The create returns a long-running
+ * Operation (not the DataPoint), so we CLIENT-PROVIDE the dataPoint `name` (the v4
+ * schema allows a client id of 4–63 lowercase letters/numbers/hyphens — a UUID fits)
+ * and return that id as the healthLogId without parsing the Operation. The stored id
+ * is later turned back into a resource name for batchDelete.
  *
- * NOTE: endpoint and body shape inferred from docs; confirm during staging QA.
+ * Returns { healthLogId } — the client-generated dataPoint id.
+ * Throws HEALTH_API_ERROR on non-ok response.
+ *
+ * NOTE: endpoint/method/envelope confirmed (v4); the nutritionLog body internals are
+ * best-effort and must be validated against the live API (FOO-1115).
  */
 export async function createNutritionLog(
   accessToken: string,
@@ -484,10 +514,13 @@ export async function createNutritionLog(
     return { healthLogId: "dry-run" };
   }
 
-  const body = buildNutritionLogBody(food, timing);
+  // Client-generated dataPoint id (lowercase hex + hyphens, 36 chars — within the
+  // 4–63 char constraint), so we know the id without parsing the async Operation.
+  const dataPointId = crypto.randomUUID();
+  const body = buildNutritionLogBody(dataPointName(NUTRITION_LOG_DATA_TYPE, dataPointId), food, timing);
 
   const response = await fetchWithRetry(
-    `${GOOGLE_HEALTH_API_BASE}/users/me/nutrition-log/dataPoints`,
+    dataPointsUrl(NUTRITION_LOG_DATA_TYPE),
     {
       method: "POST",
       headers: {
@@ -509,17 +542,9 @@ export async function createNutritionLog(
     throw new Error("HEALTH_API_ERROR");
   }
 
-  const data = await jsonWithTimeout<Record<string, unknown>>(response);
-  if (typeof data.id !== "string") {
-    l.error(
-      { action: "health_create_nutrition_log_invalid_response" },
-      "nutrition log response missing string id",
-    );
-    throw new Error("HEALTH_API_ERROR");
-  }
-
-  l.info({ action: "health_create_nutrition_log_success", healthLogId: data.id }, "nutrition log created");
-  return { healthLogId: data.id };
+  // Create returns a long-running Operation; the dataPoint id is the one we supplied.
+  l.info({ action: "health_create_nutrition_log_success", healthLogId: dataPointId }, "nutrition log created");
+  return { healthLogId: dataPointId };
 }
 
 /**
@@ -545,15 +570,17 @@ export async function deleteNutritionLogs(
     return;
   }
 
+  // v4 batchDelete takes full resource names, not bare ids.
+  const names = ids.map((id) => dataPointName(NUTRITION_LOG_DATA_TYPE, id));
   const response = await fetchWithRetry(
-    `${GOOGLE_HEALTH_API_BASE}/users/me/nutrition-log/dataPoints:batchDelete`,
+    `${dataPointsUrl(NUTRITION_LOG_DATA_TYPE)}:batchDelete`,
     {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ ids }),
+      body: JSON.stringify({ names }),
     },
     0, Date.now(), l, userId, "critical",
   );
@@ -582,8 +609,6 @@ export async function deleteNutritionLogs(
 
 // ─── Profile + biometric read API ────────────────────────────────────────────
 
-const GOOGLE_HEALTH_API_V4 = "https://health.googleapis.com/v4";
-
 /** Subtract days from a YYYY-MM-DD date string, returning YYYY-MM-DD. */
 function subtractDays(dateStr: string, days: number): string {
   const date = new Date(dateStr + "T00:00:00Z");
@@ -591,15 +616,17 @@ function subtractDays(dateStr: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** Compute integer age from a date-of-birth object { year, month, day } and now. */
-function computeAge(dob: { year: number; month: number; day: number }): number {
-  const now = new Date();
-  let age = now.getUTCFullYear() - dob.year;
-  const birthdayThisYear = new Date(Date.UTC(now.getUTCFullYear(), dob.month - 1, dob.day));
-  if (now < birthdayThisYear) {
-    age--;
+/**
+ * Extract a YYYY-MM-DD date from a v4 ObservationSampleTime, which may be an RFC3339
+ * string or an object carrying `sampleTime`. Best-effort (FOO-1115).
+ */
+function extractSampleDate(sampleTime: unknown): string | null {
+  if (typeof sampleTime === "string") return sampleTime.slice(0, 10);
+  if (sampleTime && typeof sampleTime === "object") {
+    const st = (sampleTime as Record<string, unknown>).sampleTime;
+    if (typeof st === "string") return st.slice(0, 10);
   }
-  return age;
+  return null;
 }
 
 /**
@@ -616,30 +643,63 @@ function parseSex(value: unknown): "MALE" | "FEMALE" | "NA" {
 }
 
 /**
- * Parse height from the Google Health response into cm.
- * Height is expected as { value: number, unit: string } where unit is "METER".
- * Converts metres → cm by multiplying by 100.
- *
- * NOTE: field paths inferred from docs — confirm during staging QA (FOO-1088).
+ * Parse a height value from a v4 `height` dataPoint into cm. Height samples carry
+ * `meters` (double) in v4; alternate shapes may use { value, unit }. Best-effort —
+ * validate against the live API (FOO-1115).
  */
-function parseHeightCm(height: Record<string, unknown>): number {
-  const value = height.value as number;
-  const unit = typeof height.unit === "string" ? height.unit.toUpperCase() : "METER";
-  if (unit === "CENTIMETER" || unit === "CM") return value;
-  // Default: treat as meters → cm
-  return value * 100;
+function parseHeightCm(height: Record<string, unknown>): number | null {
+  if (typeof height.meters === "number") return height.meters * 100;
+  if (typeof height.centimeters === "number") return height.centimeters;
+  if (typeof height.value === "number") {
+    const unit = typeof height.unit === "string" ? height.unit.toUpperCase() : "METER";
+    return unit.startsWith("CENT") ? height.value : height.value * 100;
+  }
+  return null;
 }
 
 /**
- * Fetch and parse the user's Google Health profile.
+ * Read the user's latest height (cm) from the v4 `height` data type, or null if none.
+ * The v4 Profile resource does NOT carry height — it is its own data type (FOO-1115).
+ */
+async function getHealthHeightCm(
+  accessToken: string,
+  l: Logger,
+  userId: string | undefined,
+  criticality: HealthCallCriticality,
+): Promise<number | null> {
+  const response = await fetchWithRetry(
+    dataPointsUrl("height"),
+    { method: "GET", headers: { Authorization: `Bearer ${accessToken}` } },
+    0, Date.now(), l, userId, criticality,
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    const errorBody = sanitizeErrorBody(await parseErrorBody(response));
+    l.error({ action: "health_get_height_failed", status: response.status, errorBody }, "height fetch failed");
+    throw new Error("HEALTH_API_ERROR");
+  }
+  const data = await jsonWithTimeout<Record<string, unknown>>(response);
+  const points = Array.isArray(data.dataPoints) ? (data.dataPoints as Array<Record<string, unknown>>) : [];
+  for (const p of points) {
+    const h = p.height as Record<string, unknown> | undefined;
+    if (h) {
+      const cm = parseHeightCm(h);
+      if (cm !== null) return cm;
+    }
+  }
+  return null;
+}
+
+/**
+ * Fetch and parse the user's Google Health profile (v4).
  *
- * Returns { ageYears, sex, heightCm }.
- * Unknown sex defaults to 'NA' (not a throw — keeps sex_unset daily-goals path alive).
- * Height is always returned in cm.
- * Age is derived from the dateOfBirth field using the current date.
+ * Returns { ageYears, sex, heightCm }. The v4 `users/me/profile` resource carries the
+ * derived `age` but NOT sex or height (confirmed — FOO-1115): sex is unavailable so it
+ * defaults to 'NA' (keeps the daily-goals sex_unset path alive), and height is read
+ * from the separate `height` data type.
  *
- * NOTE: endpoint and body shape inferred from Google Health Connect REST API v4 docs;
- * confirm during staging QA (FOO-1088).
+ * NOTE: endpoints confirmed (v4 /users/me/profile + /dataTypes/height/dataPoints); the
+ * height value shape is best-effort — validate against the live API (FOO-1115).
  */
 export async function getHealthProfile(
   accessToken: string,
@@ -651,7 +711,7 @@ export async function getHealthProfile(
   l.debug({ action: "health_get_profile" }, "fetching Google Health profile");
 
   const response = await fetchWithRetry(
-    `${GOOGLE_HEALTH_API_V4}/users/me`,
+    `${GOOGLE_HEALTH_API_BASE}/users/me/profile`,
     {
       method: "GET",
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -668,23 +728,20 @@ export async function getHealthProfile(
 
   const data = await jsonWithTimeout<Record<string, unknown>>(response);
 
+  // The v4 Profile exposes a derived integer `age`.
+  if (typeof data.age !== "number") {
+    throw new Error("HEALTH_API_ERROR");
+  }
+  const ageYears = data.age;
+
+  // sex is not part of the v4 Profile → NA (parse defensively in case it ever appears).
   const sex = parseSex(data.sex);
 
-  const heightRaw = data.height as Record<string, unknown> | undefined;
-  if (!heightRaw || typeof heightRaw.value !== "number") {
+  // height is its own data type, not a profile field.
+  const heightCm = await getHealthHeightCm(accessToken, l, userId, criticality);
+  if (heightCm === null) {
     throw new Error("HEALTH_API_ERROR");
   }
-  const heightCm = parseHeightCm(heightRaw);
-
-  const dobRaw = data.dateOfBirth as Record<string, unknown> | undefined;
-  if (!dobRaw || typeof dobRaw.year !== "number") {
-    throw new Error("HEALTH_API_ERROR");
-  }
-  const ageYears = computeAge({
-    year: dobRaw.year as number,
-    month: (dobRaw.month as number) ?? 1,
-    day: (dobRaw.day as number) ?? 1,
-  });
 
   l.debug({ action: "health_get_profile_success" }, "profile fetched");
   return { ageYears, sex, heightCm };
@@ -693,12 +750,13 @@ export async function getHealthProfile(
 /**
  * Fetch the most recent weight log on or before targetDate from Google Health.
  *
- * Issues a SINGLE ranged fetch over [targetDate-13d, targetDate] (14-day window)
- * rather than a 14-day walk-back (replaces fitbit.ts getFitbitLatestWeightKg).
- * Returns the most-recent data point on/before targetDate, or null if empty.
- * Expects the API to return weight in kg (weightKg field); no unit conversion performed.
+ * Reads the v4 `weight` data type's dataPoints and returns the most-recent sample
+ * on/before targetDate within a 14-day window, or null if empty. Weight samples carry
+ * `kilograms` directly (no unit conversion).
  *
- * NOTE: endpoint and body shape inferred from docs — confirm during staging QA (FOO-1088).
+ * NOTE: endpoint confirmed (v4 /dataTypes/weight/dataPoints, weight.kilograms); the v4
+ * ranged-read filter syntax isn't confirmed, so points are filtered client-side to the
+ * window. Best-effort — validate against the live API (FOO-1115).
  */
 export async function getHealthLatestWeightKg(
   accessToken: string,
@@ -714,9 +772,8 @@ export async function getHealthLatestWeightKg(
     "fetching weight from Google Health (14-day window)",
   );
 
-  const url = new URL(`${GOOGLE_HEALTH_API_V4}/users/me/weight-log`);
-  url.searchParams.set("startDate", startDate);
-  url.searchParams.set("endDate", targetDate);
+  const url = new URL(dataPointsUrl("weight"));
+  url.searchParams.set("pageSize", "100");
 
   const response = await fetchWithRetry(
     url.toString(),
@@ -735,33 +792,29 @@ export async function getHealthLatestWeightKg(
   }
 
   const data = await jsonWithTimeout<Record<string, unknown>>(response);
-  const points = data.weightPoints as Array<Record<string, unknown>> | undefined;
+  const points = Array.isArray(data.dataPoints) ? (data.dataPoints as Array<Record<string, unknown>>) : [];
 
-  if (!Array.isArray(points) || points.length === 0) {
+  // Parse weight samples, keep those within [startDate, targetDate].
+  const valid: Array<{ weightKg: number; date: string }> = [];
+  for (const p of points) {
+    const w = p.weight as Record<string, unknown> | undefined;
+    if (!w || typeof w.kilograms !== "number") continue;
+    const d = extractSampleDate(w.sampleTime);
+    if (!d || d < startDate || d > targetDate) continue;
+    valid.push({ weightKg: w.kilograms, date: d });
+  }
+
+  if (valid.length === 0) {
     l.debug({ action: "health_get_weight_not_found", targetDate }, "no weight found in 14-day window");
     return null;
   }
 
-  // Filter to only points on/before targetDate, then sort descending by date
-  const valid = points.filter((p) => {
-    return typeof p.date === "string" && p.date <= targetDate;
-  });
-
-  if (valid.length === 0) {
-    l.debug({ action: "health_get_weight_all_future", targetDate }, "all weight points are after targetDate");
-    return null;
-  }
-
   // Sort by date descending → take the most recent
-  valid.sort((a, b) => (b.date as string).localeCompare(a.date as string));
+  valid.sort((a, b) => b.date.localeCompare(a.date));
   const latest = valid[0];
 
-  if (typeof latest.weightKg !== "number") {
-    throw new Error("HEALTH_API_ERROR");
-  }
-
   l.debug({ action: "health_get_weight_success", loggedDate: latest.date, weightKg: latest.weightKg }, "weight fetched");
-  return { weightKg: latest.weightKg, loggedDate: latest.date as string };
+  return { weightKg: latest.weightKg, loggedDate: latest.date };
 }
 
 /**
@@ -783,14 +836,16 @@ export async function getHealthActivitySummary(
   const l = log ?? logger;
   l.debug({ action: "health_get_activity_summary", date }, "fetching activity summary from Google Health");
 
-  const url = new URL(`${GOOGLE_HEALTH_API_V4}/users/me/activity-summary`);
-  url.searchParams.set("date", date);
-
+  // v4 daily roll-up of total daily energy expenditure (the caloriesOut analogue).
   const response = await fetchWithRetry(
-    url.toString(),
+    `${dataPointsUrl("total-calories")}:dailyRollUp`,
     {
-      method: "GET",
-      headers: { Authorization: `Bearer ${accessToken}` },
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ startDate: date, endDate: date }),
     },
     0, Date.now(), l, userId, criticality,
   );
@@ -803,21 +858,25 @@ export async function getHealthActivitySummary(
   }
 
   const data = await jsonWithTimeout<Record<string, unknown>>(response);
-  const rollUp = data.dailyRollUp as Record<string, unknown> | undefined;
+  // dailyRollUp returns per-day roll-ups; pull the first day's total-calories kcal.
+  // Response shape is best-effort: accept either a top-level rollUp or a dailyRollUps[] array.
+  const rollUps = Array.isArray(data.dailyRollUps)
+    ? (data.dailyRollUps as Array<Record<string, unknown>>)
+    : (data.dailyRollUp ? [data.dailyRollUp as Record<string, unknown>] : []);
+  const rollUp = rollUps[0];
 
-  if (!rollUp || typeof rollUp.caloriesOut !== "number") {
+  const kcal =
+    rollUp && typeof rollUp.totalCaloriesKcal === "number" ? rollUp.totalCaloriesKcal
+    : rollUp && typeof rollUp.caloriesKcal === "number" ? rollUp.caloriesKcal
+    : rollUp && typeof rollUp.caloriesOut === "number" ? rollUp.caloriesOut
+    : null;
+
+  if (kcal === null) {
     l.debug({ action: "health_get_activity_summary_empty", date }, "activity summary caloriesOut not yet available");
     return { caloriesOut: null };
   }
 
-  let caloriesOut = rollUp.caloriesOut;
-
-  // Convert kJ → kcal if the energy unit is specified as kJ
-  const energyUnit = typeof rollUp.energyUnit === "string" ? rollUp.energyUnit : "";
-  if (energyUnit.toLowerCase() === "kj") {
-    caloriesOut = Math.round(caloriesOut / 4.184);
-  }
-
+  const caloriesOut = Math.round(kcal);
   l.debug({ action: "health_get_activity_summary_success", date, caloriesOut }, "activity summary fetched");
   return { caloriesOut };
 }

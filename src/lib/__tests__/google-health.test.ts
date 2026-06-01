@@ -319,48 +319,60 @@ describe("google-health", () => {
       expect(init.method).toBe("POST");
     });
 
-    it("body carries food_display_name, energy (rounded), protein, carbs, fat, fiber, sodium", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-abc" }));
+    it("posts a v4 DataPoint with a client-provided name; healthLogId is that name's id", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "operations/abc" }));
+
+      const result = await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as { name: string; nutritionLog: Record<string, unknown> };
+      expect(body.name).toMatch(/^users\/me\/dataTypes\/nutrition-log\/dataPoints\/[a-z0-9-]{4,63}$/);
+      expect(body.name.endsWith(result.healthLogId)).toBe(true);
+      expect(body.nutritionLog).toBeDefined();
+    });
+
+    it("nutritionLog carries food name, energy (rounded kcal), and serving size", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "op/1" }));
 
       await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      const body = JSON.parse(init.body as string);
-      expect(body.food_display_name).toBe("Test Chicken");
-      expect(body.energy).toBe(321); // Math.round(320.7)
-      expect(body.protein).toBe(30);
-      expect(body.total_carbohydrate).toBe(0);
-      expect(body.total_fat).toBe(10);
-      expect(body.dietary_fiber).toBe(0);
-      expect(body.sodium).toBe(150);
+      const { nutritionLog } = JSON.parse(init.body as string);
+      expect(nutritionLog.food.name).toBe("Test Chicken");
+      expect(nutritionLog.food.energy.kilocalories).toBe(321); // Math.round(320.7)
+      expect(nutritionLog.food.servingSize).toEqual({ amount: 200, unit: "g" });
     });
 
-    it("body includes amount and serving_unit (string)", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-xyz" }));
+    it("nutritionLog.nutrients includes the required macros (grams + sodium mg)", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "op/1" }));
 
       await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      const body = JSON.parse(init.body as string);
-      expect(body.amount).toBe(200);
-      expect(typeof body.serving_unit).toBe("string");
-      expect(body.serving_unit).toBe("g");
+      const { nutritionLog } = JSON.parse(init.body as string);
+      const nutrients = nutritionLog.nutrients as Array<{ nutrient: string; amount: Record<string, number> }>;
+      const byNutrient = Object.fromEntries(nutrients.map((n) => [n.nutrient, n.amount]));
+      expect(byNutrient.PROTEIN).toEqual({ grams: 30 });
+      expect(byNutrient.TOTAL_CARBOHYDRATE).toEqual({ grams: 0 });
+      expect(byNutrient.TOTAL_FAT).toEqual({ grams: 10 });
+      expect(byNutrient.DIETARY_FIBER).toEqual({ grams: 0 });
+      expect(byNutrient.SODIUM).toEqual({ milligrams: 150 });
     });
 
-    it("omits saturated_fat, trans_fat, sugars, calories_from_fat when null", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-abc" }));
+    it("omits optional nutrients (saturated/trans/sugars) when null", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "op/1" }));
 
       await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      const body = JSON.parse(init.body as string);
-      expect(body).not.toHaveProperty("saturated_fat");
-      expect(body).not.toHaveProperty("trans_fat");
-      expect(body).not.toHaveProperty("sugars");
-      expect(body).not.toHaveProperty("calories_from_fat");
+      const { nutritionLog } = JSON.parse(init.body as string);
+      const names = (nutritionLog.nutrients as Array<{ nutrient: string }>).map((n) => n.nutrient);
+      expect(names).not.toContain("SATURATED_FAT");
+      expect(names).not.toContain("TRANS_FAT");
+      expect(names).not.toContain("SUGARS");
     });
 
-    it("includes saturated_fat, trans_fat, sugars, calories_from_fat when present and non-null", async () => {
+    it("includes optional nutrients (saturated/trans/sugars) when present and non-null", async () => {
       const richFood = {
         ...sampleFood,
         saturated_fat_g: 3.5,
@@ -368,48 +380,42 @@ describe("google-health", () => {
         sugars_g: 2,
         calories_from_fat: 90.4,
       };
-      fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-rich" }));
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "op/1" }));
 
       await createNutritionLog("token", richFood, sampleTiming, fakeLog, "user-1");
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      const body = JSON.parse(init.body as string);
-      expect(body.saturated_fat).toBe(3.5);
-      expect(body.trans_fat).toBe(0.5);
-      expect(body.sugars).toBe(2);
-      expect(body.calories_from_fat).toBe(90); // Math.round(90.4)
+      const { nutritionLog } = JSON.parse(init.body as string);
+      const nutrients = nutritionLog.nutrients as Array<{ nutrient: string; amount: Record<string, number> }>;
+      const byNutrient = Object.fromEntries(nutrients.map((n) => [n.nutrient, n.amount]));
+      expect(byNutrient.SATURATED_FAT).toEqual({ grams: 3.5 });
+      expect(byNutrient.TRANS_FAT).toEqual({ grams: 0.5 });
+      expect(byNutrient.SUGARS).toEqual({ grams: 2 });
     });
 
     it("rounds fractional calories with Math.round", async () => {
       const food = { ...sampleFood, calories: 250.6 };
-      fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-rounded" }));
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "op/1" }));
 
       await createNutritionLog("token", food, sampleTiming, fakeLog, "user-1");
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      const body = JSON.parse(init.body as string);
-      expect(body.energy).toBe(251);
+      const { nutritionLog } = JSON.parse(init.body as string);
+      expect(nutritionLog.food.energy.kilocalories).toBe(251);
     });
 
-    it("returns { healthLogId: string } from response id field", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({ id: "health-log-id-999" }));
+    it("returns the client-generated dataPoint id as healthLogId (create returns an async Operation)", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "operations/xyz" }));
 
       const result = await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
-      expect(result).toEqual({ healthLogId: "health-log-id-999" });
+      expect(typeof result.healthLogId).toBe("string");
+      expect(result.healthLogId.length).toBeGreaterThan(0);
     });
 
     it("throws HEALTH_API_ERROR on non-ok response (400 — no retry)", async () => {
       // Use 400 (not retried by fetchWithRetry) to avoid slow real-timer retries
       fetchMock.mockResolvedValue(new Response(null, { status: 400 }));
-
-      await expect(
-        createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1"),
-      ).rejects.toThrow("HEALTH_API_ERROR");
-    });
-
-    it("throws HEALTH_API_ERROR on 200 body lacking a string id", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({ notId: 42 }));
 
       await expect(
         createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1"),
@@ -426,7 +432,7 @@ describe("google-health", () => {
     });
 
     it("sends Authorization: Bearer header", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-bearer" }));
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "op/1" }));
 
       await createNutritionLog("my-access-token", sampleFood, sampleTiming, fakeLog, "user-1");
 
@@ -435,22 +441,20 @@ describe("google-health", () => {
       expect(headers["Authorization"]).toBe("Bearer my-access-token");
     });
 
-    // FOO-1113: the Health entry must carry the user's selected meal time + context,
-    // not be stamped at "now".
-    it("body carries the meal timestamp (start_time/end_time) and meal_type from timing", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-ts" }));
+    // FOO-1113: the Health entry must carry the user's selected meal time + context.
+    it("nutritionLog carries sampleTime + mapped mealType from timing", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "op/1" }));
 
       await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      const body = JSON.parse(init.body as string);
-      expect(body.start_time).toBe("2026-02-08T20:00:00-03:00");
-      expect(body.end_time).toBe("2026-02-08T20:00:00-03:00");
-      expect(body.meal_type).toBe(5);
+      const { nutritionLog } = JSON.parse(init.body as string);
+      expect(nutritionLog.sampleTime).toEqual({ sampleTime: "2026-02-08T20:00:00-03:00" });
+      expect(nutritionLog.mealType).toBe("DINNER"); // mealTypeId 5
     });
 
     it("builds the timestamp without an offset when zoneOffset is absent and normalizes HH:mm", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-ts2" }));
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "op/1" }));
 
       await createNutritionLog(
         "token",
@@ -461,13 +465,13 @@ describe("google-health", () => {
       );
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      const body = JSON.parse(init.body as string);
-      expect(body.start_time).toBe("2026-02-08T08:30:00");
-      expect(body.meal_type).toBe(1);
+      const { nutritionLog } = JSON.parse(init.body as string);
+      expect(nutritionLog.sampleTime).toEqual({ sampleTime: "2026-02-08T08:30:00" });
+      expect(nutritionLog.mealType).toBe("BREAKFAST"); // mealTypeId 1
     });
 
-    it("omits start_time/end_time and meal_type when timing has no time or meal", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-ts3" }));
+    it("omits sampleTime and mealType when timing has no time or meal", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "op/1" }));
 
       await createNutritionLog(
         "token",
@@ -478,27 +482,29 @@ describe("google-health", () => {
       );
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      const body = JSON.parse(init.body as string);
-      expect(body).not.toHaveProperty("start_time");
-      expect(body).not.toHaveProperty("end_time");
-      expect(body).not.toHaveProperty("meal_type");
+      const { nutritionLog } = JSON.parse(init.body as string);
+      expect(nutritionLog).not.toHaveProperty("sampleTime");
+      expect(nutritionLog).not.toHaveProperty("mealType");
     });
   });
 
   // ─── deleteNutritionLogs ─────────────────────────────────────────────────────
 
   describe("deleteNutritionLogs", () => {
-    it("makes a single batchDelete POST with the id array", async () => {
+    it("makes a single batchDelete POST with full dataPoint resource names", async () => {
       fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
 
       await deleteNutritionLogs("token", ["id-1", "id-2"], fakeLog, "user-1");
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      expect(url).toContain("batchDelete");
+      expect(url).toContain("dataTypes/nutrition-log/dataPoints:batchDelete");
       expect(init.method).toBe("POST");
       const body = JSON.parse(init.body as string);
-      expect(body.ids).toEqual(["id-1", "id-2"]);
+      expect(body.names).toEqual([
+        "users/me/dataTypes/nutrition-log/dataPoints/id-1",
+        "users/me/dataTypes/nutrition-log/dataPoints/id-2",
+      ]);
     });
 
     it("resolves without throwing on 404 (already-deleted)", async () => {
@@ -639,82 +645,63 @@ describe("google-health", () => {
   // ─── getHealthProfile ────────────────────────────────────────────────────────
 
   describe("getHealthProfile", () => {
-    it("parses Google Health v4 /users/me — uses v4 URL and Bearer auth", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({
-        dateOfBirth: { year: 1990, month: 6, day: 15 },
-        sex: "MALE",
-        height: { value: 1.80, unit: "METER" },
-      }));
+    // v4: the Profile resource exposes only `age`; height is the separate `height`
+    // data type (a SECOND fetch); sex is not exposed → NA. (FOO-1115)
+    const heightResp = () => makeJsonResponse({ dataPoints: [{ height: { meters: 1.80 } }] });
+
+    it("uses the v4 /users/me/profile resource with Bearer auth", async () => {
+      fetchMock
+        .mockResolvedValueOnce(makeJsonResponse({ age: 36 }))
+        .mockResolvedValueOnce(heightResp());
 
       await getHealthProfile("my-access-token", fakeLog, "user-1");
 
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      expect(url).toContain("v4");
-      expect(url).toContain("users/me");
+      expect(url).toContain("/v4/users/me/profile");
       const headers = init.headers as Record<string, string>;
       expect(headers["Authorization"]).toBe("Bearer my-access-token");
     });
 
-    it("parses sex=MALE correctly", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({
-        dateOfBirth: { year: 1990, month: 1, day: 1 },
-        sex: "MALE",
-        height: { value: 1.75, unit: "METER" },
-      }));
+    it("reads ageYears from the profile's age field", async () => {
+      fetchMock
+        .mockResolvedValueOnce(makeJsonResponse({ age: 36 }))
+        .mockResolvedValueOnce(heightResp());
       const result = await getHealthProfile("token", fakeLog, "user-1");
-      expect(result.sex).toBe("MALE");
+      expect(result.ageYears).toBe(36);
     });
 
-    it("maps 'female' to 'FEMALE' (lowercase from API)", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({
-        dateOfBirth: { year: 1990, month: 1, day: 1 },
-        sex: "female",
-        height: { value: 1.65, unit: "METER" },
-      }));
-      const result = await getHealthProfile("token", fakeLog, "user-1");
-      expect(result.sex).toBe("FEMALE");
-    });
-
-    it("defaults unknown/absent sex to 'NA' (not a throw)", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({
-        dateOfBirth: { year: 1990, month: 1, day: 1 },
-        sex: "UNKNOWN",
-        height: { value: 1.70, unit: "METER" },
-      }));
+    it("defaults sex to NA (the v4 profile does not expose sex)", async () => {
+      fetchMock
+        .mockResolvedValueOnce(makeJsonResponse({ age: 30 }))
+        .mockResolvedValueOnce(heightResp());
       const result = await getHealthProfile("token", fakeLog, "user-1");
       expect(result.sex).toBe("NA");
     });
 
-    it("defaults absent sex field to 'NA'", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({
-        dateOfBirth: { year: 1990, month: 1, day: 1 },
-        height: { value: 1.70, unit: "METER" },
-      }));
-      const result = await getHealthProfile("token", fakeLog, "user-1");
-      expect(result.sex).toBe("NA");
-    });
-
-    it("converts height in meters to cm", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({
-        dateOfBirth: { year: 1990, month: 1, day: 1 },
-        sex: "MALE",
-        height: { value: 1.80, unit: "METER" },
-      }));
+    it("reads height (cm) from the height data type (meters → cm)", async () => {
+      fetchMock
+        .mockResolvedValueOnce(makeJsonResponse({ age: 30 }))
+        .mockResolvedValueOnce(makeJsonResponse({ dataPoints: [{ height: { meters: 1.80 } }] }));
       const result = await getHealthProfile("token", fakeLog, "user-1");
       expect(result.heightCm).toBeCloseTo(180, 1);
+      const [heightUrl] = fetchMock.mock.calls[1] as [string, RequestInit];
+      expect(heightUrl).toContain("dataTypes/height/dataPoints");
     });
 
-    it("derives age from DOB with frozen time (vi.useFakeTimers)", async () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date("2026-05-31"));
+    it("throws HEALTH_API_ERROR when the profile has no age", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({}));
+      await expect(
+        getHealthProfile("token", fakeLog, "user-1"),
+      ).rejects.toThrow("HEALTH_API_ERROR");
+    });
 
-      fetchMock.mockResolvedValue(makeJsonResponse({
-        dateOfBirth: { year: 1990, month: 5, day: 31 }, // birthday today → age 36
-        sex: "MALE",
-        height: { value: 1.80, unit: "METER" },
-      }));
-      const result = await getHealthProfile("token", fakeLog, "user-1");
-      expect(result.ageYears).toBe(36); // 2026 - 1990 = 36
+    it("throws HEALTH_API_ERROR when height is unavailable (404 on the height data type)", async () => {
+      fetchMock
+        .mockResolvedValueOnce(makeJsonResponse({ age: 30 }))
+        .mockResolvedValueOnce(new Response(null, { status: 404 }));
+      await expect(
+        getHealthProfile("token", fakeLog, "user-1"),
+      ).rejects.toThrow("HEALTH_API_ERROR");
     });
 
     it("throws HEALTH_TOKEN_INVALID on 401", async () => {
@@ -735,23 +722,21 @@ describe("google-health", () => {
   // ─── getHealthLatestWeightKg ──────────────────────────────────────────────────
 
   describe("getHealthLatestWeightKg", () => {
-    it("issues EXACTLY ONE ranged fetch over [targetDate-13d, targetDate] (14-day window)", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({ weightPoints: [] }));
+    it("makes ONE GET to the v4 weight dataPoints collection", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ dataPoints: [] }));
 
       await getHealthLatestWeightKg("token", "2026-05-31", fakeLog, "user-1");
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
-      // startDate should be 13 days before targetDate
-      expect(url).toContain("2026-05-18"); // 2026-05-31 - 13 days
-      expect(url).toContain("2026-05-31");
+      expect(url).toContain("dataTypes/weight/dataPoints");
     });
 
-    it("returns the most-recent point on/before targetDate (not the first in array)", async () => {
+    it("returns the most-recent sample on/before targetDate (weight.kilograms)", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({
-        weightPoints: [
-          { date: "2026-05-25", weightKg: 80.0 }, // older
-          { date: "2026-05-30", weightKg: 79.5 }, // more recent — should be returned
+        dataPoints: [
+          { weight: { kilograms: 80.0, sampleTime: { sampleTime: "2026-05-25T07:00:00Z" } } }, // older
+          { weight: { kilograms: 79.5, sampleTime: { sampleTime: "2026-05-30T07:00:00Z" } } }, // more recent
         ],
       }));
 
@@ -759,16 +744,27 @@ describe("google-health", () => {
       expect(result).toEqual({ weightKg: 79.5, loggedDate: "2026-05-30" });
     });
 
-    it("returns null on empty weight points", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({ weightPoints: [] }));
+    it("returns null on empty dataPoints", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ dataPoints: [] }));
       const result = await getHealthLatestWeightKg("token", "2026-05-31", fakeLog, "user-1");
       expect(result).toBeNull();
     });
 
-    it("excludes weight points after targetDate", async () => {
+    it("excludes weight samples after targetDate (sampleTime as a plain string)", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({
-        weightPoints: [
-          { date: "2026-06-01", weightKg: 80.0 }, // after targetDate — excluded
+        dataPoints: [
+          { weight: { kilograms: 80.0, sampleTime: "2026-06-01T07:00:00Z" } }, // after target — excluded
+        ],
+      }));
+
+      const result = await getHealthLatestWeightKg("token", "2026-05-31", fakeLog, "user-1");
+      expect(result).toBeNull();
+    });
+
+    it("excludes weight samples before the 14-day window", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({
+        dataPoints: [
+          { weight: { kilograms: 80.0, sampleTime: "2026-05-10T07:00:00Z" } }, // > 13 days before target
         ],
       }));
 
@@ -777,7 +773,7 @@ describe("google-health", () => {
     });
 
     it("logs the 14-day window (not '7 days')", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({ weightPoints: [] }));
+      fetchMock.mockResolvedValue(makeJsonResponse({ dataPoints: [] }));
 
       await getHealthLatestWeightKg("token", "2026-05-31", fakeLog, "user-1");
 
@@ -799,37 +795,46 @@ describe("google-health", () => {
   // ─── getHealthActivitySummary ─────────────────────────────────────────────────
 
   describe("getHealthActivitySummary", () => {
-    it("parses dailyRollUp caloriesOut into { caloriesOut: number }", async () => {
+    it("POSTs a dailyRollUp on the v4 total-calories data type", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ dailyRollUps: [{ totalCaloriesKcal: 2345 }] }));
+
+      await getHealthActivitySummary("token", "2026-05-31", fakeLog, "user-1");
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain("dataTypes/total-calories/dataPoints:dailyRollUp");
+      expect(init.method).toBe("POST");
+    });
+
+    it("parses totalCaloriesKcal from a dailyRollUps[] array into { caloriesOut }", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({
-        dailyRollUp: { caloriesOut: 2345 },
+        dailyRollUps: [{ totalCaloriesKcal: 2345.4 }],
       }));
 
       const result = await getHealthActivitySummary("token", "2026-05-31", fakeLog, "user-1");
-      expect(result.caloriesOut).toBe(2345);
+      expect(result.caloriesOut).toBe(2345); // Math.round
     });
 
-    it("returns { caloriesOut: null } on empty dailyRollUp (no throw)", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({ dailyRollUp: {} }));
+    it("parses a single dailyRollUp object (caloriesOut fallback field)", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({
+        dailyRollUp: { caloriesOut: 2200 },
+      }));
+
+      const result = await getHealthActivitySummary("token", "2026-05-31", fakeLog, "user-1");
+      expect(result.caloriesOut).toBe(2200);
+    });
+
+    it("returns { caloriesOut: null } on empty roll-up (no throw)", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ dailyRollUps: [{}] }));
 
       const result = await getHealthActivitySummary("token", "2026-05-31", fakeLog, "user-1");
       expect(result.caloriesOut).toBeNull();
     });
 
-    it("returns { caloriesOut: null } on absent dailyRollUp", async () => {
+    it("returns { caloriesOut: null } on absent roll-up", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({}));
 
       const result = await getHealthActivitySummary("token", "2026-05-31", fakeLog, "user-1");
       expect(result.caloriesOut).toBeNull();
-    });
-
-    it("converts kJ to kcal when energy unit is kJ (divide by 4.184)", async () => {
-      // 2345 kcal × 4.184 = 9811.48 kJ → 9811 / 4.184 ≈ 2344.8 → Math.round → 2345
-      fetchMock.mockResolvedValue(makeJsonResponse({
-        dailyRollUp: { caloriesOut: 9811.0, energyUnit: "kJ" },
-      }));
-
-      const result = await getHealthActivitySummary("token", "2026-05-31", fakeLog, "user-1");
-      expect(result.caloriesOut).toBeCloseTo(2345, 0);
     });
 
     it("throws HEALTH_TOKEN_INVALID on 401", async () => {
