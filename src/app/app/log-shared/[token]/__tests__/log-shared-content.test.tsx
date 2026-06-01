@@ -50,13 +50,41 @@ beforeEach(() => {
   vi.stubGlobal("fetch", mockFetch);
 });
 
+describe("LogSharedContent health connect guard", () => {
+  it("shows connect Google Health prompt and hides log button when health is not connected", () => {
+    mockUseSWR.mockImplementation((key: string) => {
+      if (key === "/api/shared-food/test-token") {
+        return { data: mockSharedFood, error: undefined, isLoading: false, mutate: vi.fn() };
+      }
+      if (key === "/api/auth/session") {
+        return { data: { healthConnected: false }, isLoading: false, mutate: vi.fn() };
+      }
+      return { data: undefined, error: undefined, isLoading: false, mutate: vi.fn() };
+    });
+
+    render(<LogSharedContent token="test-token" />);
+
+    // Viewing is still allowed: food heading visible
+    expect(screen.getByRole("heading", { name: "Grilled Chicken" })).toBeInTheDocument();
+
+    // Log button should NOT be visible
+    expect(screen.queryByRole("button", { name: /log to google health/i })).not.toBeInTheDocument();
+
+    // Connect link should be visible
+    expect(screen.getByRole("link", { name: /connect google health/i })).toBeInTheDocument();
+  });
+});
+
 describe("LogSharedContent date handling", () => {
   beforeEach(() => {
-    mockUseSWR.mockReturnValue({
-      data: mockSharedFood,
-      error: undefined,
-      isLoading: false,
-      mutate: vi.fn(),
+    mockUseSWR.mockImplementation((key: string) => {
+      if (key === "/api/shared-food/test-token") {
+        return { data: mockSharedFood, error: undefined, isLoading: false, mutate: vi.fn() };
+      }
+      if (key === "/api/auth/session") {
+        return { data: { healthConnected: true }, isLoading: false, mutate: vi.fn() };
+      }
+      return { data: undefined, error: undefined, isLoading: false, mutate: vi.fn() };
     });
   });
 

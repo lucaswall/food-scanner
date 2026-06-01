@@ -244,6 +244,49 @@ describe("FoodDetail share button", () => {
     });
     vi.unstubAllGlobals();
   });
+
+  it("shows error when share API returns malformed 200 response (missing shareUrl)", async () => {
+    const malformedFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: {} }), // no shareUrl
+    });
+    vi.stubGlobal("fetch", malformedFetch);
+
+    render(<FoodDetail entryId="1" />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /share/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/failed to share/i)).toBeInTheDocument();
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it("calls share API with AbortSignal timeout", async () => {
+    const timedFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { shareUrl: "http://localhost/app/log-shared/tok" } }),
+    });
+    vi.stubGlobal("fetch", timedFetch);
+    Object.defineProperty(navigator, "share", { value: undefined, configurable: true, writable: true });
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+      writable: true,
+    });
+
+    render(<FoodDetail entryId="1" />);
+    fireEvent.click(screen.getByRole("button", { name: /share/i }));
+
+    await waitFor(() => {
+      expect(timedFetch).toHaveBeenCalledWith(
+        "/api/share",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+    });
+    vi.unstubAllGlobals();
+  });
 });
 
 describe("FoodDetail error state", () => {

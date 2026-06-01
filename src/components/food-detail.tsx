@@ -59,13 +59,18 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customFoodId: data.customFoodId }),
+        signal: AbortSignal.timeout(10000),
       });
       if (!response.ok) {
         setShareError("Failed to share. Please try again.");
         return;
       }
       const result = await response.json();
-      const shareUrl: string = result.data.shareUrl;
+      const shareUrl: string | undefined = result?.data?.shareUrl;
+      if (typeof shareUrl !== "string") {
+        setShareError("Failed to share. Please try again.");
+        return;
+      }
       const foodName: string = data.foodName;
 
       if (navigator.share) {
@@ -83,6 +88,12 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
         } catch {
           setShareError("Failed to copy link. Please try again.");
         }
+      }
+    } catch (err) {
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setShareError("Request timed out. Please try again.");
+      } else {
+        setShareError("Failed to share. Please try again.");
       }
     } finally {
       setIsSharing(false);

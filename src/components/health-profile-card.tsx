@@ -44,7 +44,9 @@ export function HealthProfileCard() {
     setRefreshing(true);
     setRefreshError(null);
     try {
-      const res = await fetch("/api/health-profile?refresh=1");
+      const res = await fetch("/api/health-profile?refresh=1", {
+        signal: AbortSignal.timeout(10000),
+      });
       if (!res.ok) throw new Error("refresh_failed");
       await mutate();
     } catch {
