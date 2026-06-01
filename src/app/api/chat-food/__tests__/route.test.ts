@@ -11,7 +11,7 @@ vi.mock("@/lib/session", () => ({
   getSession: () => mockGetSession(),
   validateSession: (
     session: FullSession | null,
-    options?: { requireFitbit?: boolean },
+    options?: { requireHealth?: boolean },
   ): Response | null => {
     if (!session) {
       return Response.json(
@@ -19,13 +19,13 @@ vi.mock("@/lib/session", () => ({
         { status: 401 },
       );
     }
-    if (options?.requireFitbit && !session.fitbitConnected) {
+    if (options?.requireHealth && !session.healthConnected) {
       return Response.json(
-        { success: false, error: { code: "FITBIT_NOT_CONNECTED", message: "Fitbit account not connected" }, timestamp: Date.now() },
+        { success: false, error: { code: "HEALTH_NOT_CONNECTED", message: "Google Health not connected" }, timestamp: Date.now() },
         { status: 400 },
       );
     }
-    if (options?.requireFitbit && !session.hasFitbitCredentials) {
+    if (false) {
       return Response.json(
         { success: false, error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Fitbit credentials not configured" }, timestamp: Date.now() },
         { status: 400 },
@@ -73,15 +73,14 @@ const validSession: FullSession = {
   sessionId: "test-session",
   userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
-  fitbitConnected: true,
-  hasFitbitCredentials: true,
+  healthConnected: true,
   destroy: vi.fn(),
 };
 
 const validAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
   amount: 150,
-  unit_id: 147,
+  unit_id: "g",
   calories: 320,
   protein_g: 12,
   carbs_g: 28,
@@ -455,10 +454,10 @@ describe("POST /api/chat-food", () => {
 
   // ---- SSE streaming responses (success path) ----
 
-  it("does not require Fitbit connection and returns SSE response", async () => {
+  it("does not require Google Health connection and returns SSE response", async () => {
     mockGetSession.mockResolvedValue({
       ...validSession,
-      fitbitConnected: false,
+      healthConnected: false,
     });
     mockConversationalRefine.mockImplementation(async function* () {
       yield { type: "done" } as StreamEvent;

@@ -33,7 +33,7 @@ import {
   getPendingSubmission,
   clearPendingSubmission,
 } from "@/lib/pending-submission";
-import { useLogToFitbit } from "@/hooks/use-log-to-fitbit";
+import { useLogFood } from "@/hooks/use-log-food";
 import { getLocalDateTime } from "@/lib/meal-type";
 import { getActiveSessionId } from "@/lib/analysis-session";
 import { safeResponseJson } from "@/lib/safe-json";
@@ -78,7 +78,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
-  const { logToFitbit, logToFitbitWithMatch, logging, logError: hookLogError, logResponse: hookLogResponse, clearLogError } = useLogToFitbit({
+  const { logFood, logFoodWithMatch, logging, logError: hookLogError, logResponse: hookLogResponse, clearLogError } = useLogFood({
     analysis,
     mealTypeId,
     selectedTime,
@@ -394,7 +394,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   };
 
   const handleUseExisting = (match: FoodMatch) => {
-    void logToFitbitWithMatch(match, {
+    void logFoodWithMatch(match, {
       description: analysis?.description,
       notes: analysis?.notes,
       keywords: analysis?.keywords,
@@ -429,7 +429,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   // Register keyboard shortcuts
   useKeyboardShortcuts({
     onAnalyze: handleAnalyze,
-    onLogToFitbit: logToFitbit,
+    onLogToFitbit: logFood,
     canAnalyze,
     canLog,
   });
@@ -690,8 +690,8 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           </Button>
 
           {saveSuccess && (
-            <div data-testid="save-success-banner" className="p-3 bg-green-50 border border-green-200 rounded-lg" aria-live="polite">
-              <p className="text-sm text-green-700">Saved — find it on your dashboard</p>
+            <div data-testid="save-success-banner" className="p-3 bg-success/10 border border-success/20 rounded-lg" aria-live="polite">
+              <p className="text-sm text-success">Saved — find it on your dashboard</p>
             </div>
           )}
 
@@ -748,7 +748,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     >
       <div className={`mx-auto w-full max-w-md py-3 border-t ${keyboardHeight > 0 ? "bg-background border-b pb-4" : "bg-background/80 backdrop-blur-sm"}`}>
         <Button
-          onClick={analysis ? logToFitbit : handleAnalyze}
+          onClick={analysis ? logFood : handleAnalyze}
           disabled={analysis ? logging || saving : !canAnalyze}
           className="w-full min-h-[44px]"
         >
@@ -761,7 +761,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
                 : analysis
                   ? matches.length > 0
                     ? "Log as new food"
-                    : "Log to Fitbit"
+                    : "Log to Google Health"
                   : "Analyze Food"}
         </Button>
         {(loading || compressing) && (

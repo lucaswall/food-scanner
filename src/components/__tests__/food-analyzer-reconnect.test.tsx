@@ -229,7 +229,7 @@ vi.mock("@/lib/meal-type", () => ({
 const mockAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
   amount: 150,
-  unit_id: 147,
+  unit_id: "g",
   calories: 320,
   protein_g: 12,
   carbs_g: 28,
@@ -248,8 +248,7 @@ const mockAnalysis: FoodAnalysis = {
 
 const mockLogResponse: FoodLogResponse = {
   success: true,
-  fitbitFoodId: 12345,
-  fitbitLogId: 67890,
+  healthLogId: "test-health-log-id",
   reusedFood: false,
 };
 
@@ -295,8 +294,8 @@ beforeEach(() => {
 });
 
 describe("FoodAnalyzer reconnect flow", () => {
-  describe("FITBIT_TOKEN_INVALID during log", () => {
-    it("saves pending submission when FITBIT_TOKEN_INVALID is received", async () => {
+  describe("HEALTH_TOKEN_INVALID during log", () => {
+    it("saves pending submission when HEALTH_TOKEN_INVALID is received", async () => {
       mockFetch
         .mockResolvedValueOnce(
           makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
@@ -307,7 +306,7 @@ describe("FoodAnalyzer reconnect flow", () => {
           json: () =>
             Promise.resolve({
               success: false,
-              error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+              error: { code: "HEALTH_TOKEN_INVALID", message: "Token expired" },
             }),
         });
 
@@ -320,10 +319,10 @@ describe("FoodAnalyzer reconnect flow", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         expect(mockSavePending).toHaveBeenCalledWith(
@@ -335,7 +334,7 @@ describe("FoodAnalyzer reconnect flow", () => {
       });
     });
 
-    it("redirects to /api/auth/fitbit when FITBIT_TOKEN_INVALID is received", async () => {
+    it("redirects to /api/auth/google-health when HEALTH_TOKEN_INVALID is received", async () => {
       mockFetch
         .mockResolvedValueOnce(
           makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
@@ -346,7 +345,7 @@ describe("FoodAnalyzer reconnect flow", () => {
           json: () =>
             Promise.resolve({
               success: false,
-              error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+              error: { code: "HEALTH_TOKEN_INVALID", message: "Token expired" },
             }),
         });
 
@@ -359,13 +358,13 @@ describe("FoodAnalyzer reconnect flow", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
-        expect(window.location.href).toBe("/api/auth/fitbit");
+        expect(window.location.href).toBe("/api/auth/google-health");
       });
     });
 
@@ -380,7 +379,7 @@ describe("FoodAnalyzer reconnect flow", () => {
           json: () =>
             Promise.resolve({
               success: false,
-              error: { code: "FITBIT_API_ERROR", message: "Rate limited" },
+              error: { code: "HEALTH_API_ERROR", message: "Rate limited" },
             }),
         });
 
@@ -393,10 +392,10 @@ describe("FoodAnalyzer reconnect flow", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         expect(screen.getByText(/rate limited/i)).toBeInTheDocument();
@@ -458,7 +457,7 @@ describe("FoodAnalyzer reconnect flow", () => {
         json: () =>
           Promise.resolve({
             success: false,
-            error: { code: "FITBIT_API_ERROR", message: "Fitbit is down" },
+            error: { code: "HEALTH_API_ERROR", message: "Health API is down" },
           }),
       });
 
@@ -466,7 +465,7 @@ describe("FoodAnalyzer reconnect flow", () => {
 
       // Should show error after failed resubmit
       await waitFor(() => {
-        expect(screen.getByText(/fitbit is down/i)).toBeInTheDocument();
+        expect(screen.getByText(/health api is down/i)).toBeInTheDocument();
       });
 
       // Should clear pending
@@ -561,7 +560,7 @@ describe("FoodAnalyzer reconnect flow", () => {
       });
     });
 
-    it("savePendingSubmission includes date and time from FITBIT_TOKEN_INVALID flow", async () => {
+    it("savePendingSubmission includes date and time from HEALTH_TOKEN_INVALID flow", async () => {
       mockFetch
         .mockResolvedValueOnce(
           makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
@@ -572,7 +571,7 @@ describe("FoodAnalyzer reconnect flow", () => {
           json: () =>
             Promise.resolve({
               success: false,
-              error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+              error: { code: "HEALTH_TOKEN_INVALID", message: "Token expired" },
             }),
         });
 
@@ -585,10 +584,10 @@ describe("FoodAnalyzer reconnect flow", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         expect(mockSavePending).toHaveBeenCalledWith(

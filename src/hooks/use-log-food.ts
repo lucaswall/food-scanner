@@ -8,7 +8,7 @@ import { vibrateError } from "@/lib/haptics";
 import { getLocalDateTime } from "@/lib/meal-type";
 import type { FoodAnalysis, FoodLogResponse } from "@/types";
 
-interface UseLogToFitbitConfig {
+interface UseLogFoodConfig {
   analysis: FoodAnalysis | null;
   mealTypeId: number;
   selectedTime?: string | null;
@@ -17,9 +17,9 @@ interface UseLogToFitbitConfig {
   getSessionId?: () => string | undefined;
 }
 
-interface UseLogToFitbitReturn {
-  logToFitbit: () => Promise<void>;
-  logToFitbitWithMatch: (
+interface UseLogFoodReturn {
+  logFood: () => Promise<void>;
+  logFoodWithMatch: (
     match: { customFoodId: number; foodName: string },
     metadata?: {
       description?: string;
@@ -49,16 +49,16 @@ async function handleLogResponse(
 
   if (!response.ok || !result.success) {
     const errorCode = result.error?.code;
-    if (errorCode === "FITBIT_TOKEN_INVALID") {
+    if (errorCode === "HEALTH_TOKEN_INVALID") {
       onTokenInvalid();
       return;
     }
-    if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
-      setLogError("Fitbit is not set up. Please configure your credentials in Settings.");
+    if (errorCode === "HEALTH_NOT_CONNECTED") {
+      setLogError("Google Health is not connected. Please connect in Settings.");
       vibrateError();
       return;
     }
-    setLogError(result.error?.message || "Failed to log food to Fitbit");
+    setLogError(result.error?.message || "Failed to log food");
     vibrateError();
     return;
   }
@@ -79,21 +79,21 @@ function handleCatchError(err: unknown, setLogError: (e: string | null) => void)
   vibrateError();
 }
 
-export function useLogToFitbit({
+export function useLogFood({
   analysis,
   mealTypeId,
   selectedTime,
   dateOverride,
   onSuccess,
   getSessionId,
-}: UseLogToFitbitConfig): UseLogToFitbitReturn {
+}: UseLogFoodConfig): UseLogFoodReturn {
   const [logging, setLogging] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
   const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
 
   const clearLogError = useCallback(() => setLogError(null), []);
 
-  const logToFitbit = useCallback(async () => {
+  const logFood = useCallback(async () => {
     if (logging || !analysis) return;
 
     setLogging(true);
@@ -143,7 +143,7 @@ export function useLogToFitbit({
             zoneOffset: localDateTime.zoneOffset,
             sessionId: getSessionId?.(),
           });
-          window.location.href = "/api/auth/fitbit";
+          window.location.href = "/api/auth/google-health";
         }
       );
     } catch (err) {
@@ -153,7 +153,7 @@ export function useLogToFitbit({
     }
   }, [logging, analysis, mealTypeId, selectedTime, dateOverride, onSuccess, getSessionId]);
 
-  const logToFitbitWithMatch = useCallback(
+  const logFoodWithMatch = useCallback(
     async (
       match: { customFoodId: number; foodName: string },
       metadata?: {
@@ -204,7 +204,7 @@ export function useLogToFitbit({
               ...localDateTime,
               sessionId: getSessionId?.(),
             });
-            window.location.href = "/api/auth/fitbit";
+            window.location.href = "/api/auth/google-health";
           }
         );
       } catch (err) {
@@ -216,5 +216,5 @@ export function useLogToFitbit({
     [logging, mealTypeId, onSuccess, getSessionId]
   );
 
-  return { logToFitbit, logToFitbitWithMatch, logging, logError, logResponse, clearLogError };
+  return { logFood, logFoodWithMatch, logging, logError, logResponse, clearLogError };
 }

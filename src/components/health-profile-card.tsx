@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { apiFetcher, FITBIT_BACKED_SWR_CONFIG } from "@/lib/swr";
+import { apiFetcher, HEALTH_BACKED_SWR_CONFIG } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { FitbitProfileData } from "@/types";
+import type { HealthProfileData } from "@/types";
 
-const NOT_SET = "Not set in Fitbit";
+const NOT_SET = "Not set in Google Health";
 
 function formatSex(sex: "MALE" | "FEMALE" | "NA" | undefined): string {
   if (!sex || sex === "NA") return NOT_SET;
@@ -31,11 +31,11 @@ function weightAgeDays(loggedDate: string | null | undefined): number | null {
   return Math.floor(ageMs / 86_400_000);
 }
 
-export function FitbitProfileCard() {
-  const { data, error, isLoading, mutate } = useSWR<FitbitProfileData>(
-    "/api/fitbit/profile",
+export function HealthProfileCard() {
+  const { data, error, isLoading, mutate } = useSWR<HealthProfileData>(
+    "/api/health-profile",
     apiFetcher,
-    FITBIT_BACKED_SWR_CONFIG,
+    HEALTH_BACKED_SWR_CONFIG,
   );
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -44,11 +44,11 @@ export function FitbitProfileCard() {
     setRefreshing(true);
     setRefreshError(null);
     try {
-      const res = await fetch("/api/fitbit/profile?refresh=1");
+      const res = await fetch("/api/health-profile?refresh=1");
       if (!res.ok) throw new Error("refresh_failed");
       await mutate();
     } catch {
-      setRefreshError("Could not refresh from Fitbit. Try again.");
+      setRefreshError("Could not refresh from Google Health. Try again.");
     } finally {
       setRefreshing(false);
     }
@@ -57,7 +57,7 @@ export function FitbitProfileCard() {
   if (isLoading) {
     return (
       <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
-        <h2 className="text-lg font-semibold">Fitbit Profile</h2>
+        <h2 className="text-lg font-semibold">Google Health Profile</h2>
         <Skeleton className="h-4 w-32" />
         <Skeleton className="h-4 w-28" />
         <Skeleton className="h-4 w-36" />
@@ -69,8 +69,8 @@ export function FitbitProfileCard() {
   if (error) {
     return (
       <div className="flex flex-col gap-4 rounded-xl border bg-card p-6" role="alert">
-        <h2 className="text-lg font-semibold">Fitbit Profile</h2>
-        <p className="text-sm text-destructive">Could not load Fitbit profile</p>
+        <h2 className="text-lg font-semibold">Google Health Profile</h2>
+        <p className="text-sm text-destructive">Could not load Google Health profile</p>
         <Button
           variant="outline"
           className="min-h-[44px]"
@@ -85,7 +85,7 @@ export function FitbitProfileCard() {
   return (
     <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">Fitbit Profile</h2>
+        <h2 className="text-lg font-semibold">Google Health Profile</h2>
         <Button
           variant="outline"
           size="sm"
@@ -93,12 +93,12 @@ export function FitbitProfileCard() {
           onClick={handleRefresh}
           disabled={refreshing}
         >
-          {refreshing ? "Refreshing..." : "Refresh from Fitbit"}
+          {refreshing ? "Refreshing..." : "Refresh from Google Health"}
         </Button>
       </div>
 
       {refreshError && (
-        <p className="text-sm text-red-600" role="alert">{refreshError}</p>
+        <p className="text-sm text-destructive" role="alert">{refreshError}</p>
       )}
 
       {data && (
@@ -127,7 +127,7 @@ export function FitbitProfileCard() {
             const ageDays = weightAgeDays(data.weightLoggedDate);
             if (ageDays !== null && ageDays > 7 && ageDays <= 14) {
               return (
-                <p className="text-xs text-amber-600 dark:text-amber-500">
+                <p className="text-xs text-warning">
                   Weight log is {ageDays} days old — consider weighing in.
                 </p>
               );

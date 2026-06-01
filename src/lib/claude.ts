@@ -290,8 +290,9 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
     "carbs_g", "fat_g", "fiber_g", "sodium_mg",
   ] as const;
 
-  // Coerce serving_unit from model output — tolerant, defaults to 'serving' on unknown values
-  const rawServingUnit = data.serving_unit;
+  // Coerce serving_unit from model output — tolerant, defaults to 'serving' on unknown values.
+  // Also accepts unit_id (the field name used in FoodAnalysis objects from clients/DB).
+  const rawServingUnit = data.serving_unit ?? data.unit_id;
   const unit_id = coerceServingUnit(rawServingUnit);
   if (typeof rawServingUnit !== "string" || unit_id !== rawServingUnit) {
     logger.warn(

@@ -6,7 +6,7 @@ import type { FoodAnalysis } from "@/types";
 const makeFoodAnalysis = (overrides: Partial<FoodAnalysis> = {}): FoodAnalysis => ({
   food_name: "Grilled Chicken",
   amount: 200,
-  unit_id: 147,
+  unit_id: "g",
   calories: 330,
   protein_g: 62,
   carbs_g: 0,

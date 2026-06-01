@@ -8,23 +8,23 @@ import { MealTypeSelector } from "@/components/meal-type-selector";
 import { FoodLogConfirmation } from "@/components/food-log-confirmation";
 import { Button } from "@/components/ui/button";
 import { AlertCircle } from "lucide-react";
-import { FitbitMealType } from "@/types";
+import { MealType } from "@/types";
 import type { FoodAnalysis } from "@/types";
-import { useLogToFitbit } from "@/hooks/use-log-to-fitbit";
+import { useLogFood } from "@/hooks/use-log-food";
 
 interface LogSharedContentProps {
   token: string;
 }
 
 export function LogSharedContent({ token }: LogSharedContentProps) {
-  const [mealTypeId, setMealTypeId] = useState<number>(FitbitMealType.Anytime);
+  const [mealTypeId, setMealTypeId] = useState<number>(MealType.Anytime);
 
   const { data, error, isLoading, mutate } = useSWR<FoodAnalysis>(
     `/api/shared-food/${token}`,
     apiFetcher,
   );
 
-  const { logToFitbit, logging: isLogging, logError, logResponse } = useLogToFitbit({
+  const { logFood, logging: isLogging, logError, logResponse } = useLogFood({
     analysis: data ?? null,
     mealTypeId,
   });
@@ -111,11 +111,11 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
       )}
 
       <Button
-        onClick={logToFitbit}
+        onClick={logFood}
         disabled={isLogging}
         className="w-full min-h-[44px]"
       >
-        {isLogging ? "Logging..." : "Log to Fitbit"}
+        {isLogging ? "Logging..." : "Log to Google Health"}
       </Button>
     </div>
   );

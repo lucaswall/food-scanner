@@ -379,7 +379,7 @@ vi.mock("../food-chat", () => ({
 const mockAnalysisForChat: FoodAnalysis = {
   food_name: "Default",
   amount: 100,
-  unit_id: 147,
+  unit_id: "g",
   calories: 100,
   protein_g: 5,
   carbs_g: 10,
@@ -411,7 +411,7 @@ beforeEach(async () => {
 const mockAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
   amount: 150,
-  unit_id: 147,
+  unit_id: "g",
   calories: 320,
   protein_g: 12,
   carbs_g: 28,
@@ -430,8 +430,7 @@ const mockAnalysis: FoodAnalysis = {
 
 const mockLogResponse: FoodLogResponse = {
   success: true,
-  fitbitFoodId: 12345,
-  fitbitLogId: 67890,
+  healthLogId: "test-health-log-id",
   reusedFood: false,
 };
 
@@ -443,11 +442,10 @@ const mockMatches: FoodMatch[] = [
     proteinG: 11,
     carbsG: 27,
     fatG: 17,
-    fitbitFoodId: 111,
     matchRatio: 0.9,
     lastLoggedAt: new Date("2026-02-04T12:00:00Z"),
     amount: 150,
-    unitId: 147,
+    unitId: "g",
   },
 ];
 
@@ -835,7 +833,7 @@ describe("FoodAnalyzer", () => {
     });
   });
 
-  it("shows Log to Fitbit button after analysis", async () => {
+  it("shows Log to Google Health button after analysis", async () => {
     mockFetch.mockResolvedValueOnce(
       makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
     );
@@ -849,11 +847,11 @@ describe("FoodAnalyzer", () => {
     fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
     });
   });
 
-  it("Log to Fitbit button calls /api/log-food", async () => {
+  it("Log to Google Health button calls /api/log-food", async () => {
     mockFetch
       .mockResolvedValueOnce({
         ...makeSseAnalyzeResponse([
@@ -876,10 +874,10 @@ describe("FoodAnalyzer", () => {
     fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
@@ -915,10 +913,10 @@ describe("FoodAnalyzer", () => {
     fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
@@ -945,10 +943,10 @@ describe("FoodAnalyzer", () => {
     fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     // Wait for logging state to activate (fetch has been called)
     await waitFor(() => {
@@ -959,7 +957,7 @@ describe("FoodAnalyzer", () => {
     expect(screen.queryByTestId("food-log-confirmation")).not.toBeInTheDocument();
   });
 
-  it("saves pending and redirects on FITBIT_TOKEN_INVALID", async () => {
+  it("saves pending and redirects on HEALTH_TOKEN_INVALID", async () => {
     // Override window.location for this test
     const originalLocation = window.location;
     Object.defineProperty(window, "location", {
@@ -982,7 +980,7 @@ describe("FoodAnalyzer", () => {
         json: () =>
           Promise.resolve({
             success: false,
-            error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+            error: { code: "HEALTH_TOKEN_INVALID", message: "Token expired" },
           }),
       });
 
@@ -995,14 +993,14 @@ describe("FoodAnalyzer", () => {
     fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       expect(savePendingSubmission).toHaveBeenCalled();
-      expect(window.location.href).toBe("/api/auth/fitbit");
+      expect(window.location.href).toBe("/api/auth/google-health");
     });
 
     // Restore
@@ -1167,7 +1165,7 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
       // Flush pending microtasks and effects so keyboard handler has canLog=true
@@ -1367,7 +1365,7 @@ describe("FoodAnalyzer", () => {
       });
     });
 
-    it("shows 'Log to Fitbit' when analysis exists", async () => {
+    it("shows 'Log to Google Health' when analysis exists", async () => {
       mockFetch.mockResolvedValueOnce({
         ...makeSseAnalyzeResponse([
           { type: "analysis", analysis: mockAnalysis },
@@ -1384,7 +1382,7 @@ describe("FoodAnalyzer", () => {
       });
 
       const stickyBar = screen.getByTestId("sticky-cta-bar");
-      expect(stickyBar).toHaveTextContent(/log to fitbit/i);
+      expect(stickyBar).toHaveTextContent(/log to google health/i);
     });
 
     it("shows 'Log as new' when analysis exists with matches", async () => {
@@ -1501,7 +1499,7 @@ describe("FoodAnalyzer", () => {
         expect(screen.getByTestId("food-name")).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         expect(screen.queryByTestId("sticky-cta-bar")).not.toBeInTheDocument();
@@ -1510,7 +1508,7 @@ describe("FoodAnalyzer", () => {
   });
 
   describe("button hierarchy post-analysis", () => {
-    it("'Log to Fitbit' uses default (primary) variant", async () => {
+    it("'Log to Google Health' uses default (primary) variant", async () => {
       mockFetch.mockResolvedValueOnce({
         ...makeSseAnalyzeResponse([
         { type: "analysis", analysis: mockAnalysis },
@@ -1527,10 +1525,10 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      const logButton = screen.getByRole("button", { name: /log to fitbit/i });
+      const logButton = screen.getByRole("button", { name: /log to google health/i });
       // Check data-variant attribute set by Button component
       expect(logButton).toHaveAttribute("data-variant", "default");
     });
@@ -1632,10 +1630,10 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         const errorContainer = screen.getByTestId("log-error");
@@ -1896,10 +1894,10 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         const logFoodCall = mockFetch.mock.calls.find(
@@ -2013,7 +2011,7 @@ describe("FoodAnalyzer", () => {
   });
 
   describe("food logging confirmation behavior", () => {
-    it("shows confirmation only after API responds to Log to Fitbit", async () => {
+    it("shows confirmation only after API responds to Log to Google Health", async () => {
       mockFetch
         .mockResolvedValueOnce(
           makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
@@ -2033,10 +2031,10 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       // Confirmation appears only after the API responds
       await waitFor(() => {
@@ -2102,10 +2100,10 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       // Should show error, no confirmation
       await waitFor(() => {
@@ -2198,7 +2196,7 @@ describe("FoodAnalyzer", () => {
         expect(screen.queryByTestId("photo-capture")).not.toBeInTheDocument();
         expect(screen.queryByTestId("description-input")).not.toBeInTheDocument();
         expect(screen.queryByTestId("analysis-result")).not.toBeInTheDocument();
-        expect(screen.queryByRole("button", { name: /log to fitbit/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /log to google health/i })).not.toBeInTheDocument();
         expect(screen.queryByTestId("meal-type-selector")).not.toBeInTheDocument();
       });
     });
@@ -2255,7 +2253,7 @@ describe("FoodAnalyzer", () => {
         expect(screen.getByTestId("photo-capture")).toBeInTheDocument();
         expect(screen.getByTestId("description-input")).toBeInTheDocument();
         expect(screen.getByTestId("analysis-result")).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
         expect(screen.getByTestId("meal-type-selector")).toBeInTheDocument();
 
         // Chat should not be open
@@ -2311,11 +2309,11 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
       // Log directly without using chat
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
@@ -2389,7 +2387,7 @@ describe("FoodAnalyzer", () => {
 
       await waitFor(() => {
         expect(screen.queryByTestId("food-chat")).not.toBeInTheDocument();
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
     });
 
@@ -2551,10 +2549,10 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
@@ -2609,10 +2607,10 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         expect(screen.getByTestId("log-error")).toBeInTheDocument();
@@ -2641,11 +2639,11 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
       // Click log button
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       // Wait for the log-food fetch to be called (logging state is active)
       await waitFor(() => {
@@ -3098,10 +3096,10 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         expect(screen.getByTestId("log-error")).toBeInTheDocument();
@@ -3160,10 +3158,10 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         const logFoodCall = mockFetch.mock.calls.find(
@@ -4088,7 +4086,7 @@ describe("FoodAnalyzer", () => {
       const timeInput = screen.getByLabelText(/meal time/i);
       fireEvent.change(timeInput, { target: { value: "08:15" } });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         expect(mockFetch).toHaveBeenCalledWith("/api/log-food", expect.any(Object));
@@ -4123,11 +4121,11 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
       // Don't set time — leave as null
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         expect(mockFetch).toHaveBeenCalledWith("/api/log-food", expect.any(Object));
@@ -4272,10 +4270,10 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       // Persisted session cleared immediately after successful log
       await waitFor(() => {
@@ -4659,7 +4657,7 @@ describe("FoodAnalyzer", () => {
       mockFetch.mockImplementation(() => new Promise(() => {}));
       render(<FoodAnalyzer />);
 
-      const logButton = screen.getByRole("button", { name: /log to fitbit/i });
+      const logButton = screen.getByRole("button", { name: /log to google health/i });
       await act(async () => { fireEvent.click(logButton); });
 
       expect(screen.getByRole("button", { name: /save for later/i })).toBeDisabled();

@@ -5,7 +5,7 @@ import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { apiFetcher } from "@/lib/swr";
 import { FoodLogConfirmation } from "./food-log-confirmation";
-import { useLogToFitbit } from "@/hooks/use-log-to-fitbit";
+import { useLogFood } from "@/hooks/use-log-food";
 import { MealTypeSelector } from "./meal-type-selector";
 import { NutritionFactsCard } from "./nutrition-facts-card";
 import { Button } from "@/components/ui/button";
@@ -121,7 +121,7 @@ export function QuickSelect() {
   const [selectedFood, setSelectedFood] = useState<CommonFood | null>(null);
   const [mealTypeId, setMealTypeId] = useState(getDefaultMealType());
 
-  const { logToFitbitWithMatch, logging, logError, logResponse, clearLogError } = useLogToFitbit({
+  const { logFoodWithMatch, logging, logError, logResponse, clearLogError } = useLogFood({
     analysis: null,
     mealTypeId,
   });
@@ -149,7 +149,7 @@ export function QuickSelect() {
 
   const handleLogClick = () => {
     if (!selectedFood) return;
-    void logToFitbitWithMatch({ customFoodId: selectedFood.customFoodId, foodName: selectedFood.foodName });
+    void logFoodWithMatch({ customFoodId: selectedFood.customFoodId, foodName: selectedFood.foodName });
   };
 
   // Success screen
@@ -225,7 +225,7 @@ export function QuickSelect() {
           disabled={logging}
           className="w-full min-h-[44px]"
         >
-          {logging ? "Logging..." : "Log to Fitbit"}
+          {logging ? "Logging..." : "Log to Google Health"}
         </Button>
       </div>
     );

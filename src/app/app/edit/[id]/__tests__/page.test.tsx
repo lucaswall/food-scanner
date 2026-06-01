@@ -17,9 +17,9 @@ vi.mock("@/components/edit-food", () => ({
   ),
 }));
 
-vi.mock("@/components/fitbit-setup-guard", () => ({
-  FitbitSetupGuard: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="fitbit-setup-guard">{children}</div>
+vi.mock("@/components/health-connect-guard", () => ({
+  HealthConnectGuard: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="health-connect-guard">{children}</div>
   ),
 }));
 
@@ -30,11 +30,11 @@ vi.mock("@/components/skip-link", () => ({
 const { default: EditFoodPage } = await import("@/app/app/edit/[id]/page");
 
 describe("EditFoodPage", () => {
-  it("renders FitbitSetupGuard wrapping EditFood", async () => {
+  it("renders HealthConnectGuard wrapping EditFood", async () => {
     const element = await EditFoodPage({ params: Promise.resolve({ id: "42" }) });
     render(element);
 
-    const guard = screen.getByTestId("fitbit-setup-guard");
+    const guard = screen.getByTestId("health-connect-guard");
     expect(guard).toBeInTheDocument();
     const editFood = screen.getByTestId("edit-food");
     expect(editFood).toBeInTheDocument();

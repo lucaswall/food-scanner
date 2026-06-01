@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import useSWR, { useSWRConfig } from "swr";
-import { apiFetcher, FITBIT_BACKED_SWR_CONFIG } from "@/lib/swr";
+import { apiFetcher, HEALTH_BACKED_SWR_CONFIG } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,7 +10,7 @@ import {
   computeMacroTargets,
   ACTIVITY_LEVEL_LABELS,
 } from "@/lib/macro-engine";
-import type { ActivityLevel, FitbitProfileData } from "@/types";
+import type { ActivityLevel, HealthProfileData } from "@/types";
 
 interface DailyGoalsSettingsData {
   activityLevel: ActivityLevel | null;
@@ -42,7 +42,7 @@ export function DailyGoalsCard() {
   const {
     data: profileData,
     isLoading: profileLoading,
-  } = useSWR<FitbitProfileData>("/api/fitbit/profile", apiFetcher, FITBIT_BACKED_SWR_CONFIG);
+  } = useSWR<HealthProfileData>("/api/health-profile", apiFetcher, HEALTH_BACKED_SWR_CONFIG);
 
   // Local form state
   const [activityLevel, setActivityLevel] = useState<ActivityLevel | null>(null);
@@ -268,7 +268,7 @@ export function DailyGoalsCard() {
 
       {/* Safety floor warning */}
       {showSafetyWarning && liveTargetKcal !== null && (
-        <p role="alert" className="text-sm text-amber-600">
+        <p role="alert" className="text-sm text-warning">
           ⚠ Estimated target {liveTargetKcal} cal/day is below the {safetyFloor} cal/day safe
           minimum for unsupervised dieting.
         </p>

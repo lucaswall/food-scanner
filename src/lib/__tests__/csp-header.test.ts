@@ -17,7 +17,8 @@ describe("CSP header", () => {
     expect(csp!.value).toContain("img-src 'self' data: blob:");
     expect(csp!.value).toContain("connect-src 'self'");
     expect(csp!.value).toContain("frame-ancestors 'none'");
-    expect(csp!.value).toContain("form-action 'self' https://accounts.google.com https://www.fitbit.com");
+    expect(csp!.value).toContain("form-action 'self' https://accounts.google.com");
+    expect(csp!.value).not.toContain("https://www.fitbit.com");
   });
 
   it("omits Content-Security-Policy in development", async () => {

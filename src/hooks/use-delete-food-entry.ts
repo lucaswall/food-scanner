@@ -68,8 +68,8 @@ export function useDeleteFoodEntry({ onSuccess }: UseDeleteFoodEntryOptions): Us
         setDeleteError(result.error?.message || "Failed to delete entry");
         setDeleteErrorCode(errorCode || null);
 
-        if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
-          setDeleteError("Fitbit is not set up. Please configure your credentials in Settings.");
+        if (errorCode === "HEALTH_NOT_CONNECTED") {
+          setDeleteError("Google Health is not connected. Please connect in Settings.");
         }
 
         vibrateError();

@@ -20,7 +20,7 @@ import type { FoodAnalysis } from "@/types";
 const baseAnalysis: FoodAnalysis = {
   food_name: "Test Food",
   amount: 1,
-  unit_id: 304,
+  unit_id: "serving",
   calories: 200,
   protein_g: 10,
   carbs_g: 20,

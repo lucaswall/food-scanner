@@ -15,7 +15,7 @@ beforeAll(() => {
 const mockAnalysis: FoodAnalysis = {
   food_name: "Chicken breast",
   amount: 150,
-  unit_id: 147, // grams
+  unit_id: "g",
   calories: 248,
   protein_g: 46,
   carbs_g: 0,
@@ -84,7 +84,7 @@ describe("MiniNutritionCard", () => {
     const cupsAnalysis: FoodAnalysis = {
       ...mockAnalysis,
       amount: 2,
-      unit_id: 91, // cups
+      unit_id: "cup",
     };
 
     render(<MiniNutritionCard analysis={cupsAnalysis} />);

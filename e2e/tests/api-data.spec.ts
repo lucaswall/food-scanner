@@ -103,15 +103,11 @@ test.describe('API Data Verification', () => {
     // May be empty since no Claude usage is seeded
   });
 
-  test('GET /api/fitbit-credentials returns hasCredentials true', async ({ request }) => {
-    const response = await request.get('/api/fitbit-credentials');
+  test('GET /api/health-status returns health connection status', async ({ request }) => {
+    const response = await request.get('/api/health-status');
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.data).toHaveProperty('hasCredentials');
-
-    // After Task 1 seeds Fitbit credentials, this should be true
-    expect(body.data.hasCredentials).toBe(true);
-    expect(body.data).toHaveProperty('clientId');
+    expect(body.data).toHaveProperty('status');
   });
 });

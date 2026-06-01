@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MealBreakdown } from "../meal-breakdown";
+import type { MealGroup } from "@/types";
 
 // Mock FoodEntryCard to render minimal structure for testing
 vi.mock("@/components/food-entry-card", () => ({
@@ -45,7 +46,7 @@ afterEach(() => {
   cleanup();
 });
 
-const mockMeals = [
+const mockMeals: MealGroup[] = [
   {
     mealTypeId: 1,
     subtotal: { calories: 450, proteinG: 30, carbsG: 80, fatG: 15, fiberG: 5, sodiumMg: 300, saturatedFatG: 2, transFatG: 0, sugarsG: 10, caloriesFromFat: 135 },
@@ -57,7 +58,7 @@ const mockMeals = [
         time: "08:00",
         calories: 300,
         proteinG: 10, carbsG: 50, fatG: 8, fiberG: 4, sodiumMg: 100, saturatedFatG: 1, transFatG: 0, sugarsG: 5, caloriesFromFat: 72,
-        amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null, zoneOffset: null,
+        amount: 1, unitId: "serving", isFavorite: false, healthLogId: null, zoneOffset: null,
       },
       {
         id: 2,
@@ -66,7 +67,7 @@ const mockMeals = [
         time: "08:15",
         calories: 150,
         proteinG: 20, carbsG: 30, fatG: 7, fiberG: 1, sodiumMg: 200, saturatedFatG: 1, transFatG: 0, sugarsG: 5, caloriesFromFat: 63,
-        amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null, zoneOffset: null,
+        amount: 1, unitId: "serving", isFavorite: false, healthLogId: null, zoneOffset: null,
       },
     ],
   },
@@ -81,7 +82,7 @@ const mockMeals = [
         time: "12:30",
         calories: 650,
         proteinG: 55, carbsG: 120, fatG: 35, fiberG: 5, sodiumMg: 500, saturatedFatG: 3, transFatG: 0, sugarsG: 10, caloriesFromFat: 315,
-        amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null, zoneOffset: null,
+        amount: 1, unitId: "serving", isFavorite: false, healthLogId: null, zoneOffset: null,
       },
     ],
   },
@@ -197,17 +198,17 @@ describe("MealBreakdown", () => {
   });
 
   it("sorts unrecognized meal types to the end", () => {
-    const entry = (id: number, name: string, time: string, cal: number) => ({
+    const entry = (id: number, name: string, time: string, cal: number): import("@/types").MealEntry => ({
       id, customFoodId: id, foodName: name, time, calories: cal,
       proteinG: 10, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100,
       saturatedFatG: 1, transFatG: 0, sugarsG: 3, caloriesFromFat: 45,
-      amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null, zoneOffset: null,
+      amount: 1, unitId: "serving", isFavorite: false, healthLogId: null, zoneOffset: null,
     });
     const sub = (cal: number) => ({
       calories: cal, proteinG: 10, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100,
       saturatedFatG: 1, transFatG: 0, sugarsG: 3, caloriesFromFat: 45,
     });
-    const mealsWithUnknown = [
+    const mealsWithUnknown: MealGroup[] = [
       { mealTypeId: 99, subtotal: sub(200), entries: [entry(1, "Mystery", "10:00", 200)] },
       { mealTypeId: 1, subtotal: sub(400), entries: [entry(2, "Eggs", "08:00", 400)] },
       { mealTypeId: 3, subtotal: sub(500), entries: [entry(3, "Salad", "12:00", 500)] },
@@ -224,17 +225,17 @@ describe("MealBreakdown", () => {
   });
 
   it("renders meals in logical order", () => {
-    const entry = (id: number, name: string, time: string, cal: number) => ({
+    const entry = (id: number, name: string, time: string, cal: number): import("@/types").MealEntry => ({
       id, customFoodId: id, foodName: name, time, calories: cal,
       proteinG: 10, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100,
       saturatedFatG: 1, transFatG: 0, sugarsG: 3, caloriesFromFat: 45,
-      amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null, zoneOffset: null,
+      amount: 1, unitId: "serving", isFavorite: false, healthLogId: null, zoneOffset: null,
     });
     const sub = (cal: number) => ({
       calories: cal, proteinG: 10, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100,
       saturatedFatG: 1, transFatG: 0, sugarsG: 3, caloriesFromFat: 45,
     });
-    const unorderedMeals = [
+    const unorderedMeals: MealGroup[] = [
       { mealTypeId: 5, subtotal: sub(700), entries: [entry(1, "Pasta", "19:00", 700)] },
       { mealTypeId: 1, subtotal: sub(400), entries: [entry(2, "Eggs", "08:00", 400)] },
       { mealTypeId: 3, subtotal: sub(500), entries: [entry(3, "Salad", "12:00", 500)] },

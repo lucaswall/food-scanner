@@ -37,15 +37,15 @@ test.describe('Settings Page', () => {
     await expect(page).toHaveURL('/settings');
   });
 
-  test('displays user session info and Fitbit status', async ({ page }) => {
+  test('displays user session info and Google Health status', async ({ page }) => {
     await page.goto('/settings');
     await page.waitForLoadState('networkidle');
 
     // Verify user email is visible
     await expect(page.getByText('test@example.com')).toBeVisible();
 
-    // Verify Fitbit status is displayed (could be "Connected" or "Not connected")
-    await expect(page.getByText(/Fitbit:/)).toBeVisible();
+    // Verify Google Health status is displayed (could be "Connected" or "Not connected")
+    await expect(page.getByText(/Google Health:/)).toBeVisible();
   });
 
   test('displays logout button with destructive styling', async ({ page }) => {
@@ -57,57 +57,12 @@ test.describe('Settings Page', () => {
     await expect(logoutButton).toBeVisible();
   });
 
-  test('displays Fitbit App Credentials section', async ({ page }) => {
+  test('displays Google Health Profile section', async ({ page }) => {
     await page.goto('/settings');
     await page.waitForLoadState('networkidle');
 
-    // Verify "Fitbit App Credentials" heading is visible
-    await expect(page.getByRole('heading', { name: 'Fitbit App Credentials' })).toBeVisible();
-  });
-
-  test('displays saved Fitbit Client ID', async ({ page }) => {
-    await page.goto('/settings');
-    await page.waitForLoadState('networkidle');
-
-    // With seeded credentials (TEST_CLIENT_ID from global setup),
-    // the Fitbit App Credentials section should show the client ID (masked or full)
-    // Verify the section contains the test client ID or a masked version
-    const credentialsSection = page.locator('text=Fitbit App Credentials').locator('..');
-    const hasClientId = await credentialsSection.locator('text=/TEST_CLIENT_ID|Client ID/i').count();
-    expect(hasClientId).toBeGreaterThan(0);
-  });
-
-  test('update credentials from settings succeeds', async ({ page }) => {
-    await page.goto('/settings');
-    await page.waitForLoadState('networkidle');
-
-    // The Fitbit App Credentials section shows Client ID in a <code> element
-    // with an "Edit" button, and Client Secret as masked with a "Replace Secret" button.
-    // The Edit button is conditionally rendered after SWR fetches credentials data,
-    // which may complete after networkidle — wait explicitly for the button.
-
-    // Click "Edit" to enable Client ID editing
-    const editButton = page.getByRole('button', { name: 'Edit' });
-    await expect(editButton).toBeVisible({ timeout: 10000 });
-    await editButton.click();
-
-    // Now the Client ID input should be visible
-    const clientIdInput = page.getByLabel('Client ID');
-    await expect(clientIdInput).toBeVisible();
-
-    // Clear and fill with updated value
-    await clientIdInput.clear();
-    await clientIdInput.fill('UPDATED_CLIENT_ID');
-
-    // Click Save
-    const saveButton = page.getByRole('button', { name: 'Save' }).first();
-    await saveButton.click();
-
-    // Wait for the save to complete
-    await page.waitForTimeout(1000);
-
-    // Verify the updated Client ID is now displayed
-    await expect(page.locator('code', { hasText: 'UPDATED_CLIENT_ID' })).toBeVisible();
+    // Verify "Google Health Profile" heading is visible
+    await expect(page.getByRole('heading', { name: 'Google Health Profile' })).toBeVisible();
   });
 
   test('displays Appearance section with theme buttons', async ({ page }) => {
@@ -149,65 +104,17 @@ test.describe('Settings Page', () => {
     await expect(darkButton).toBeVisible();
   });
 
-  test('replace secret flow works', async ({ page }) => {
+  test('displays connect/reconnect Google Health link', async ({ page }) => {
     await page.goto('/settings');
     await page.waitForLoadState('networkidle');
 
-    // Find and click the "Replace Secret" button
-    // Button is conditionally rendered after SWR fetches credentials — wait explicitly
-    const replaceSecretButton = page.getByRole('button', { name: 'Replace Secret' });
-    await expect(replaceSecretButton).toBeVisible({ timeout: 10000 });
-    await replaceSecretButton.click();
+    // Find the "Connect Google Health" or "Reconnect Google Health" link
+    const connectLink = page.getByRole('link', { name: /Google Health/i }).first();
+    await expect(connectLink).toBeVisible();
 
-    // Verify a Client Secret input appears
-    const clientSecretInput = page.getByLabel('Client Secret');
-    await expect(clientSecretInput).toBeVisible();
-
-    // Fill with a new secret value
-    await clientSecretInput.fill('NEW_TEST_SECRET');
-
-    // Click Save button
-    const saveButton = page.getByRole('button', { name: 'Save' }).first();
-    await saveButton.click();
-
-    // Wait for save to complete
-    await page.waitForTimeout(1000);
-
-    // Verify success feedback: secret saved, input hidden, masked secret shown
-    // The input should be hidden after save
-    await expect(clientSecretInput).not.toBeVisible();
-
-    // The "Replace Secret" button should be visible again
-    await expect(replaceSecretButton).toBeVisible();
-  });
-
-  test('reconnect Fitbit button triggers auth flow', async ({ page }) => {
-    await page.goto('/settings');
-    await page.waitForLoadState('networkidle');
-
-    // Find the "Reconnect Fitbit" button
-    const reconnectButton = page.getByRole('button', { name: /Reconnect Fitbit/i });
-    await expect(reconnectButton).toBeVisible();
-
-    // The button is inside a form that POSTs to /api/auth/fitbit
-    // Mock the auth route to prevent actual OAuth redirect
-    let authRequestMade = false;
-    await page.route('**/api/auth/fitbit', async (route) => {
-      authRequestMade = true;
-      await route.fulfill({
-        status: 302,
-        headers: { Location: '/settings' },
-      });
-    });
-
-    // Click the button
-    await reconnectButton.click();
-
-    // Wait for the request to be made
-    await page.waitForTimeout(1000);
-
-    // Verify the auth request was triggered
-    expect(authRequestMade).toBe(true);
+    // The link should point to /app/connect-health
+    const href = await connectLink.getAttribute('href');
+    expect(href).toBe('/app/connect-health');
   });
 
   test('displays Claude API usage metrics', async ({ page }) => {
@@ -326,32 +233,16 @@ test.describe('Settings Page', () => {
     await expect(revokeDialog).not.toBeVisible();
   });
 
-  test('captures Fitbit Client ID inline edit mode screenshot', async ({ page }) => {
+  test('captures Google Health Profile section screenshot', async ({ page }) => {
     await page.goto('/settings');
     await page.waitForLoadState('networkidle');
 
-    // Scroll to Fitbit App Credentials section
-    const fitbitHeading = page.getByRole('heading', { name: 'Fitbit App Credentials' });
-    await fitbitHeading.scrollIntoViewIfNeeded();
-    await expect(fitbitHeading).toBeVisible({ timeout: 10000 });
+    // Scroll to Google Health Profile section
+    const healthHeading = page.getByRole('heading', { name: 'Google Health Profile' });
+    await healthHeading.scrollIntoViewIfNeeded();
+    await expect(healthHeading).toBeVisible({ timeout: 10000 });
 
-    // Click "Edit" to enable Client ID editing
-    // The button is conditionally rendered after SWR fetches credentials
-    const editButton = page.getByRole('button', { name: 'Edit' });
-    await expect(editButton).toBeVisible({ timeout: 10000 });
-    await editButton.click();
-
-    // Verify inline edit mode: Client ID input is now visible
-    const clientIdInput = page.getByLabel('Client ID');
-    await expect(clientIdInput).toBeVisible({ timeout: 5000 });
-
-    // Screenshot: Fitbit Client ID edit mode
-    await captureScreenshots(page, 'settings-fitbit-client-id-edit');
-
-    // Restore: click Cancel or Save to exit edit mode without permanent change
-    const cancelButton = page.getByRole('button', { name: /Cancel/i });
-    if (await cancelButton.isVisible()) {
-      await cancelButton.click();
-    }
+    // Screenshot: Google Health Profile section
+    await captureScreenshots(page, 'settings-health-profile');
   });
 });

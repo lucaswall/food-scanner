@@ -2,7 +2,8 @@
 
 import { Button } from "@/components/ui/button";
 import { Star, Pencil, Trash2 } from "lucide-react";
-import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
+import { getUnitLabel, MEAL_TYPE_LABELS } from "@/types";
+import type { ServingUnit } from "@/types";
 import { formatTime } from "@/lib/date-utils";
 
 interface FoodEntryCardProps {
@@ -11,7 +12,7 @@ interface FoodEntryCardProps {
   proteinG: number;
   carbsG: number;
   fatG: number;
-  unitId: number;
+  unitId: ServingUnit;
   amount: number;
   time?: string | null;
   mealTypeId?: number;
@@ -45,7 +46,7 @@ export function FoodEntryCard({
   const metaParts: string[] = [];
   const formattedTime = time ? formatTime(time) : "";
   if (formattedTime) metaParts.push(formattedTime);
-  if (mealTypeId != null) metaParts.push(FITBIT_MEAL_TYPE_LABELS[mealTypeId] ?? "Unknown");
+  if (mealTypeId != null) metaParts.push(MEAL_TYPE_LABELS[mealTypeId] ?? "Unknown");
   metaParts.push(getUnitLabel(unitId, amount));
   const metaText = metaParts.join(" · ");
 

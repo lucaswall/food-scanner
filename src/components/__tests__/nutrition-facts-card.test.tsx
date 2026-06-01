@@ -10,7 +10,7 @@ const defaultProps = {
   fatG: 18,
   fiberG: 2,
   sodiumMg: 450,
-  unitId: 147,
+  unitId: "g" as const,
   amount: 150,
 };
 

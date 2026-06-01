@@ -68,7 +68,7 @@ describe("PendingSubmissionHandler", () => {
       json: () =>
         Promise.resolve({
           success: true,
-          data: { fitbitFoodId: 111, fitbitLogId: 999, reusedFood: true },
+          data: { healthLogId: "ghl-999", reusedFood: true },
         }),
     });
 
@@ -111,7 +111,7 @@ describe("PendingSubmissionHandler", () => {
       json: () =>
         Promise.resolve({
           success: true,
-          data: { fitbitFoodId: 111, fitbitLogId: 999, reusedFood: true },
+          data: { healthLogId: "ghl-999", reusedFood: true },
         }),
     });
 
@@ -124,7 +124,7 @@ describe("PendingSubmissionHandler", () => {
     });
   });
 
-  it("re-saves pending and redirects on FITBIT_TOKEN_INVALID error", async () => {
+  it("re-saves pending and redirects on HEALTH_TOKEN_INVALID error", async () => {
     const pending: PendingSubmission = {
       analysis: null,
       mealTypeId: 3,
@@ -138,7 +138,7 @@ describe("PendingSubmissionHandler", () => {
       json: () =>
         Promise.resolve({
           success: false,
-          error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+          error: { code: "HEALTH_TOKEN_INVALID", message: "Token expired" },
         }),
     });
 
@@ -146,11 +146,11 @@ describe("PendingSubmissionHandler", () => {
 
     await waitFor(() => {
       expect(mockSavePending).toHaveBeenCalledWith(pending);
-      expect(window.location.href).toBe("/api/auth/fitbit");
+      expect(window.location.href).toBe("/api/auth/google-health");
     });
   });
 
-  it("clears pending and shows credentials error on FITBIT_CREDENTIALS_MISSING", async () => {
+  it("clears pending and shows connect error on HEALTH_NOT_CONNECTED", async () => {
     const pending: PendingSubmission = {
       analysis: null,
       mealTypeId: 3,
@@ -164,7 +164,7 @@ describe("PendingSubmissionHandler", () => {
       json: () =>
         Promise.resolve({
           success: false,
-          error: { code: "FITBIT_CREDENTIALS_MISSING", message: "No credentials" },
+          error: { code: "HEALTH_NOT_CONNECTED", message: "Not connected" },
         }),
     });
 
@@ -172,7 +172,7 @@ describe("PendingSubmissionHandler", () => {
 
     await waitFor(() => {
       expect(mockClearPending).toHaveBeenCalled();
-      expect(screen.getByText(/Fitbit is not set up/i)).toBeInTheDocument();
+      expect(screen.getByText(/connect in Settings/i)).toBeInTheDocument();
     });
   });
 
@@ -207,7 +207,7 @@ describe("PendingSubmissionHandler", () => {
       analysis: {
         food_name: "Empanada",
         amount: 150,
-        unit_id: 147,
+        unit_id: "g",
         calories: 320,
         protein_g: 12,
         carbs_g: 28,
@@ -366,7 +366,7 @@ describe("PendingSubmissionHandler", () => {
       analysis: {
         food_name: "Empanada",
         amount: 150,
-        unit_id: 147,
+        unit_id: "g",
         calories: 320,
         protein_g: 12,
         carbs_g: 28,

@@ -5,7 +5,7 @@ import { getOrComputeDailyGoals } from "@/lib/daily-goals";
 import { getDailyNutritionSummary } from "@/lib/food-log";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
-import { FITBIT_MEAL_TYPE_LABELS } from "@/types";
+import { MEAL_TYPE_LABELS } from "@/types";
 
 interface TopFood {
   foodName: string;
@@ -131,7 +131,7 @@ export async function buildUserProfile(
   if (hasMeals) {
     const mealStrs: string[] = [];
     for (const group of nutritionSummary.meals) {
-      const label = FITBIT_MEAL_TYPE_LABELS[group.mealTypeId] ?? `Meal ${group.mealTypeId}`;
+      const label = MEAL_TYPE_LABELS[group.mealTypeId] ?? `Meal ${group.mealTypeId}`;
       for (const entry of group.entries) {
         const timePart = entry.time ? ` at ${entry.time}` : "";
         mealStrs.push(`${label}${timePart} — ${entry.foodName} (${entry.calories} cal)`);

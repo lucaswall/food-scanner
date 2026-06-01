@@ -117,8 +117,8 @@ test.describe('Analyze Page', () => {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.waitForTimeout(300);
 
-    // Click "Log to Fitbit" button
-    await page.getByRole('button', { name: 'Log to Fitbit' }).click();
+    // Click "Log to Google Health" button
+    await page.getByRole('button', { name: 'Log to Google Health' }).click();
 
     // Wait for confirmation screen to render
     // Look for success message pattern
@@ -131,13 +131,13 @@ test.describe('Analyze Page', () => {
     await captureScreenshots(page, 'analyze-confirmation');
   });
 
-  test('shows analyze UI when Fitbit is connected', async ({ page }) => {
+  test('shows analyze UI when Google Health is connected', async ({ page }) => {
     await page.goto('/app/analyze');
 
     // Wait for page to load
     await page.waitForLoadState('networkidle');
 
-    // With seeded Fitbit credentials and tokens, FitbitSetupGuard passes and real UI renders
+    // With seeded Google Health tokens, HealthConnectGuard passes and real UI renders
     // Verify the analyze UI is visible (description input label)
     const descriptionLabel = page.getByText('Food description (optional)');
     await expect(descriptionLabel).toBeVisible({ timeout: 10000 });

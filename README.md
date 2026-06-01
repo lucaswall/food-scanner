@@ -1,13 +1,13 @@
 # Food Scanner
 
-AI-powered food logging for Fitbit. Take a photo of your meal, let Claude analyze the nutrition, and log it directly to Fitbit.
+AI-powered food logging for Google Health. Take a photo of your meal, let Claude analyze the nutrition, and log it directly to Google Health.
 
 ## What It Does
 
 1. **Photo capture** — Take a photo of your food with your phone camera
 2. **AI analysis** — Claude Sonnet 4 analyzes the image and estimates nutritional information
 3. **Review & edit** — Confirm or adjust the nutrition data
-4. **Log to Fitbit** — Post directly to your Fitbit food log
+4. **Log to Google Health** — Post directly to your Google Health food log
 
 Single-user application with email allowlist.
 
@@ -18,8 +18,8 @@ Single-user application with email allowlist.
 - **Next.js 16+** (App Router, TypeScript)
 - **Tailwind CSS + shadcn/ui** for styling
 - **iron-session** for encrypted cookie-based sessions
-- **Google OAuth 2.0** for authentication
-- **Fitbit Web API** for food logging
+- **Google OAuth 2.0** for authentication and Google Health API access
+- **Google Health REST API** for food logging (single shared OAuth client)
 - **Anthropic Claude API** for nutrition analysis (tool_use)
 - **PostgreSQL** via Railway (Drizzle ORM)
 - **Railway** for deployment
@@ -28,10 +28,10 @@ Single-user application with email allowlist.
 
 ## Environments
 
-| Environment | Branch | URL | Fitbit API |
+| Environment | Branch | URL | Health API |
 |-------------|--------|-----|------------|
 | Production | `release` | `food.lucaswall.me` | Live |
-| Staging | `main` | `food-test.lucaswall.me` | Dry-run (`FITBIT_DRY_RUN=true`) |
+| Staging | `main` | `food-test.lucaswall.me` | Dry-run (`HEALTH_DRY_RUN=true`) |
 
 **Branch strategy:**
 - `main` — development branch, auto-deploys to staging
@@ -73,7 +73,7 @@ Select the food-scanner project and environment when prompted. This stores the l
 
 ### Step 3: Obtain OAuth Credentials
 
-Follow the **OAuth Setup** section below to create Google and Fitbit OAuth credentials before setting environment variables.
+Follow the **OAuth Setup** section below to create Google OAuth credentials before setting environment variables.
 
 ### Step 4: Set Environment Variables
 
@@ -90,7 +90,7 @@ railway variables set \
 
 For staging, also set:
 ```bash
-railway variables set FITBIT_DRY_RUN=true
+railway variables set HEALTH_DRY_RUN=true
 ```
 
 Set real values for all credentials.
@@ -107,10 +107,9 @@ This creates a public URL like `https://food-scanner-production-XXXX.up.railway.
 
 ### Step 6: Update OAuth Redirect URIs
 
-Once you have your Railway domain, go back to both Google Cloud Console and Fitbit Developer portal and add the production redirect URIs:
+Once you have your Railway domain, go back to the Google Cloud Console and add the production redirect URI:
 
 - Google: `https://<your-railway-domain>/api/auth/google/callback`
-- Fitbit: `https://<your-railway-domain>/api/auth/fitbit/callback`
 
 ### Step 7: Verify
 
@@ -166,7 +165,7 @@ Or use the Railway MCP from Claude Code to query logs and deployment status.
 
 1. Add custom domain in Railway dashboard → Settings → Networking
 2. Configure DNS (CNAME record pointing to Railway)
-3. Update OAuth redirect URIs in both Google and Fitbit portals to use the custom domain
+3. Update OAuth redirect URIs in the Google Cloud Console to use the custom domain
 
 ---
 
@@ -190,6 +189,8 @@ Claude Sonnet 4 powers the AI food analysis feature.
 
 ### Google OAuth
 
+Food Scanner uses a single shared Google OAuth client for both login and Google Health API access.
+
 1. Go to [Google Cloud Console](https://console.cloud.google.com)
 2. Create a new project (or select existing)
 3. Navigate to **APIs & Services → Credentials**
@@ -201,23 +202,9 @@ Claude Sonnet 4 powers the AI food analysis feature.
    - Local: `http://localhost:3000/api/auth/google/callback`
 7. Copy the **Client ID** and **Client Secret**
 
-### Fitbit OAuth
+### Google Health Scopes
 
-**Note:** Fitbit credentials are configured per-user through the application UI, not via environment variables.
-
-Each user must register their own Fitbit OAuth application and enter credentials through the setup flow:
-
-1. Go to [dev.fitbit.com](https://dev.fitbit.com) → **Manage → Register an App**
-2. Set OAuth 2.0 Application Type: **Personal**
-3. Under **Redirect URIs**, add your environment URL:
-   - Production: `https://food.lucaswall.me/api/auth/fitbit/callback`
-   - Staging: `https://<staging-railway-domain>/api/auth/fitbit/callback`
-   - Local: `http://localhost:3000/api/auth/fitbit/callback`
-4. Under **Default Access Type**, select **Read & Write**
-5. After signing in to Food Scanner, visit `/app/setup-fitbit` to enter your Fitbit **Client ID** and **Client Secret**
-6. Complete the Fitbit OAuth flow to authorize the app
-
-Credentials are stored securely in the database on a per-user basis.
+Google Health scopes (e.g. `https://www.googleapis.com/auth/fitness.nutrition.write`) are configured on the **GCP OAuth consent screen**, not via environment variables. Users connect to Google Health via the one-click `/app/connect-health` flow after logging in.
 
 ---
 
@@ -262,4 +249,3 @@ No service worker or offline support — the app requires an internet connection
 | [PLANS.md](PLANS.md) | Current implementation plan (managed by skills) |
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
 | [README.md](README.md) | This file — deployment and operations |
-

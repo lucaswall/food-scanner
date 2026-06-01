@@ -1,18 +1,10 @@
-import { redirect } from "next/navigation";
 import Link from "next/link";
-import { getSession } from "@/lib/session";
-import { FitbitSetupForm } from "@/components/fitbit-setup-form";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { SkipLink } from "@/components/skip-link";
 import { ArrowLeft } from "lucide-react";
 
-export default async function SetupFitbitPage() {
-  const session = await getSession();
-
-  if (!session) {
-    redirect("/");
-  }
-
+export default function ConnectHealthLoading() {
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <SkipLink />
@@ -23,10 +15,17 @@ export default async function SetupFitbitPage() {
               <ArrowLeft className="h-5 w-5" />
             </Link>
           </Button>
-          <h1 className="text-2xl font-bold">Set Up Fitbit</h1>
+          <h1 className="text-2xl font-bold">Connect Google Health</h1>
         </div>
 
-        <FitbitSetupForm />
+        <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+          </div>
+          <Skeleton className="h-[44px] w-full" />
+        </div>
       </main>
     </div>
   );

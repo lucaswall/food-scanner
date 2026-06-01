@@ -73,18 +73,18 @@ describe("GET /api/health", () => {
     expect(body.data.environment).toBe("Production");
   });
 
-  it("returns fitbitMode as Dry Run when FITBIT_DRY_RUN is true", async () => {
-    vi.stubEnv("FITBIT_DRY_RUN", "true");
+  it("returns healthMode as Dry Run when HEALTH_DRY_RUN is true", async () => {
+    vi.stubEnv("HEALTH_DRY_RUN", "true");
     const response = await GET();
     const body = await response.json();
-    expect(body.data.fitbitMode).toBe("Dry Run");
+    expect(body.data.healthMode).toBe("Dry Run");
   });
 
-  it("returns fitbitMode as Live when FITBIT_DRY_RUN is absent", async () => {
-    vi.stubEnv("FITBIT_DRY_RUN", "");
+  it("returns healthMode as Live when HEALTH_DRY_RUN is absent", async () => {
+    vi.stubEnv("HEALTH_DRY_RUN", "");
     const response = await GET();
     const body = await response.json();
-    expect(body.data.fitbitMode).toBe("Live");
+    expect(body.data.healthMode).toBe("Live");
   });
 
   it("returns claudeModel from claude.ts", async () => {
@@ -100,7 +100,7 @@ describe("GET /api/health", () => {
       status: "ok",
       version: expect.any(String),
       environment: expect.any(String),
-      fitbitMode: expect.any(String),
+      healthMode: expect.any(String),
       claudeModel: expect.any(String),
     });
   });

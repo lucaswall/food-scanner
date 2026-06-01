@@ -25,7 +25,7 @@ import { FoodChat } from "@/components/food-chat";
 import { apiFetcher, invalidateFoodCaches, invalidateSavedAnalysesCaches } from "@/lib/swr";
 import { safeResponseJson } from "@/lib/safe-json";
 import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
-import { useLogToFitbit } from "@/hooks/use-log-to-fitbit";
+import { useLogFood } from "@/hooks/use-log-food";
 import type { FoodLogResponse, FoodMatch } from "@/types";
 import type { SavedAnalysisDetail } from "@/types";
 
@@ -117,7 +117,7 @@ function SavedFoodDetailLoaded({ savedId, savedAnalysis, matches }: SavedFoodDet
   const [loggedFoodName, setLoggedFoodName] = useState<string | null>(null);
   const [loggedAnalysis, setLoggedAnalysis] = useState<SavedAnalysisDetail["foodAnalysis"] | null>(null);
 
-  const { logToFitbit, logToFitbitWithMatch, logging, logError, logResponse, clearLogError } = useLogToFitbit({
+  const { logFood, logFoodWithMatch, logging, logError, logResponse, clearLogError } = useLogFood({
     analysis: fa,
     mealTypeId,
     selectedTime,
@@ -145,10 +145,10 @@ function SavedFoodDetailLoaded({ savedId, savedAnalysis, matches }: SavedFoodDet
     if (selectedMatch) {
       const match = matches.find(m => m.customFoodId === selectedMatch);
       if (match) {
-        void logToFitbitWithMatch({ customFoodId: selectedMatch, foodName: match.foodName });
+        void logFoodWithMatch({ customFoodId: selectedMatch, foodName: match.foodName });
       }
     } else {
-      void logToFitbit();
+      void logFood();
     }
   };
 
@@ -220,10 +220,10 @@ function SavedFoodDetailLoaded({ savedId, savedAnalysis, matches }: SavedFoodDet
   }
 
   const logButtonLabel = selectedMatch
-    ? "Log to Fitbit"
+    ? "Log to Google Health"
     : matches.length > 0
       ? "Log as new food"
-      : "Log to Fitbit";
+      : "Log to Google Health";
 
   return (
     <>

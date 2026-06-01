@@ -15,7 +15,7 @@ test.describe('Landing Page', () => {
     await expect(page.getByRole('heading', { name: 'Food Scanner', level: 1 })).toBeVisible();
 
     // Verify description text
-    await expect(page.getByText('AI-powered food logging for Fitbit')).toBeVisible();
+    await expect(page.getByText('AI-powered food logging for Google Health')).toBeVisible();
 
     // Verify login button
     await expect(page.getByRole('button', { name: 'Login with Google' })).toBeVisible();
