@@ -1076,3 +1076,44 @@ Resume at **Phase 5, Task 29** (FOO-1099 — lead-only `npx drizzle-kit generate
 
 ### Continuation Status
 Phase boundary reached (workers-mode checkpoint, context heavily consumed). Phase 4 complete, merged, and verified (typecheck/unit/lint/build/bug-hunter all green); E2E + live integration deferred to the infra-backed review/release gate. Resume at Phase 5, Task 29 — run inside `push-to-production`.
+
+---
+
+## Iteration 6: Phase 5 Task 29 (drizzle-kit generate) + full deferred-gate verification — IMPLEMENTATION COMPLETE
+
+**Date:** 2026-06-01
+**Status:** COMPLETE — implementation finished. Only Task 30 (the release deploy itself) remains, and it is performed BY `push-to-production`, not as pending implementation work.
+**Method:** single-agent (lead)
+
+### Summary
+Closed out the implementation by running **Task 29** (the lead-only Drizzle codegen) and executing the two gates that were infra-deferred in Iteration 5 (Docker was unavailable then; OrbStack was started this session). **All gates are green.** This plan is ready for `push-to-production`, which performs Task 30 (the production migration + Railway-env + token-clear) as the release action — see the **RELEASE RUNBOOK** at the top of `MIGRATIONS.md` for the complete, failure-aware deploy instructions.
+
+### Tasks Completed This Iteration
+- **Task 29 (FOO-1099):** Ran `npx drizzle-kit generate` once (driven via `expect` to accept the additive/`create` default on the two interactive rename prompts). Produced `drizzle/0027_google_health_migration.sql` + `0027_snapshot.json` + `_journal.json`. The file is **correct for fresh DBs** (startup-migrate `0001…0027` builds the full current schema — proven by the integration + E2E runs below). Its two **production hazards are documented** in the MIGRATIONS.md runbook so `push-to-production` overrides them in the manual migration: (1) `unit_id` integer→text ALTER lacks the `USING` cast + legacy-ID→ServingUnit backfill; (2) `saved_analyses.food_analysis` JSONB `unit_id` remap is invisible to Drizzle; (3) indexes need `CONCURRENTLY` on live tables.
+
+### Deferred-gate verification (now run — all green)
+- **Integration suite (Task 27):** brought up Docker (OrbStack) + the compose Postgres, created a throwaway `food_scanner_integration` DB, `drizzle-kit push`ed the schema, ran `INTEGRATION_DATABASE_URL=… npm run test:integration` → **20 tests pass** (cross-user isolation, `deleteUserData`, two-body Lucas+Mariana goal engine).
+- **E2E suite (Task 28):** reset the `food_scanner` E2E DB to empty so the production-build webServer's **startup-migrate ran `0001…0027`** to build the current schema, then `npm run e2e` → **135 tests pass** (incl. the Google-Health settings/connect/profile specs).
+- **Re-confirmed:** `npm test` 3419 ✅, `npm run typecheck` 0 errors ✅, `npm run lint` zero warnings ✅, `npm run build` ✅.
+
+### Lead fix discovered during the E2E gate
+- **`.env.test` still set `FITBIT_DRY_RUN=true`** (dead var) instead of `HEALTH_DRY_RUN=true` — `.env.test` was not in Task 28's file list, so worker-1 missed it (it had updated `.env.sample` only). Without this the E2E webServer would run with the dry-run gate OFF. Fixed to `HEALTH_DRY_RUN=true`. (`.env.test` is git-tracked, so this also fixes `push-to-production`'s Phase 1.7 E2E gate.)
+
+### Tasks Remaining
+None for implementation. **Task 30 (FOO-1100)** — the production Drizzle migration + `DELETE FROM health_tokens` + Railway-env changes — is the **release deploy**, executed by the `push-to-production` skill per the MIGRATIONS.md RELEASE RUNBOOK (DB backup, manual-migration build + journal insert, env changes, deployment verification). It is not pending code.
+
+### Verification
+- Drizzle: `drizzle/0027_google_health_migration.sql` generated; `schema.ts` ↔ snapshot consistent (no drift); fresh-DB migrate verified via the E2E startup-migrate.
+- Tests: unit **3419**, integration **20**, E2E **135** — all pass. typecheck/lint/build clean.
+
+### Files Changed
+- `drizzle/0027_google_health_migration.sql` (create), `drizzle/meta/0027_snapshot.json` (create), `drizzle/meta/_journal.json` (modify)
+- `.env.test` (modify — `FITBIT_DRY_RUN`→`HEALTH_DRY_RUN`)
+- `MIGRATIONS.md` (modify — added the RELEASE RUNBOOK with the failure-aware deploy instructions)
+
+### Linear Updates
+- FOO-1099 → Todo → In Progress → Review (Task 29 — drizzle-kit generate done)
+- FOO-1100 remains Todo — it is the release deploy performed by `push-to-production`.
+
+### Continuation Status
+Implementation COMPLETE. All gates green. Hand off to `push-to-production` for the release (Task 30) — the MIGRATIONS.md RELEASE RUNBOOK is the single source of truth and survives this plan's archival.

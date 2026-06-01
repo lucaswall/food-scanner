@@ -6,6 +6,35 @@ Log potential production data migrations here during development. These notes ar
 
 <!-- Add entries below this line -->
 
+## ⚠️ RELEASE RUNBOOK — Google Health migration (READ FIRST)
+
+This release promotes the entire Fitbit→Google Health cutover. **Classification: `Simple`** (table/column renames, an integer→text type change with a value backfill, plus JSONB data remapping) — `push-to-production` must build a **manual migration script with Drizzle journal inserts** (skill Phase 3), NOT rely on Drizzle's generated SQL alone.
+
+**Drizzle migration file:** `drizzle/0027_google_health_migration.sql` is generated and committed (Task 29 — done). It is **correct for a fresh/empty DB** (CI, E2E, local) — the app's startup-migrate builds the full current schema by running `0001…0027`, verified green by the unit, integration (20), and E2E (135) suites.
+
+**🔴 What WILL FAIL if `0027` is applied verbatim to PRODUCTION (populated tables) — the manual migration MUST override these:**
+1. **`unit_id` integer→text has NO `USING` clause** (`0027` lines 17–18: `ALTER COLUMN unit_id SET DATA TYPE text;`). On populated `custom_foods`/`food_log_entries` this **errors** (`column cannot be cast automatically to type text`) and, even if forced with a bare `::text`, would store `"147"`/`"91"` instead of the `ServingUnit` strings `'g'`/`'cup'`. → Use the **`USING` cast + legacy-ID backfill** in the Task 7 entry below for BOTH tables.
+2. **`saved_analyses.food_analysis` JSONB carries an embedded numeric `unit_id`** that Drizzle cannot see (it's inside a `jsonb` column) and `0027` does not touch. → The manual migration MUST remap it (see Task 7 / deploy note) or saved analyses render wrong portion units.
+3. **`0027` emits non-`CONCURRENT` `CREATE INDEX`** (lines 22–25). On live tables, substitute `CREATE INDEX CONCURRENTLY` to avoid long write locks.
+4. **`0027` does `DROP TABLE fitbit_tokens`/`fitbit_credentials`** — intended (tokens are cleared at release anyway; per-user credentials are obsolete). `health_tokens` is created empty, which is the desired end state (forces re-consent). No rename needed; the end state is an empty `health_tokens`.
+
+**Manual migration = `0027`'s DDL with items 1–3 corrected, then journal-insert `0027` so startup-migrate skips the naive file:**
+- `hash` = `shasum -a 256 drizzle/0027_google_health_migration.sql | cut -d' ' -f1`
+- `created_at` = the `when` value for the `0027` entry in `drizzle/meta/_journal.json` (epoch ms)
+- Insert into `"drizzle"."__drizzle_migrations"` (verify internals per skill Phase 1.4).
+
+**Data-only op (run after deploy/migrate):** `DELETE FROM health_tokens;` is unnecessary if the table is created fresh by the manual migration, but harmless — both Lucas and Mariana re-consent once via login → `/app/connect-health`.
+
+**Railway env changes (Task 30 — agent-applied at release, NO human action):**
+- **staging:** set `HEALTH_DRY_RUN=true`; remove `FITBIT_DRY_RUN`, `FITBIT_CLIENT_ID`, `FITBIT_CLIENT_SECRET`.
+- **production:** set `HEALTH_DRY_RUN=false` (live writes); remove `FITBIT_CLIENT_ID`, `FITBIT_CLIENT_SECRET`.
+- **Invariant:** staging always `HEALTH_DRY_RUN=true` (write/delete are no-ops, everything else real); production always `false`. Only drop `FITBIT_DRY_RUN` AFTER the migrated code (which reads `HEALTH_DRY_RUN`) is live.
+- **GCP precondition (enable Google Health API + the 4 scopes): already done** (verified by the user).
+
+**Staging-QA caveat:** the Google Health REST request/response field paths are inferred from docs (see Phase-3 notes); confirm them against the real API on staging and correct only the isolated `buildNutritionLogBody`/parser helpers if a path differs.
+
+---
+
 ## Google Health migration (feat/google-health-migration)
 
 ### Task 4 — types/session/API contract (FOO-1074)
@@ -126,9 +155,10 @@ docker run --rm -d -p 5433:5432 \
   -e POSTGRES_DB=food_scanner_integration \
   --name pg-integration postgres:16
 
-# 2. Apply the current schema (drizzle-kit push syncs schema.ts directly;
-#    do NOT use the committed drizzle/ migration files — they are STALE
-#    pending Task 29's drizzle-kit generate).
+# 2. Apply the current schema. Simplest for a throwaway DB: drizzle-kit push
+#    (syncs schema.ts directly, non-interactive on an empty DB). The committed
+#    drizzle/ migrations (incl. 0027) are now current and would also work via
+#    startup-migrate, but push is faster for a disposable integration DB.
 INTEGRATION_DATABASE_URL="postgresql://postgres:test@localhost:5433/food_scanner_integration" \
   DATABASE_URL="postgresql://postgres:test@localhost:5433/food_scanner_integration" \
   npx drizzle-kit push --config drizzle.config.ts
