@@ -27,10 +27,16 @@ This release promotes the entire Fitbit→Google Health cutover. **Classificatio
 
 **Drizzle migration files:** `0027` (consolidated cutover, above) **and `0028_cold_white_queen.sql`** (`users.sex` nullable column + CHECK — FOO-1116; safe nullable add on populated tables). Both are committed; the manual migration must journal-insert BOTH so startup-migrate skips them.
 
-**Railway env changes — applied via the Railway CLI at release** (agent-runnable through Bash; the Railway *MCP* tools are read-only, but `railway variables` writes fine). Run `railway status` to confirm the linked project, `railway environment <name>` to target staging vs production, then set/unset (verify the exact set/delete flags for the installed CLI version — set is `railway variables --set "KEY=VALUE"`; FITBIT_* removal via the CLI's delete command or the dashboard):
-- **staging:** `HEALTH_DRY_RUN=true`; remove `FITBIT_DRY_RUN`, `FITBIT_CLIENT_ID`, `FITBIT_CLIENT_SECRET`.
-- **production:** `HEALTH_DRY_RUN=false` (live writes); remove `FITBIT_CLIENT_ID`, `FITBIT_CLIENT_SECRET`.
-- **Invariant:** staging always `HEALTH_DRY_RUN=true` (write/delete are no-ops, everything else real); production always `false`. Only drop `FITBIT_DRY_RUN` AFTER the migrated code (which reads `HEALTH_DRY_RUN`) is live.
+**Railway env changes (applied via the Railway CLI — `railway variables`).** Declared per-environment below for `push-to-production` Phase 2.2b to capture + apply (Phase 5.9). The Railway *MCP* tools are read-only, but the CLI writes fine through Bash (`railway status` → `railway environment <name>` → `railway variables --set "KEY=VALUE"`; verify the unset syntax via `railway variables --help`).
+
+- **PRODUCTION** (auto-applied by `push-to-production` §5.9):
+  - `set HEALTH_DRY_RUN=false`  (explicit; note unset already defaults to live writes since the code checks `=== "true"`)
+  - `unset FITBIT_CLIENT_ID`
+  - `unset FITBIT_CLIENT_SECRET`
+- **STAGING** (applied on the staging deploy — NOT `push-to-production`; this skill only promotes to production):
+  - `set HEALTH_DRY_RUN=true`  ⚠️ **must be set BEFORE the migrated code reaches staging**, or staging will do LIVE Google Health writes (the code reads `HEALTH_DRY_RUN`, not the old `FITBIT_DRY_RUN`).
+  - `unset FITBIT_DRY_RUN` (only after the migrated code is live), `unset FITBIT_CLIENT_ID`, `unset FITBIT_CLIENT_SECRET`
+- **Invariant:** staging always `HEALTH_DRY_RUN=true` (write/delete are no-ops, everything else real); production always live (`false`/unset). `FITBIT_CLIENT_ID/SECRET` are orphaned (zero code usage) so removable anytime.
 - **GCP precondition (Google Health API enabled + the 4 scopes incl. `googlehealth.nutrition.writeonly`): done** (verified by the user — the write scope is real; the discovery `auth.oauth2.scopes` listing only `.readonly` is incomplete).
 
 **🔴 PRE-PROMOTION LIVE VALIDATION GATES (must pass before merging `main`→`release`):**
