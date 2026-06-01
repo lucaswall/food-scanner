@@ -31,12 +31,11 @@ This release promotes the entire Fitbit→Google Health cutover. **Classificatio
 
 - **PRODUCTION** (auto-applied by `push-to-production` §5.9):
   - `set HEALTH_DRY_RUN=false`  (explicit; note unset already defaults to live writes since the code checks `=== "true"`)
-  - `unset FITBIT_CLIENT_ID`
-  - `unset FITBIT_CLIENT_SECRET`
 - **STAGING** (applied on the staging deploy — NOT `push-to-production`; this skill only promotes to production):
   - `set HEALTH_DRY_RUN=true`  ⚠️ **must be set BEFORE the migrated code reaches staging**, or staging will do LIVE Google Health writes (the code reads `HEALTH_DRY_RUN`, not the old `FITBIT_DRY_RUN`).
-  - `unset FITBIT_DRY_RUN` (only after the migrated code is live), `unset FITBIT_CLIENT_ID`, `unset FITBIT_CLIENT_SECRET`
-- **Invariant:** staging always `HEALTH_DRY_RUN=true` (write/delete are no-ops, everything else real); production always live (`false`/unset). `FITBIT_CLIENT_ID/SECRET` are orphaned (zero code usage) so removable anytime.
+  - `unset FITBIT_DRY_RUN` (only after the migrated code is live)
+- **DO NOT touch `FITBIT_CLIENT_ID` / `FITBIT_CLIENT_SECRET`** — production uses them. Leave them set in both environments. (They are NOT removed by the cutover; an earlier "orphaned" assessment was wrong.)
+- **Invariant:** staging always `HEALTH_DRY_RUN=true` (write/delete are no-ops, everything else real); production always live (`false`/unset).
 - **GCP precondition (Google Health API enabled + the 4 scopes incl. `googlehealth.nutrition.writeonly`): done** (verified by the user — the write scope is real; the discovery `auth.oauth2.scopes` listing only `.readonly` is incomplete).
 
 **🔴 PRE-PROMOTION LIVE VALIDATION GATES (must pass before merging `main`→`release`):**
