@@ -167,10 +167,10 @@ export async function GET(request: Request) {
 
   log.info({ action: "google_login_success", email: maskEmail(profile.email) }, "google login successful");
 
-  // Post-login redirect: /app if health tokens already connected, /app/setup-health if not
+  // Post-login redirect: /app if health tokens already connected, /app/connect-health if not
   const userHealthTokens = await getHealthTokens(user.id, log);
   if (userHealthTokens) {
     return Response.redirect(buildUrl(returnTo ?? "/app"), 302);
   }
-  return Response.redirect(buildUrl("/app/setup-health"), 302);
+  return Response.redirect(buildUrl("/app/connect-health"), 302);
 }

@@ -243,13 +243,13 @@ describe("GET /api/auth/google/callback", () => {
     expect(response.headers.get("location")).toBe("http://localhost:3000/app");
   });
 
-  it("redirects to /app/setup-health when no health tokens", async () => {
+  it("redirects to /app/connect-health when no health tokens", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
     mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User", emailVerified: true });
     mockGetHealthTokens.mockResolvedValue(null);
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state"));
-    expect(response.headers.get("location")).toBe("http://localhost:3000/app/setup-health");
+    expect(response.headers.get("location")).toBe("http://localhost:3000/app/connect-health");
   });
 
   // Logging tests
@@ -312,7 +312,7 @@ describe("GET /api/auth/google/callback", () => {
     expect(response.headers.get("location")).toBe("http://localhost:3000/app/log-shared/tok123");
   });
 
-  it("redirects to /app/setup-health when JSON state has returnTo but user has no health tokens", async () => {
+  it("redirects to /app/connect-health when JSON state has returnTo but user has no health tokens", async () => {
     const jsonState = JSON.stringify({ nonce: "abc-nonce", returnTo: "/app/log-shared/tok123" });
     mockRawSession.oauthState = jsonState;
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
@@ -321,7 +321,7 @@ describe("GET /api/auth/google/callback", () => {
 
     const response = await GET(makeCallbackRequest("valid-code", jsonState));
     expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe("http://localhost:3000/app/setup-health");
+    expect(response.headers.get("location")).toBe("http://localhost:3000/app/connect-health");
   });
 
   it("returns 429 when rate limit exceeded", async () => {
