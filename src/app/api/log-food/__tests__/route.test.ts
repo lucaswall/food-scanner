@@ -610,10 +610,9 @@ describe("POST /api/log-food", () => {
       expect(mockGetCustomFoodById).toHaveBeenCalledWith("user-uuid-123", 42);
     });
 
-    it("does NOT require a fitbitFoodId on the reused food (no legacy id check)", async () => {
+    it("does NOT require any legacy food id on the reused food (no id check)", async () => {
       mockGetSession.mockResolvedValue(validSession);
       mockEnsureFreshToken.mockResolvedValue("fresh-token");
-      // No fitbitFoodId field at all
       mockGetCustomFoodById.mockResolvedValue({ ...existingFood });
       mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-reuse-no-id" });
       mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
@@ -626,7 +625,7 @@ describe("POST /api/log-food", () => {
       });
       const response = await POST(request);
 
-      // Should succeed (200), not 400 for missing fitbit id
+      // Should succeed (200), not 400 for missing legacy id
       expect(response.status).toBe(200);
     });
 

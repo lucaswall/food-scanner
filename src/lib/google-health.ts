@@ -659,7 +659,7 @@ export async function getHealthProfile(
  * Issues a SINGLE ranged fetch over [targetDate-13d, targetDate] (14-day window)
  * rather than a 14-day walk-back (replaces fitbit.ts getFitbitLatestWeightKg).
  * Returns the most-recent data point on/before targetDate, or null if empty.
- * Converts non-kg units to kg.
+ * Expects the API to return weight in kg (weightKg field); no unit conversion performed.
  *
  * NOTE: endpoint and body shape inferred from docs — confirm during staging QA (FOO-1088).
  */

@@ -58,7 +58,7 @@ describe("AboutSection", () => {
     expect(screen.getByText("Production")).toBeInTheDocument();
   });
 
-  it("renders Fitbit mode in successful state", () => {
+  it("renders health mode in successful state", () => {
     mockUseSWR.mockReturnValue({
       data: mockHealthData,
       error: null,

@@ -6,7 +6,7 @@
 
 /**
  * Vibrate for success feedback (200ms single vibration).
- * Used after successful actions like logging food to Fitbit.
+ * Used after successful actions like logging food to Google Health.
  */
 export function vibrateSuccess(): void {
   if (typeof navigator !== "undefined" && navigator.vibrate) {

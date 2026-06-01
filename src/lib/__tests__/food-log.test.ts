@@ -586,7 +586,6 @@ describe("getCustomFoodById", () => {
       fatG: "2",
       fiberG: "0",
       sodiumMg: "30",
-      fitbitFoodId: 12345,
       confidence: "high",
       notes: null,
       keywords: ["tea", "milk"],
@@ -626,7 +625,6 @@ describe("getCommonFoods", () => {
     foodName: string;
     time: string | null;
     date: string;
-    fitbitFoodId?: number | null;
     healthLogId?: string | null;
     mealTypeId: number;
     calories?: number;
@@ -681,10 +679,10 @@ describe("getCommonFoods", () => {
     const rows = [
       // Food A: 7 entries across 7 days, all at 08:00
       ...Array.from({ length: 7 }, (_, i) =>
-        makeRow({ customFoodId: 1, foodName: "Daily Oatmeal", time: "08:00:00", date: `2026-02-0${8 - i}`, fitbitFoodId: 100, mealTypeId: 1 }),
+        makeRow({ customFoodId: 1, foodName: "Daily Oatmeal", time: "08:00:00", date: `2026-02-0${8 - i}`, mealTypeId: 1 }),
       ),
       // Food B: 1 entry today at 08:00
-      makeRow({ customFoodId: 2, foodName: "One-time Bagel", time: "08:00:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 1 }),
+      makeRow({ customFoodId: 2, foodName: "One-time Bagel", time: "08:00:00", date: "2026-02-08", mealTypeId: 1 }),
     ];
     mockWhere.mockResolvedValue(rows);
 
@@ -698,8 +696,8 @@ describe("getCommonFoods", () => {
     // Food A at 12:00 → 0 min diff → high kernel
     // Food B at 16:00 → 240 min diff → low kernel
     mockWhere.mockResolvedValue([
-      makeRow({ customFoodId: 1, foodName: "Exact Time Food", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3 }),
-      makeRow({ customFoodId: 2, foodName: "Far Time Food", time: "16:00:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 4 }),
+      makeRow({ customFoodId: 1, foodName: "Exact Time Food", time: "12:00:00", date: "2026-02-08", mealTypeId: 3 }),
+      makeRow({ customFoodId: 2, foodName: "Far Time Food", time: "16:00:00", date: "2026-02-08", mealTypeId: 4 }),
     ]);
 
     const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08");
@@ -713,8 +711,8 @@ describe("getCommonFoods", () => {
     // Food A: today → recency decay ≈ 1.0
     // Food B: 14 days ago → recency decay much smaller
     mockWhere.mockResolvedValue([
-      makeRow({ customFoodId: 1, foodName: "Today Food", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3 }),
-      makeRow({ customFoodId: 2, foodName: "Old Food", time: "12:00:00", date: "2026-01-25", fitbitFoodId: 101, mealTypeId: 3 }),
+      makeRow({ customFoodId: 1, foodName: "Today Food", time: "12:00:00", date: "2026-02-08", mealTypeId: 3 }),
+      makeRow({ customFoodId: 2, foodName: "Old Food", time: "12:00:00", date: "2026-01-25", mealTypeId: 3 }),
     ]);
 
     const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08");
@@ -729,8 +727,8 @@ describe("getCommonFoods", () => {
     // Food B: logged last Monday (2026-02-02) at 12:00 → different day → 1.0x
     // Same time diff, very similar recency, so day-of-week should be the tiebreaker
     mockWhere.mockResolvedValue([
-      makeRow({ customFoodId: 1, foodName: "Sunday Food", time: "12:00:00", date: "2026-02-01", fitbitFoodId: 100, mealTypeId: 3 }),
-      makeRow({ customFoodId: 2, foodName: "Monday Food", time: "12:00:00", date: "2026-02-02", fitbitFoodId: 101, mealTypeId: 3 }),
+      makeRow({ customFoodId: 1, foodName: "Sunday Food", time: "12:00:00", date: "2026-02-01", mealTypeId: 3 }),
+      makeRow({ customFoodId: 2, foodName: "Monday Food", time: "12:00:00", date: "2026-02-02", mealTypeId: 3 }),
     ]);
 
     const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08");
@@ -746,10 +744,10 @@ describe("getCommonFoods", () => {
     // Food A entries: all today at 12:30 (close time, high recency, slight time offset)
     // Food B: today at 12:00 (exact time match, highest individual score)
     mockWhere.mockResolvedValue([
-      makeRow({ customFoodId: 1, foodName: "Multi Entry Food", time: "12:30:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3 }),
-      makeRow({ customFoodId: 1, foodName: "Multi Entry Food", time: "12:30:00", date: "2026-02-07", fitbitFoodId: 100, mealTypeId: 3 }),
-      makeRow({ customFoodId: 1, foodName: "Multi Entry Food", time: "12:30:00", date: "2026-02-06", fitbitFoodId: 100, mealTypeId: 3 }),
-      makeRow({ customFoodId: 2, foodName: "Single Entry Food", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 3 }),
+      makeRow({ customFoodId: 1, foodName: "Multi Entry Food", time: "12:30:00", date: "2026-02-08", mealTypeId: 3 }),
+      makeRow({ customFoodId: 1, foodName: "Multi Entry Food", time: "12:30:00", date: "2026-02-07", mealTypeId: 3 }),
+      makeRow({ customFoodId: 1, foodName: "Multi Entry Food", time: "12:30:00", date: "2026-02-06", mealTypeId: 3 }),
+      makeRow({ customFoodId: 2, foodName: "Single Entry Food", time: "12:00:00", date: "2026-02-08", mealTypeId: 3 }),
     ]);
 
     const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08");
@@ -761,9 +759,9 @@ describe("getCommonFoods", () => {
     // 3 foods with clearly different scores (time diff makes scoring obvious)
     // currentTime = 12:00, currentDate = 2026-02-08
     mockWhere.mockResolvedValue([
-      makeRow({ customFoodId: 1, foodName: "Far Food", time: "06:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 1 }),
-      makeRow({ customFoodId: 2, foodName: "Close Food", time: "12:05:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 3 }),
-      makeRow({ customFoodId: 3, foodName: "Medium Food", time: "14:00:00", date: "2026-02-08", fitbitFoodId: 102, mealTypeId: 4 }),
+      makeRow({ customFoodId: 1, foodName: "Far Food", time: "06:00:00", date: "2026-02-08", mealTypeId: 1 }),
+      makeRow({ customFoodId: 2, foodName: "Close Food", time: "12:05:00", date: "2026-02-08", mealTypeId: 3 }),
+      makeRow({ customFoodId: 3, foodName: "Medium Food", time: "14:00:00", date: "2026-02-08", mealTypeId: 4 }),
     ]);
 
     const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08");
@@ -777,7 +775,7 @@ describe("getCommonFoods", () => {
     // This is verified by checking that the cutoff date passed to DB query is ~90 days ago
     // We mock to return rows; the function should pass the correct cutoff to the query
     mockWhere.mockResolvedValue([
-      makeRow({ customFoodId: 1, foodName: "Recent Food", time: "12:00:00", date: "2026-02-07", fitbitFoodId: 100, mealTypeId: 3 }),
+      makeRow({ customFoodId: 1, foodName: "Recent Food", time: "12:00:00", date: "2026-02-07", mealTypeId: 3 }),
     ]);
 
     const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08");
@@ -802,8 +800,8 @@ describe("getCommonFoods", () => {
     // Entry at 00:30 → circular diff = 60 min → high kernel
     // Entry at 20:00 → circular diff = 210 min → lower kernel
     mockWhere.mockResolvedValue([
-      makeRow({ customFoodId: 1, foodName: "Late Night Snack", time: "00:30:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 7 }),
-      makeRow({ customFoodId: 2, foodName: "Dinner", time: "20:00:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 5 }),
+      makeRow({ customFoodId: 1, foodName: "Late Night Snack", time: "00:30:00", date: "2026-02-08", mealTypeId: 7 }),
+      makeRow({ customFoodId: 2, foodName: "Dinner", time: "20:00:00", date: "2026-02-08", mealTypeId: 5 }),
     ]);
 
     const result = await getCommonFoods("user-uuid-123", "23:30:00", "2026-02-08");
@@ -818,8 +816,8 @@ describe("getCommonFoods", () => {
     // null time → treated as 00:00 → 30 min diff → high kernel
     // 12:00 → 690 min diff → low kernel
     mockWhere.mockResolvedValue([
-      makeRow({ customFoodId: 1, foodName: "Timeless Food", time: null, date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 7 }),
-      makeRow({ customFoodId: 2, foodName: "Noon Food", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 3 }),
+      makeRow({ customFoodId: 1, foodName: "Timeless Food", time: null, date: "2026-02-08", mealTypeId: 7 }),
+      makeRow({ customFoodId: 2, foodName: "Noon Food", time: "12:00:00", date: "2026-02-08", mealTypeId: 3 }),
     ]);
 
     const result = await getCommonFoods("user-uuid-123", "00:30:00", "2026-02-08");
@@ -836,7 +834,6 @@ describe("getCommonFoods", () => {
         foodName: "Rice",
         time: "12:00:00",
         date: "2026-02-08",
-        fitbitFoodId: 100,
         mealTypeId: 3,
         amount: "0.5",
         calories: 200,
@@ -863,8 +860,8 @@ describe("getCommonFoods", () => {
     // Food has two entries: one with high score (close time, recent) and one with low score
     // The mealTypeId should come from the high-score entry
     mockWhere.mockResolvedValue([
-      makeRow({ customFoodId: 1, foodName: "Chicken", time: "08:00:00", date: "2026-01-20", fitbitFoodId: 100, mealTypeId: 1 }),
-      makeRow({ customFoodId: 1, foodName: "Chicken", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3 }),
+      makeRow({ customFoodId: 1, foodName: "Chicken", time: "08:00:00", date: "2026-01-20", mealTypeId: 1 }),
+      makeRow({ customFoodId: 1, foodName: "Chicken", time: "12:00:00", date: "2026-02-08", mealTypeId: 3 }),
     ]);
 
     const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08");
@@ -895,7 +892,6 @@ describe("getCommonFoods", () => {
           foodName: `Food ${i + 1}`,
           time: "12:00:00",
           date: "2026-02-08",
-          fitbitFoodId: 100 + i,
           mealTypeId: 3,
         }),
       );
@@ -913,7 +909,6 @@ describe("getCommonFoods", () => {
           foodName: `Food ${i + 1}`,
           time: "12:00:00",
           date: "2026-02-08",
-          fitbitFoodId: 100 + i,
           mealTypeId: 3,
         }),
       );
@@ -928,9 +923,9 @@ describe("getCommonFoods", () => {
       // Create foods with clearly different scores (different time diffs)
       // currentTime = 12:00, all same date for equal recency
       mockWhere.mockResolvedValue([
-        makeRow({ customFoodId: 1, foodName: "Exact", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3 }),
-        makeRow({ customFoodId: 2, foodName: "Close", time: "12:30:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 3 }),
-        makeRow({ customFoodId: 3, foodName: "Far", time: "18:00:00", date: "2026-02-08", fitbitFoodId: 102, mealTypeId: 5 }),
+        makeRow({ customFoodId: 1, foodName: "Exact", time: "12:00:00", date: "2026-02-08", mealTypeId: 3 }),
+        makeRow({ customFoodId: 2, foodName: "Close", time: "12:30:00", date: "2026-02-08", mealTypeId: 3 }),
+        makeRow({ customFoodId: 3, foodName: "Far", time: "18:00:00", date: "2026-02-08", mealTypeId: 5 }),
       ]);
 
       // First page without cursor
@@ -951,9 +946,9 @@ describe("getCommonFoods", () => {
       // The second page should return the 3rd food — not skip it because
       // scores are identical. This requires a composite cursor {score, id}.
       const rows = [
-        makeRow({ customFoodId: 10, foodName: "Food A", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3 }),
-        makeRow({ customFoodId: 20, foodName: "Food B", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 3 }),
-        makeRow({ customFoodId: 30, foodName: "Food C", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 102, mealTypeId: 3 }),
+        makeRow({ customFoodId: 10, foodName: "Food A", time: "12:00:00", date: "2026-02-08", mealTypeId: 3 }),
+        makeRow({ customFoodId: 20, foodName: "Food B", time: "12:00:00", date: "2026-02-08", mealTypeId: 3 }),
+        makeRow({ customFoodId: 30, foodName: "Food C", time: "12:00:00", date: "2026-02-08", mealTypeId: 3 }),
       ];
       mockWhere.mockResolvedValue(rows);
 
@@ -971,9 +966,9 @@ describe("getCommonFoods", () => {
     it("returns nextCursor when more items exist, null when no more", async () => {
       // Exactly 3 items, limit 3 → no more items → nextCursor null
       mockWhere.mockResolvedValue([
-        makeRow({ customFoodId: 1, foodName: "Food 1", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3 }),
-        makeRow({ customFoodId: 2, foodName: "Food 2", time: "13:00:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 3 }),
-        makeRow({ customFoodId: 3, foodName: "Food 3", time: "14:00:00", date: "2026-02-08", fitbitFoodId: 102, mealTypeId: 3 }),
+        makeRow({ customFoodId: 1, foodName: "Food 1", time: "12:00:00", date: "2026-02-08", mealTypeId: 3 }),
+        makeRow({ customFoodId: 2, foodName: "Food 2", time: "13:00:00", date: "2026-02-08", mealTypeId: 3 }),
+        makeRow({ customFoodId: 3, foodName: "Food 3", time: "14:00:00", date: "2026-02-08", mealTypeId: 3 }),
       ]);
 
       const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08", { limit: 3 });
@@ -988,8 +983,8 @@ describe("getCommonFoods", () => {
       // Favorite has lower score (logged 14 days ago)
       // But favorites should appear first
       mockWhere.mockResolvedValue([
-        makeRow({ customFoodId: 1, foodName: "Non-fav High Score", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3, isFavorite: false }),
-        makeRow({ customFoodId: 2, foodName: "Fav Low Score", time: "12:00:00", date: "2026-01-25", fitbitFoodId: 101, mealTypeId: 3, isFavorite: true }),
+        makeRow({ customFoodId: 1, foodName: "Non-fav High Score", time: "12:00:00", date: "2026-02-08", mealTypeId: 3, isFavorite: false }),
+        makeRow({ customFoodId: 2, foodName: "Fav Low Score", time: "12:00:00", date: "2026-01-25", mealTypeId: 3, isFavorite: true }),
       ]);
 
       const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08");
@@ -1002,9 +997,9 @@ describe("getCommonFoods", () => {
 
     it("favorites sorted by most recently logged", async () => {
       mockWhere.mockResolvedValue([
-        makeRow({ customFoodId: 1, foodName: "Fav Old", time: "12:00:00", date: "2026-01-01", fitbitFoodId: 100, mealTypeId: 3, isFavorite: true }),
-        makeRow({ customFoodId: 2, foodName: "Fav Recent", time: "12:00:00", date: "2026-02-07", fitbitFoodId: 101, mealTypeId: 3, isFavorite: true }),
-        makeRow({ customFoodId: 3, foodName: "Non-fav", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 102, mealTypeId: 3, isFavorite: false }),
+        makeRow({ customFoodId: 1, foodName: "Fav Old", time: "12:00:00", date: "2026-01-01", mealTypeId: 3, isFavorite: true }),
+        makeRow({ customFoodId: 2, foodName: "Fav Recent", time: "12:00:00", date: "2026-02-07", mealTypeId: 3, isFavorite: true }),
+        makeRow({ customFoodId: 3, foodName: "Non-fav", time: "12:00:00", date: "2026-02-08", mealTypeId: 3, isFavorite: false }),
       ]);
 
       const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08");
@@ -1016,8 +1011,8 @@ describe("getCommonFoods", () => {
 
     it("non-favorites section excludes already-shown favorites", async () => {
       mockWhere.mockResolvedValue([
-        makeRow({ customFoodId: 1, foodName: "Fav Food", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3, isFavorite: true }),
-        makeRow({ customFoodId: 2, foodName: "Non-fav Food", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 3, isFavorite: false }),
+        makeRow({ customFoodId: 1, foodName: "Fav Food", time: "12:00:00", date: "2026-02-08", mealTypeId: 3, isFavorite: true }),
+        makeRow({ customFoodId: 2, foodName: "Non-fav Food", time: "12:00:00", date: "2026-02-08", mealTypeId: 3, isFavorite: false }),
       ]);
 
       const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08");
@@ -1029,8 +1024,8 @@ describe("getCommonFoods", () => {
 
     it("no favorites → results identical to current scoring behavior", async () => {
       mockWhere.mockResolvedValue([
-        makeRow({ customFoodId: 1, foodName: "High Score", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3, isFavorite: false }),
-        makeRow({ customFoodId: 2, foodName: "Low Score", time: "12:00:00", date: "2026-01-25", fitbitFoodId: 101, mealTypeId: 3, isFavorite: false }),
+        makeRow({ customFoodId: 1, foodName: "High Score", time: "12:00:00", date: "2026-02-08", mealTypeId: 3, isFavorite: false }),
+        makeRow({ customFoodId: 2, foodName: "Low Score", time: "12:00:00", date: "2026-01-25", mealTypeId: 3, isFavorite: false }),
       ]);
 
       const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08");
@@ -1043,8 +1038,8 @@ describe("getCommonFoods", () => {
     it("favorites only appear on page 1; page 2+ returns only non-favorites", async () => {
       // Page 2 (cursor present): favorites are excluded (already shown on page 1)
       mockWhere.mockResolvedValue([
-        makeRow({ customFoodId: 1, foodName: "Fav Food", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3, isFavorite: true }),
-        makeRow({ customFoodId: 2, foodName: "Non-fav Food", time: "11:00:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 3, isFavorite: false }),
+        makeRow({ customFoodId: 1, foodName: "Fav Food", time: "12:00:00", date: "2026-02-08", mealTypeId: 3, isFavorite: true }),
+        makeRow({ customFoodId: 2, foodName: "Non-fav Food", time: "11:00:00", date: "2026-02-08", mealTypeId: 3, isFavorite: false }),
       ]);
 
       // Pass a cursor to simulate page 2
@@ -1061,11 +1056,11 @@ describe("getCommonFoods", () => {
       // 3 favorites + 2 non-favorites, limit 3 → remainingSlots = 0
       // nextCursor must not be null so client can fetch non-favorites on page 2
       const rows = [
-        makeRow({ customFoodId: 1, foodName: "Fav 1", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3, isFavorite: true }),
-        makeRow({ customFoodId: 2, foodName: "Fav 2", time: "12:00:00", date: "2026-02-07", fitbitFoodId: 101, mealTypeId: 3, isFavorite: true }),
-        makeRow({ customFoodId: 3, foodName: "Fav 3", time: "12:00:00", date: "2026-02-06", fitbitFoodId: 102, mealTypeId: 3, isFavorite: true }),
-        makeRow({ customFoodId: 4, foodName: "Non-fav 1", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 103, mealTypeId: 3, isFavorite: false }),
-        makeRow({ customFoodId: 5, foodName: "Non-fav 2", time: "12:00:00", date: "2026-02-07", fitbitFoodId: 104, mealTypeId: 3, isFavorite: false }),
+        makeRow({ customFoodId: 1, foodName: "Fav 1", time: "12:00:00", date: "2026-02-08", mealTypeId: 3, isFavorite: true }),
+        makeRow({ customFoodId: 2, foodName: "Fav 2", time: "12:00:00", date: "2026-02-07", mealTypeId: 3, isFavorite: true }),
+        makeRow({ customFoodId: 3, foodName: "Fav 3", time: "12:00:00", date: "2026-02-06", mealTypeId: 3, isFavorite: true }),
+        makeRow({ customFoodId: 4, foodName: "Non-fav 1", time: "12:00:00", date: "2026-02-08", mealTypeId: 3, isFavorite: false }),
+        makeRow({ customFoodId: 5, foodName: "Non-fav 2", time: "12:00:00", date: "2026-02-07", mealTypeId: 3, isFavorite: false }),
       ];
       mockWhere.mockResolvedValue(rows);
 

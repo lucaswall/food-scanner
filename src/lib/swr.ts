@@ -14,7 +14,7 @@ export class ApiError extends Error {
  * Shared SWR config for SWR keys that hit Google Health-backed endpoints
  * (`/api/nutrition-goals`, `/api/health-profile`). Disables the default
  * `revalidateOnFocus` and uses a 30-minute dedupe window so tab-switching
- * doesn't burn the rate limit quota (port of FOO-1003 from Fitbit migration).
+ * doesn't burn the rate limit quota (port of FOO-1003 from the health API migration).
  *
  * Mutate-after-action calls (refresh button, profile change) bypass the
  * dedupe window — see `swr.mutate(...)` invocations.

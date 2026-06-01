@@ -52,7 +52,7 @@ describe("GET /api/common-foods", () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
       userId: "user-uuid-123",
-      fitbitConnected: true,
+      healthConnected: true,
     });
 
     mockGetCommonFoods.mockResolvedValue({
@@ -68,7 +68,6 @@ describe("GET /api/common-foods", () => {
           fatG: 10,
           fiberG: 2,
           sodiumMg: 400,
-          fitbitFoodId: 100,
           mealTypeId: 3,
         },
       ],
@@ -96,7 +95,7 @@ describe("GET /api/common-foods", () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
       userId: "user-uuid-123",
-      fitbitConnected: true,
+      healthConnected: true,
     });
 
     mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
@@ -132,7 +131,7 @@ describe("GET /api/common-foods", () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
       userId: "user-uuid-123",
-      fitbitConnected: true,
+      healthConnected: true,
     });
 
     mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
@@ -150,7 +149,7 @@ describe("GET /api/common-foods", () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
       userId: "user-uuid-123",
-      fitbitConnected: true,
+      healthConnected: true,
     });
 
     mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
@@ -163,7 +162,7 @@ describe("GET /api/common-foods", () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
       userId: "user-uuid-123",
-      fitbitConnected: true,
+      healthConnected: true,
     });
 
     mockGetCommonFoods.mockRejectedValue(new Error("DB connection failed"));
@@ -181,7 +180,7 @@ describe("GET /api/common-foods", () => {
       mockGetSession.mockResolvedValue({
         sessionId: "test-session",
         userId: "user-uuid-123",
-        fitbitConnected: true,
+        healthConnected: true,
       });
 
       mockGetRecentFoods.mockResolvedValue({
@@ -197,7 +196,6 @@ describe("GET /api/common-foods", () => {
             fatG: 3,
             fiberG: 4,
             sodiumMg: 150,
-            fitbitFoodId: 101,
             mealTypeId: 3,
           },
         ],
@@ -217,7 +215,7 @@ describe("GET /api/common-foods", () => {
       mockGetSession.mockResolvedValue({
         sessionId: "test-session",
         userId: "user-uuid-123",
-        fitbitConnected: true,
+        healthConnected: true,
       });
 
       mockGetRecentFoods.mockResolvedValue({ foods: [], nextCursor: null });
@@ -235,7 +233,7 @@ describe("GET /api/common-foods", () => {
       mockGetSession.mockResolvedValue({
         sessionId: "test-session",
         userId: "user-uuid-123",
-        fitbitConnected: true,
+        healthConnected: true,
       });
 
       const response = await GET(makeRequest({ tab: "recent", cursor: "invalid-json" }));
@@ -249,7 +247,7 @@ describe("GET /api/common-foods", () => {
       mockGetSession.mockResolvedValue({
         sessionId: "test-session",
         userId: "user-uuid-123",
-        fitbitConnected: true,
+        healthConnected: true,
       });
 
       // Valid JSON but wrong shape — missing lastDate, lastId
@@ -265,7 +263,7 @@ describe("GET /api/common-foods", () => {
       mockGetSession.mockResolvedValue({
         sessionId: "test-session",
         userId: "user-uuid-123",
-        fitbitConnected: true,
+        healthConnected: true,
       });
 
       const cursor = JSON.stringify({ lastDate: "2026-02-08", lastTime: "12:00:00", lastId: "not-a-number" });
@@ -280,7 +278,7 @@ describe("GET /api/common-foods", () => {
       mockGetSession.mockResolvedValue({
         sessionId: "test-session",
         userId: "user-uuid-123",
-        fitbitConnected: true,
+        healthConnected: true,
       });
 
       const cursor = JSON.stringify({ wrong: "shape" });
@@ -297,7 +295,7 @@ describe("GET /api/common-foods", () => {
       mockGetSession.mockResolvedValue({
         sessionId: "test-session",
         userId: "user-uuid-123",
-        fitbitConnected: true,
+        healthConnected: true,
       });
 
       mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
@@ -318,7 +316,7 @@ describe("GET /api/common-foods", () => {
       mockGetSession.mockResolvedValue({
         sessionId: "test-session",
         userId: "user-uuid-123",
-        fitbitConnected: true,
+        healthConnected: true,
       });
 
       mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
@@ -336,7 +334,7 @@ describe("GET /api/common-foods", () => {
     });
 
     it("returns 400 for invalid clientDate format", async () => {
-      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", healthConnected: true });
 
       const response = await GET(makeRequest({ clientDate: "not-a-date" }));
       expect(response.status).toBe(400);
@@ -345,7 +343,7 @@ describe("GET /api/common-foods", () => {
     });
 
     it("returns 400 for invalid clientTime format", async () => {
-      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", healthConnected: true });
 
       const response = await GET(makeRequest({ clientTime: "not-a-time" }));
       expect(response.status).toBe(400);
@@ -354,7 +352,7 @@ describe("GET /api/common-foods", () => {
     });
 
     it("returns 400 for out-of-range clientTime values", async () => {
-      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", healthConnected: true });
 
       const response = await GET(makeRequest({ clientTime: "25:61" }));
       expect(response.status).toBe(400);
@@ -363,7 +361,7 @@ describe("GET /api/common-foods", () => {
     });
 
     it("accepts valid clientTime in HH:MM format", async () => {
-      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", healthConnected: true });
       mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
 
       const response = await GET(makeRequest({ clientTime: "14:30" }));
@@ -371,7 +369,7 @@ describe("GET /api/common-foods", () => {
     });
 
     it("returns ETag header on success response", async () => {
-      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", healthConnected: true });
       mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
 
       const response = await GET(makeRequest());
@@ -380,13 +378,13 @@ describe("GET /api/common-foods", () => {
     });
 
     it("returns 304 when If-None-Match matches", async () => {
-      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", healthConnected: true });
       mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
 
       const response1 = await GET(makeRequest({ clientDate: "2026-02-28", clientTime: "12:00:00" }));
       const etag = response1.headers.get("ETag")!;
 
-      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", healthConnected: true });
       mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
 
       const url = new URL("http://localhost:3000/api/common-foods");

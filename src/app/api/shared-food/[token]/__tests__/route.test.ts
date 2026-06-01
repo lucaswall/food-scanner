@@ -60,7 +60,6 @@ const mockFood = {
   transFatG: null,
   sugarsG: null,
   caloriesFromFat: null,
-  fitbitFoodId: 123,
   confidence: "high",
   notes: "Some notes",
   description: "A grilled chicken breast",

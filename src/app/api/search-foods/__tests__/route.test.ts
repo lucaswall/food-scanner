@@ -65,7 +65,6 @@ describe("GET /api/search-foods", () => {
         fatG: 10,
         fiberG: 2,
         sodiumMg: 400,
-        fitbitFoodId: 100,
         mealTypeId: 3,
       },
     ]);

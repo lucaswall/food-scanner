@@ -42,7 +42,7 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: "Food Logger",
-  description: "AI-powered food logging for Fitbit",
+  description: "AI-powered food logging for Google Health",
   applicationName: "Food Logger",
   manifest: "/manifest.json",
   icons: {

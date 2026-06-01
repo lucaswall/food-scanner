@@ -12,7 +12,7 @@ interface UseKeyboardShortcutsOptions {
  *
  * Shortcuts:
  * - Ctrl/Cmd + Enter: Trigger analysis (when photos are present)
- * - Ctrl/Cmd + Shift + Enter: Log to Fitbit (when analysis is present)
+ * - Ctrl/Cmd + Shift + Enter: Log to Google Health (when analysis is present)
  */
 export function useKeyboardShortcuts({
   onAnalyze,
@@ -24,7 +24,7 @@ export function useKeyboardShortcuts({
     (event: KeyboardEvent) => {
       const isCtrlOrCmd = event.ctrlKey || event.metaKey;
 
-      // Ctrl/Cmd + Shift + Enter: Log to Fitbit
+      // Ctrl/Cmd + Shift + Enter: Log to Google Health
       if (isCtrlOrCmd && event.shiftKey && event.key === "Enter") {
         if (canLog && onLogFood) {
           event.preventDefault();

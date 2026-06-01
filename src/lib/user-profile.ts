@@ -59,7 +59,7 @@ export async function buildUserProfile(
   const l = options?.log ?? logger;
 
   // FOO-1064: goals are optional enrichment for the chat profile. Isolate the
-  // goal-compute promise so a transient Fitbit error (token invalid, rate
+  // goal-compute promise so a transient Google Health error (token invalid, rate
   // limited, timeout) does not discard the DB-only nutrition summary and
   // top-foods context, which may have succeeded.
   const [goalsSettled, nutritionSummary, topFoods] = await Promise.all([

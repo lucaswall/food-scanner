@@ -431,7 +431,7 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
     throw new ClaudeApiError("Invalid food analysis: date must be a string in YYYY-MM-DD format or null");
   }
 
-  // Validate optional meal_type_id field: null/undefined or one of valid Fitbit meal types
+  // Validate optional meal_type_id field: null/undefined or one of valid meal type IDs
   const VALID_MEAL_TYPE_IDS = new Set([1, 2, 3, 4, 5, 7]);
   const rawMealTypeId = data.meal_type_id;
   let validatedMealTypeId: number | null | undefined;
@@ -1573,7 +1573,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     }
 
     l.warn(
-      { error: error instanceof Error ? error.message : String(error) },
+      { action: "conversational_refine_error", error: error instanceof Error ? error.message : String(error) },
       "Claude API conversational refinement error"
     );
     throw new ClaudeApiError(

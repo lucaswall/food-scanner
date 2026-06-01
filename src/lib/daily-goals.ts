@@ -330,7 +330,7 @@ async function doCompute(
       // Settings drifted → fall through to full recompute.
     }
 
-    // ── Step 3: Read Fitbit profile + weight (parallel) ─────────────────────
+    // ── Step 3: Read Google Health profile + weight (parallel) ──────────────
     const [profile, weightLog] = await Promise.all([
       getCachedHealthProfile(userId, l, "important"),
       getCachedHealthWeightKg(userId, date, l, "important"),
@@ -529,9 +529,9 @@ export async function invalidateUserDailyGoalsForSettingsChange(
 
 /**
  * Reset macro/audit columns for ONE specific (userId, date) row, scoped to a
- * Fitbit-side data refresh (FOO-992). Drops the in-flight compute key for that
+ * Google Health data refresh (FOO-992). Drops the in-flight compute key for that
  * date and zeroes the row so the next read forces a fresh compute under
- * up-to-date Fitbit inputs.
+ * up-to-date Google Health inputs.
  */
 export async function invalidateUserDailyGoalsForDate(
   userId: string,
