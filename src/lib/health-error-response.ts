@@ -1,6 +1,31 @@
 import { errorResponse } from "@/lib/api-response";
 
 /**
+ * Expected, operational Google Health error codes. These represent transient or
+ * user-actionable conditions (token expiry, missing scope, rate limiting, timeouts)
+ * that are part of normal operation — callers should log them at `warn`, not `error`,
+ * to avoid Sentry noise / alert fatigue. Genuine faults (HEALTH_API_ERROR,
+ * HEALTH_TOKEN_SAVE_FAILED) and unknown values are NOT in this set and stay at `error`.
+ */
+const EXPECTED_HEALTH_CODES = new Set([
+  "HEALTH_TOKEN_INVALID",
+  "HEALTH_SCOPE_MISSING",
+  "HEALTH_RATE_LIMIT",
+  "HEALTH_RATE_LIMIT_LOW",
+  "HEALTH_TIMEOUT",
+  "HEALTH_REFRESH_TRANSIENT",
+]);
+
+/**
+ * True when the thrown value is an expected, operational Google Health condition that
+ * should be logged at `warn` rather than `error`. Accepts Error instances or raw values.
+ */
+export function isExpectedHealthError(error: unknown): boolean {
+  const code = error instanceof Error ? error.message : String(error);
+  return EXPECTED_HEALTH_CODES.has(code);
+}
+
+/**
  * Map a thrown Google Health error code to a typed HTTP Response.
  *
  * Error codes are carried as `Error.message` strings, matching the pattern in

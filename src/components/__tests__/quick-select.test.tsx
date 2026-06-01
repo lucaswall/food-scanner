@@ -1241,6 +1241,27 @@ describe("QuickSelect", () => {
       // The referenced panel element must exist in the DOM
       expect(document.getElementById(panelId!)).toBeInTheDocument();
     });
+
+    it("tab buttons expose active state via aria-pressed (toggle-button pattern, matches dashboard-shell)", async () => {
+      mockFetch.mockResolvedValue(mockPaginatedResponse(mockFoods));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      // Default: Suggested active. Re-query each time — switching tabs triggers a
+      // fetch + re-render that can replace the button DOM nodes.
+      expect(screen.getByRole("button", { name: "Suggested" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("button", { name: "Recent" })).toHaveAttribute("aria-pressed", "false");
+
+      // Switch to Recent → aria-pressed reflects the new active tab
+      fireEvent.click(screen.getByRole("button", { name: "Recent" }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Recent" })).toHaveAttribute("aria-pressed", "true");
+        expect(screen.getByRole("button", { name: "Suggested" })).toHaveAttribute("aria-pressed", "false");
+      });
+    });
   });
 
   describe("FOO-664: search SWR error state", () => {

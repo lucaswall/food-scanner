@@ -2,7 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { ensureFreshToken, createNutritionLog, deleteNutritionLogs } from "@/lib/google-health";
-import { mapHealthError } from "@/lib/health-error-response";
+import { mapHealthError, isExpectedHealthError } from "@/lib/health-error-response";
 import { insertCustomFoodWithLogEntry, insertFoodLogEntry, getCustomFoodById, updateCustomFoodMetadata } from "@/lib/food-log";
 import { isValidDateFormat, isValidTimeFormat } from "@/lib/date-utils";
 import { isValidFoodAnalysisFields } from "@/lib/food-validation";
@@ -438,10 +438,14 @@ export async function POST(request: Request) {
 
     return successResponse(response);
   } catch (error) {
-    log.error(
-      { action: "log_food_error", error: error instanceof Error ? error.message : String(error) },
-      "Google Health API error",
-    );
+    const errMsg = error instanceof Error ? error.message : String(error);
+    // Expected operational conditions (token expiry, rate limit, timeout) log at warn to
+    // avoid Sentry noise; genuine faults stay at error.
+    if (isExpectedHealthError(error)) {
+      log.warn({ action: "log_food_error", error: errMsg }, "Google Health API transient error");
+    } else {
+      log.error({ action: "log_food_error", error: errMsg }, "Google Health API error");
+    }
     return mapHealthError(error);
   }
 }

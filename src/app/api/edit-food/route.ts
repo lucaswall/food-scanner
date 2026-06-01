@@ -195,6 +195,7 @@ export async function POST(request: Request) {
                 { action: "edit_food_fast_path_compensation_db_failed", error: dbUpdateErr instanceof Error ? dbUpdateErr.message : String(dbUpdateErr) },
                 "failed to update healthLogId after fast path compensation"
               );
+              return errorResponse("PARTIAL_ERROR", "Food restored in Google Health but local ID link failed. Manual cleanup may be needed.", 500);
             }
             log.info({ action: "edit_food_fast_path_compensation_success" }, "fast path compensation succeeded");
           } catch (compensationErr) {

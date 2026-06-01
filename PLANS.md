@@ -1275,3 +1275,46 @@ Summary: **13 issues to FIX** (3 HIGH, 5 MEDIUM, grouped into 9 Linear issues in
 
 ### Continuation Status
 All Fix Plan tasks (FOO-1101..1109) completed and verified. Ready for `plan-review-implementation`. The remaining FOO-1100 (Task 30) is the production release deploy, performed by `push-to-production` per the MIGRATIONS.md RELEASE RUNBOOK.
+
+### Review Findings
+
+Summary: 16 findings (Workflow review: security, reliability, quality reviewers — 15; E2E gate — 1) — 3 FIXED INLINE, 13 DISCARDED.
+- FIXED INLINE: 3 issue(s) — verified via TDD + bug-hunter (no new issues) + full E2E gate (135 pass)
+
+**Issues fixed inline:**
+- [HIGH] BUG: edit-food fast-path relog-failure compensation didn't return `PARTIAL_ERROR` (and logged a false "compensation succeeded") when the compensation DB id-link update failed — the only one of 4 compensation blocks missing this. Added the `PARTIAL_ERROR` return + regression test. (`src/app/api/edit-food/route.ts`; FOO-1110)
+- [MEDIUM] BUG: log-food + food-history DELETE logged ALL HEALTH_* errors at `error` level (Sentry-noise regression from the FOO-1103 `mapHealthError` centralization, which dropped the prior warn-for-transient distinction). Added `isExpectedHealthError` helper + warn/error branching + unit test. (`src/lib/health-error-response.ts`, `src/app/api/log-food/route.ts`, `src/app/api/food-history/[id]/route.ts`; FOO-1111)
+- [MEDIUM] BUG: quick-select tab buttons lost all accessible active-state — the FOO-1109 a11y sub-fix removed `aria-pressed` (keeping `aria-controls`) on a wrong premise; the project's own `dashboard-shell` combines both, and `role="tablist"` was intentionally removed in FOO-613. Broke the `quick-select.spec.ts` E2E test. Restored `aria-pressed` + added a unit regression test. (`src/components/quick-select.tsx`; FOO-1112)
+
+**Discarded findings (not bugs):**
+- [DISCARDED][HIGH] TYPE: `mapHealthError` switch is non-exhaustive / operates on raw string — the input is genuinely `unknown` (caught thrown values), so a runtime `default → INTERNAL_ERROR` is the correct design and a compile-time-exhaustive switch is infeasible; all 8 currently-thrown HEALTH_* codes are explicitly handled (verified). No current correctness impact.
+- [DISCARDED][MEDIUM] SECURITY: saved-analyses forwards `validateFoodAnalysis` error messages to the client — consistent with the existing `saved-analyses/bulk` route (the pattern FOO-1101 was told to mirror); the disclosed names are FoodAnalysis schema fields the client already sends, not secrets/internals.
+- [DISCARDED][MEDIUM] SECURITY/TEST: open-redirect guard tested only for health-connect flow, not login flow — the guard (`startsWith("/") && !startsWith("//")`) is shared code executed for both flows and is exercised by the health-connect tests; login-flow protection is present. Coverage nicety, not a bug. (raised twice, med+low)
+- [DISCARDED][MEDIUM] TEST: edit-food regular-path compensation test uses a loose `toHaveBeenCalledWith` — the compensation behavior (re-create + persist) IS asserted; token-identity is not a correctness property worth tightening.
+- [DISCARDED][MEDIUM] TEST: FOO-1101 fixed behavior "not tested" — the `201 with unit_id:'g'` test DOES prove a string unit_id now succeeds (exactly the regression). Adequate.
+- [DISCARDED][MEDIUM] CONVENTION: 4 stale "Log to Fitbit" test NAMES in `food-chat.test.tsx` (assertions are correct) — cosmetic, zero correctness impact, and in a file outside this iteration's changed-files review scope.
+- [DISCARDED][LOW] SECURITY/TEST: no cross-user idempotency isolation test — the cache key provably includes `userId` (`getIdempotencyKey`). Code correct.
+- [DISCARDED][LOW] ERROR: `mapHealthError` doesn't log when passed a non-Error — callers already log before invoking (per its contract); redundant.
+- [DISCARDED][LOW] CONVENTION: log-food logs raw `clientToken` — it's a non-sensitive client idempotency key (not an auth credential per CLAUDE.md); logging it aids tracing.
+- [DISCARDED][LOW] TEST: no idempotency-cache TTL-expiry test — the TTL/sweep logic is trivial and correct; code-correct coverage gap, not a bug.
+- (R4 [LOW] "missing fast-path compensation DB-fail test" resolved as part of the FOO-1110 inline fix — that test was added.)
+
+### Linear Updates
+- FOO-1101 … FOO-1109: Review → Merge (Iteration 7 Fix Plan tasks completed)
+- FOO-1110: Created in Merge (Fix: edit-food fast-path compensation PARTIAL_ERROR — fixed inline)
+- FOO-1111: Created in Merge (Fix: log-food/food-history HEALTH_* log-level regression — fixed inline)
+- FOO-1112: Created in Merge (Fix: quick-select aria-pressed restore — fixed inline, surfaced by E2E)
+
+### Inline Fix Verification
+- Unit/integration tests: 3,442 pass (was 3,436; +6 new)
+- Typecheck: 0 errors · Lint: 0 warnings
+- Bug-hunter: no new issues in the inline fixes
+- E2E: 135 pass (the quick-select regression that initially failed is now green)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully across Iterations 1–7. All Linear issues (FOO-1071..1099, FOO-1101..1112) moved to Merge. The 3 review findings were fixed inline (FOO-1110, FOO-1111, FOO-1112). Full gates green: 3,442 unit/integration tests, 135 E2E tests, typecheck 0 errors, lint 0 warnings. Only FOO-1100 (Task 30 — the production release deploy) remains, performed by `push-to-production` per the MIGRATIONS.md RELEASE RUNBOOK.

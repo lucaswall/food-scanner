@@ -414,6 +414,24 @@ describe("POST /api/edit-food", () => {
       expect(body.error.code).toBe("HEALTH_API_ERROR");
     });
 
+    it("fast path: relog-failure compensation re-creates original but DB id-link update fails → PARTIAL_ERROR", async () => {
+      // Fast-path relog (1st create) fails → compensation re-creates the original (2nd create)
+      // succeeds, but persisting the compensation id to the DB fails. The client must see
+      // PARTIAL_ERROR (orphaned compensation log + stale DB pointer), not a misleading
+      // success log followed by a generic health error. Mirrors the regular-path contract.
+      mockCreateNutritionLog
+        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")) // fast-path relog fails
+        .mockResolvedValueOnce({ healthLogId: "fp-compensation-log" }); // compensation re-create succeeds
+      mockUpdateFoodLogEntryMetadata.mockRejectedValue(new Error("DB error"));
+
+      const response = await POST(createMockRequest(unchangedBody));
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body.error.code).toBe("PARTIAL_ERROR");
+      // Compensation re-created the original log before the DB link failed
+      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(2);
+    });
+
     it("fast path: delete failure with HEALTH_SCOPE_MISSING returns 403", async () => {
       // deleteNutritionLogs (for old log) fails with scope error
       mockDeleteNutritionLogs.mockRejectedValue(new Error("HEALTH_SCOPE_MISSING"));
