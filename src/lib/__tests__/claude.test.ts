@@ -50,7 +50,7 @@ function makeTextStream(
 
 /** Creates a mock stream for a report_nutrition tool_use response. */
 function makeReportNutritionStream(
-  analysis: FoodAnalysis,
+  analysis: Record<string, unknown>,
   usage: { input_tokens: number; output_tokens: number } = { input_tokens: 1500, output_tokens: 300 },
 ) {
   return createMockStream(
@@ -232,10 +232,11 @@ vi.stubEnv("ANTHROPIC_API_KEY", "test-api-key");
 
 // --- Fixtures ---
 
+/** Expected parsed FoodAnalysis result (no serving_unit — that is a tool-input field only). */
 const validAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
   amount: 150,
-  unit_id: 147,
+  unit_id: "g",
   calories: 320,
   protein_g: 12,
   carbs_g: 28,
@@ -251,6 +252,9 @@ const validAnalysis: FoodAnalysis = {
   keywords: ["empanada", "carne", "horno"],
   description: "Standard Argentine beef empanada, baked style",
 };
+
+/** Raw tool input as Claude would output — uses serving_unit (string) field. */
+const rawToolInput: Record<string, unknown> = { ...validAnalysis, serving_unit: "g" };
 
 function setupMocks() {
   vi.clearAllMocks();
@@ -269,7 +273,7 @@ describe("Anthropic SDK configuration", () => {
   afterEach(() => { vi.resetModules(); });
 
   it("configures SDK timeout to 120s to accommodate web search latency", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], undefined, "test-user", "2026-02-15"));
@@ -280,7 +284,7 @@ describe("Anthropic SDK configuration", () => {
   });
 
   it("configures SDK with maxRetries", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], undefined, "test-user", "2026-02-15"));
@@ -307,7 +311,7 @@ describe("analyzeFood", () => {
   // --- Fast path: report_nutrition immediately ---
 
   it("fast path: yields analysis + done for report_nutrition response", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     const events = await collectEvents(
@@ -319,7 +323,7 @@ describe("analyzeFood", () => {
   });
 
   it("fast path: analysis event contains validated FoodAnalysis", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     const events = await collectEvents(analyzeFood([], undefined, "user-123", "2026-02-15"));
@@ -329,12 +333,12 @@ describe("analyzeFood", () => {
     expect(analysisEvent?.analysis.food_name).toBe("Empanada de carne");
     expect(analysisEvent?.analysis.calories).toBe(320);
     expect(analysisEvent?.analysis.amount).toBe(150);
-    expect(analysisEvent?.analysis.unit_id).toBe(147);
+    expect(analysisEvent?.analysis.unit_id).toBe("g");
   });
 
   it("fast path: records usage after analysis", async () => {
     mockStream.mockReturnValueOnce(
-      makeReportNutritionStream(validAnalysis, { input_tokens: 1500, output_tokens: 300 })
+      makeReportNutritionStream(rawToolInput, { input_tokens: 1500, output_tokens: 300 })
     );
 
     const { analyzeFood } = await import("@/lib/claude");
@@ -353,7 +357,7 @@ describe("analyzeFood", () => {
     mockRecordUsage.mockImplementation(() => new Promise((resolve) => {
       setTimeout(() => { recordUsageResolved = true; resolve(undefined); }, 100);
     }));
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], undefined, "user-123", "2026-02-15"));
@@ -363,7 +367,7 @@ describe("analyzeFood", () => {
 
   it("fast path: succeeds even if recordUsage throws", async () => {
     mockRecordUsage.mockRejectedValueOnce(new Error("DB error"));
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     const events = await collectEvents(analyzeFood([], undefined, "user-123", "2026-02-15"));
@@ -733,7 +737,7 @@ describe("analyzeFood", () => {
   // --- API call arguments ---
 
   it("passes all 5 tools to Claude with tool_choice auto", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([{ base64: "img", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15"));
@@ -754,7 +758,7 @@ describe("analyzeFood", () => {
   });
 
   it("includes current date in system prompt", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], undefined, "user-123", "2026-02-15"));
@@ -764,7 +768,7 @@ describe("analyzeFood", () => {
   });
 
   it("uses default text when no description provided", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([{ base64: "img", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15"));
@@ -776,7 +780,7 @@ describe("analyzeFood", () => {
   });
 
   it("passes images as base64 blocks", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood(
@@ -797,7 +801,7 @@ describe("analyzeFood", () => {
   });
 
   it("text-only request: no image blocks, description as sole text block", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], "2 medialunas y un cortado", "user-123", "2026-02-15"));
@@ -809,7 +813,7 @@ describe("analyzeFood", () => {
   });
 
   it("includes web_search tool (GA, no beta header)", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], undefined, "user-123", "2026-02-15"));
@@ -823,7 +827,7 @@ describe("analyzeFood", () => {
   });
 
   it("uses max_tokens 2048 for initial call", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], undefined, "user-123", "2026-02-15"));
@@ -952,7 +956,7 @@ describe("analyzeFood", () => {
         stop_reason: "end_turn",
         content: [
           { type: "text", text: "Based on the nutrition info..." },
-          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: rawToolInput },
         ],
         usage: { input_tokens: 2500, output_tokens: 300, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       }
@@ -1001,7 +1005,7 @@ describe("analyzeFood", () => {
         model: "claude-sonnet-4-6",
         stop_reason: "end_turn",
         content: [
-          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: rawToolInput },
         ],
         usage: { input_tokens: 3000, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       }
@@ -1050,7 +1054,7 @@ describe("analyzeFood", () => {
       }
     ));
     // Tool loop iteration 1: report_nutrition (tool_use → stores pending, continues)
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
     // Tool loop iteration 2: end_turn (uses pending analysis)
     mockStream.mockReturnValueOnce(makeTextStream("Done."));
 
@@ -1203,7 +1207,7 @@ describe("runToolLoop", () => {
       model: "claude-sonnet-4-6",
       stop_reason: "tool_use",
       content: [
-        { type: "tool_use", id: "t_report", name: "report_nutrition", input: validAnalysis },
+        { type: "tool_use", id: "t_report", name: "report_nutrition", input: rawToolInput },
         { type: "tool_use", id: "t_data", name: "get_nutrition_summary", input: { date: "2026-02-15" } },
       ],
       usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -1367,7 +1371,7 @@ describe("runToolLoop", () => {
         stop_reason: "end_turn",
         content: [
           { type: "text", text: "Here's the analysis." },
-          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: rawToolInput },
         ],
         usage: { input_tokens: 2000, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       }
@@ -1491,7 +1495,7 @@ describe("runToolLoop", () => {
         model: "claude-sonnet-4-6",
         stop_reason: "tool_use",
         content: [
-          { type: "tool_use", id: "tool_rpt_1", name: "report_nutrition", input: validAnalysis },
+          { type: "tool_use", id: "tool_rpt_1", name: "report_nutrition", input: rawToolInput },
           { type: "tool_use", id: "tool_rpt_2", name: "report_nutrition", input: secondAnalysis },
         ],
         usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -1525,7 +1529,7 @@ describe("runToolLoop", () => {
         model: "claude-sonnet-4-6",
         stop_reason: "tool_use",
         content: [
-          { type: "tool_use", id: "tool_rpt_1", name: "report_nutrition", input: validAnalysis },
+          { type: "tool_use", id: "tool_rpt_1", name: "report_nutrition", input: rawToolInput },
           { type: "tool_use", id: "tool_rpt_2", name: "report_nutrition", input: secondAnalysis },
         ],
         usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -1598,7 +1602,7 @@ describe("runToolLoop", () => {
       {
         model: "claude-sonnet-4-6",
         stop_reason: "max_tokens",
-        content: [{ type: "tool_use", id: "tool_rpt", name: "report_nutrition", input: validAnalysis }],
+        content: [{ type: "tool_use", id: "tool_rpt", name: "report_nutrition", input: rawToolInput }],
         usage: { input_tokens: 1500, output_tokens: 1024, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       }
     ));
@@ -1786,6 +1790,7 @@ describe("conversationalRefine", () => {
   afterEach(() => { vi.resetModules(); });
 
   it("yields analysis event when Claude calls report_nutrition", async () => {
+    const updatedRawInput = { ...rawToolInput, amount: 200 };
     const updatedAnalysis = { ...validAnalysis, amount: 200 };
     mockStream.mockReturnValueOnce(createMockStream(
       [
@@ -1799,7 +1804,7 @@ describe("conversationalRefine", () => {
         stop_reason: "end_turn",
         content: [
           { type: "text", text: "I've updated the portion size to 200g" },
-          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: updatedAnalysis },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: updatedRawInput },
         ],
         usage: { input_tokens: 1800, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       }
@@ -2128,7 +2133,7 @@ describe("conversationalRefine", () => {
         stop_reason: "end_turn",
         content: [
           { type: "text", text: "Based on the nutrition info..." },
-          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: rawToolInput },
         ],
         usage: { input_tokens: 2500, output_tokens: 300, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       }
@@ -2182,7 +2187,7 @@ describe("conversationalRefine", () => {
         model: "claude-sonnet-4-6",
         stop_reason: "end_turn",
         content: [
-          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: rawToolInput },
         ],
         usage: { input_tokens: 3000, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       }
@@ -2256,7 +2261,7 @@ describe("conversationalRefine", () => {
       }
     ));
     // Tool loop iteration 1: report_nutrition (tool_use → stores pending, continues)
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
     // Tool loop iteration 2: end_turn (uses pending analysis)
     mockStream.mockReturnValueOnce(makeTextStream("Done."));
 
@@ -2295,18 +2300,18 @@ describe("editAnalysis", () => {
     sugarsG: null,
     caloriesFromFat: null,
     amount: 150,
-    unitId: 147,
+    unitId: "g",
     mealTypeId: 5,
     date: "2026-02-15",
     time: "20:00:00",
-    fitbitLogId: 12345,
-    fitbitFoodId: null,
+    healthLogId: null,
     confidence: "high",
     isFavorite: false,
     keywords: ["empanada", "carne"],
   };
 
   it("yields analysis event when Claude calls report_nutrition", async () => {
+    const updatedRawInput = { ...rawToolInput, calories: 280, amount: 130 };
     const updatedAnalysis = { ...validAnalysis, calories: 280, amount: 130 };
     mockStream.mockReturnValueOnce(createMockStream(
       [
@@ -2320,7 +2325,7 @@ describe("editAnalysis", () => {
         stop_reason: "end_turn",
         content: [
           { type: "text", text: "I've updated the calorie count to 280" },
-          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: updatedAnalysis },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: updatedRawInput },
         ],
         usage: { input_tokens: 1800, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       }
@@ -3196,7 +3201,7 @@ describe("analyzeFood overload retry", () => {
     const APIError = await getMockAPIErrorCtor();
     mockStream
       .mockImplementationOnce(() => { throw new APIError(529, "Overloaded"); })
-      .mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+      .mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     const eventsPromise = collectEvents(
@@ -3855,7 +3860,7 @@ describe("analyzeFood profile integration", () => {
 
   it("includes user profile in system prompt when available", async () => {
     mockBuildUserProfile.mockResolvedValue("User profile: Targets 2200 cal/day.");
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], undefined, "user-123", "2026-03-09"));
@@ -3866,7 +3871,7 @@ describe("analyzeFood profile integration", () => {
 
   it("uses base prompt without profile for new user", async () => {
     mockBuildUserProfile.mockResolvedValue(null);
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood, ANALYSIS_SYSTEM_PROMPT } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], undefined, "user-123", "2026-03-09"));
@@ -3919,12 +3924,12 @@ describe("editAnalysis profile integration", () => {
     mockStream.mockReturnValueOnce(makeTextStream("Updated!"));
 
     const entry: FoodLogEntryDetail = {
-      id: 1, customFoodId: 1, foodName: "Empanada", amount: 150, unitId: 147,
-      description: null, fitbitFoodId: null, isFavorite: false, keywords: [],
+      id: 1, customFoodId: 1, foodName: "Empanada", amount: 150, unitId: "g",
+      description: null, healthLogId: null, isFavorite: false, keywords: [],
       calories: 320, proteinG: 12, carbsG: 28, fatG: 18, fiberG: 2, sodiumMg: 450,
       saturatedFatG: null, transFatG: null, sugarsG: null, caloriesFromFat: null,
       confidence: "high", notes: null, date: "2026-03-09", time: "12:00",
-      mealTypeId: 3, fitbitLogId: null,
+      mealTypeId: 3,
     };
 
     const { editAnalysis } = await import("@/lib/claude");
@@ -4065,5 +4070,146 @@ describe("validateFoodAnalysis — keywords coercion", () => {
     const { validateFoodAnalysis } = await import("@/lib/claude");
     const result = validateFoodAnalysis({ ...validAnalysis, keywords: ["cerveza", "sin-alcohol"] });
     expect(result.keywords).toEqual(["cerveza", "sin-alcohol"]);
+  });
+});
+
+// =============================================================================
+// REPORT_NUTRITION_TOOL — serving_unit schema migration (Task 21)
+// =============================================================================
+
+describe("REPORT_NUTRITION_TOOL — serving_unit schema (Task 21)", () => {
+  afterEach(() => { vi.resetModules(); });
+
+  it("schema has serving_unit string property, not unit_id", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+    const props = REPORT_NUTRITION_TOOL.input_schema.properties as Record<string, Record<string, unknown>>;
+    expect(props).toHaveProperty("serving_unit");
+    expect(props).not.toHaveProperty("unit_id");
+  });
+
+  it("serving_unit has type 'string' with enum of 8 members", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+    const props = REPORT_NUTRITION_TOOL.input_schema.properties as Record<string, Record<string, unknown>>;
+    expect(props.serving_unit.type).toBe("string");
+    const enumValues = props.serving_unit.enum as string[];
+    expect(enumValues).toEqual(expect.arrayContaining(["g", "oz", "cup", "tbsp", "tsp", "ml", "slice", "serving"]));
+    expect(enumValues).toHaveLength(8);
+  });
+
+  it("required includes serving_unit, not unit_id", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+    expect(REPORT_NUTRITION_TOOL.input_schema.required).toContain("serving_unit");
+    expect(REPORT_NUTRITION_TOOL.input_schema.required).not.toContain("unit_id");
+  });
+
+  it("input_examples use serving_unit strings, not numeric unit_ids", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+    const examples = REPORT_NUTRITION_TOOL.input_examples as Array<Record<string, unknown>>;
+    expect(examples).toBeDefined();
+    expect(examples.length).toBeGreaterThan(0);
+    for (const ex of examples) {
+      expect(ex).toHaveProperty("serving_unit");
+      expect(typeof ex.serving_unit).toBe("string");
+      expect(ex).not.toHaveProperty("unit_id");
+    }
+  });
+});
+
+// =============================================================================
+// REPORT_SESSION_ITEMS_TOOL — serving_unit schema migration (Task 21)
+// =============================================================================
+
+describe("REPORT_SESSION_ITEMS_TOOL — serving_unit schema (Task 21)", () => {
+  afterEach(() => { vi.resetModules(); });
+
+  it("items sub-schema has serving_unit property, not unit_id", async () => {
+    const { REPORT_SESSION_ITEMS_TOOL } = await import("@/lib/claude");
+    const itemsArraySchema = (REPORT_SESSION_ITEMS_TOOL.input_schema.properties as Record<string, Record<string, unknown>>)
+      .items as Record<string, unknown>;
+    const itemProps = (itemsArraySchema.items as Record<string, unknown>).properties as Record<string, unknown>;
+    expect(itemProps).toHaveProperty("serving_unit");
+    expect(itemProps).not.toHaveProperty("unit_id");
+  });
+
+  it("items required includes serving_unit, not unit_id", async () => {
+    const { REPORT_SESSION_ITEMS_TOOL } = await import("@/lib/claude");
+    const itemsArraySchema = (REPORT_SESSION_ITEMS_TOOL.input_schema.properties as Record<string, Record<string, unknown>>)
+      .items as Record<string, unknown>;
+    const itemRequired = (itemsArraySchema.items as Record<string, unknown>).required as string[];
+    expect(itemRequired).toContain("serving_unit");
+    expect(itemRequired).not.toContain("unit_id");
+  });
+});
+
+// =============================================================================
+// validateFoodAnalysis — serving_unit coercion (Task 21)
+// =============================================================================
+
+describe("validateFoodAnalysis — serving_unit coercion (Task 21)", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("serving_unit 'cup' → result.unit_id === 'cup'", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, serving_unit: "cup" });
+    expect(result.unit_id).toBe("cup");
+  });
+
+  it("missing serving_unit coerces to 'serving' (no throw)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    // validAnalysis has no serving_unit — omitting it should coerce to 'serving'
+    const result = validateFoodAnalysis({ ...validAnalysis });
+    expect(result.unit_id).toBe("serving");
+  });
+
+  it("invalid serving_unit 'bogus' coerces to 'serving' (no throw)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, serving_unit: "bogus" });
+    expect(result.unit_id).toBe("serving");
+  });
+
+  it("numeric serving_unit (legacy 147) coerces to 'g' (no throw)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, serving_unit: 147 });
+    expect(result.unit_id).toBe("g");
+  });
+
+  it("accepts all 8 valid ServingUnit string members", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const units = ["g", "oz", "cup", "tbsp", "tsp", "ml", "slice", "serving"];
+    for (const unit of units) {
+      const result = validateFoodAnalysis({ ...validAnalysis, serving_unit: unit });
+      expect(result.unit_id).toBe(unit);
+    }
+  });
+});
+
+// =============================================================================
+// validateSessionItems — serving_unit passthrough (Task 21)
+// =============================================================================
+
+describe("validateSessionItems — serving_unit passthrough (Task 21)", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("item with serving_unit 'oz' → unit_id === 'oz'", async () => {
+    const { validateSessionItems } = await import("@/lib/claude");
+    const items = [{ ...validAnalysis, serving_unit: "oz" }];
+    const results = validateSessionItems(items);
+    expect(results).toHaveLength(1);
+    expect(results[0].unit_id).toBe("oz");
+  });
+
+  it("filters out null items, keeps valid ones with serving_unit", async () => {
+    const { validateSessionItems } = await import("@/lib/claude");
+    const items = [
+      { ...validAnalysis, serving_unit: "g" },
+      null,
+      { ...validAnalysis, serving_unit: "slice" },
+    ];
+    const results = validateSessionItems(items);
+    expect(results).toHaveLength(2);
+    expect(results[0].unit_id).toBe("g");
+    expect(results[1].unit_id).toBe("slice");
   });
 });
