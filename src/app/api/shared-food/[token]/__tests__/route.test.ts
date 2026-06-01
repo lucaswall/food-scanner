@@ -17,6 +17,12 @@ vi.mock("@/lib/food-log", () => ({
   getCustomFoodByShareToken: (...args: unknown[]) => mockGetCustomFoodByShareToken(...args),
 }));
 
+// Task 26: rate-limit mock for shared-food GET
+const mockCheckRateLimit = vi.fn().mockReturnValue({ allowed: true, remaining: 49 });
+vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+}));
+
 const mockLogger = {
   info: vi.fn(),
   warn: vi.fn(),
@@ -182,5 +188,49 @@ describe("GET /api/shared-food/[token]", () => {
       const logObj = JSON.stringify(call);
       expect(logObj).not.toContain("secret-token-val");
     }
+  });
+});
+
+// =============================================================================
+// Task 26: shared-food rate-limit enforcement
+// =============================================================================
+
+describe("Task 26: shared-food rate-limit", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetSession.mockResolvedValue(mockSession);
+    mockValidateSession.mockReturnValue(null);
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 49 });
+  });
+
+  it("returns 429 RATE_LIMIT_EXCEEDED when rate limit is exceeded", async () => {
+    mockCheckRateLimit.mockReturnValue({ allowed: false, remaining: 0 });
+
+    const response = await GET(makeRequest("valid-token"), makeParams("valid-token"));
+
+    expect(response.status).toBe(429);
+    const body = await response.json();
+    expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
+  });
+
+  it("returns 200 on first request (within rate limit)", async () => {
+    mockGetCustomFoodByShareToken.mockResolvedValue(mockFood);
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 49 });
+
+    const response = await GET(makeRequest("valid-token-12"), makeParams("valid-token-12"));
+
+    expect(response.status).toBe(200);
+  });
+
+  it("calls checkRateLimit with userId-scoped key", async () => {
+    mockGetCustomFoodByShareToken.mockResolvedValue(mockFood);
+
+    await GET(makeRequest("valid-token-12"), makeParams("valid-token-12"));
+
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      expect.stringContaining("user-uuid-123"),
+      expect.any(Number),
+      expect.any(Number),
+    );
   });
 });

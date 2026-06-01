@@ -8,6 +8,8 @@ const mockStream = vi.fn();
 vi.mock("@anthropic-ai/sdk", () => {
   class MockAnthropic {
     messages = { stream: mockStream };
+    // Task 25: beta.messages.stream is the path used after A3 migration
+    beta = { messages: { stream: mockStream } };
   }
   return { default: MockAnthropic };
 });

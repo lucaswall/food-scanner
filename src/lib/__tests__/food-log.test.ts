@@ -2956,3 +2956,77 @@ describe("insertCustomFoodWithLogEntry", () => {
     expect(mockTransaction).toHaveBeenCalled();
   });
 });
+
+// =============================================================================
+// Task 26: toCustomFoodInsertValues helper
+// =============================================================================
+
+describe("Task 26: toCustomFoodInsertValues", () => {
+  it("is exported from food-log module", async () => {
+    const foodLogModule = await import("@/lib/food-log");
+    expect(typeof (foodLogModule as Record<string, unknown>).toCustomFoodInsertValues).toBe("function");
+  });
+
+  it("stringifies numeric fields (amount, macros)", async () => {
+    const { toCustomFoodInsertValues } = await import("@/lib/food-log") as { toCustomFoodInsertValues: (data: Record<string, unknown>) => Record<string, unknown> };
+    const input = {
+      foodName: "Test", amount: 150, unitId: "g", calories: 320.7,
+      proteinG: 12.5, carbsG: 28.3, fatG: 18.1, fiberG: 2.4, sodiumMg: 450.9,
+      confidence: "high", notes: null,
+    };
+    const result = toCustomFoodInsertValues(input);
+    expect(result.amount).toBe("150");
+    expect(result.proteinG).toBe("12.5");
+    expect(result.carbsG).toBe("28.3");
+    expect(result.fatG).toBe("18.1");
+    expect(result.fiberG).toBe("2.4");
+    expect(result.sodiumMg).toBe("450.9");
+  });
+
+  it("Math.rounds calories to integer", async () => {
+    const { toCustomFoodInsertValues } = await import("@/lib/food-log") as { toCustomFoodInsertValues: (data: Record<string, unknown>) => Record<string, unknown> };
+    const input = { foodName: "Test", amount: 100, unitId: "g", calories: 320.7, proteinG: 10, carbsG: 20, fatG: 5, fiberG: 1, sodiumMg: 300, confidence: "high", notes: null };
+    const result = toCustomFoodInsertValues(input);
+    expect(result.calories).toBe(321);
+  });
+
+  it("nulls absent tier-1 nutrients (saturatedFatG, transFatG, sugarsG, caloriesFromFat)", async () => {
+    const { toCustomFoodInsertValues } = await import("@/lib/food-log") as { toCustomFoodInsertValues: (data: Record<string, unknown>) => Record<string, unknown> };
+    const input = { foodName: "Test", amount: 100, unitId: "g", calories: 300, proteinG: 10, carbsG: 20, fatG: 5, fiberG: 1, sodiumMg: 300, confidence: "high", notes: null };
+    const result = toCustomFoodInsertValues(input);
+    expect(result.saturatedFatG).toBeNull();
+    expect(result.transFatG).toBeNull();
+    expect(result.sugarsG).toBeNull();
+    expect(result.caloriesFromFat).toBeNull();
+  });
+
+  it("stringifies present tier-1 nutrients", async () => {
+    const { toCustomFoodInsertValues } = await import("@/lib/food-log") as { toCustomFoodInsertValues: (data: Record<string, unknown>) => Record<string, unknown> };
+    const input = { foodName: "Test", amount: 100, unitId: "g", calories: 300, proteinG: 10, carbsG: 20, fatG: 5, fiberG: 1, sodiumMg: 300, saturatedFatG: 2.5, transFatG: 0.1, sugarsG: 5.0, caloriesFromFat: 45, confidence: "high", notes: null };
+    const result = toCustomFoodInsertValues(input);
+    expect(result.saturatedFatG).toBe("2.5");
+    expect(result.transFatG).toBe("0.1");
+    expect(result.sugarsG).toBe("5");
+    expect(result.caloriesFromFat).toBe("45");
+  });
+});
+
+// =============================================================================
+// Task 26: revokeShareToken
+// =============================================================================
+
+describe("Task 26: revokeShareToken", () => {
+  it("is exported from food-log module", async () => {
+    const foodLogModule = await import("@/lib/food-log");
+    expect(typeof (foodLogModule as Record<string, unknown>).revokeShareToken).toBe("function");
+  });
+
+  it("calls update to set shareToken null, scoped by id and userId", async () => {
+    const { revokeShareToken } = await import("@/lib/food-log") as { revokeShareToken: (id: number, userId: string) => Promise<void> };
+    mockUpdateSet.mockReturnValue({ where: mockUpdateWhere });
+    mockUpdateWhere.mockResolvedValue([]);
+    await revokeShareToken(42, "user-uuid-123");
+    expect(mockUpdateSet).toHaveBeenCalledWith(expect.objectContaining({ shareToken: null }));
+    expect(mockUpdateWhere).toHaveBeenCalled();
+  });
+});

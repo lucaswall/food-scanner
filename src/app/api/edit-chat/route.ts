@@ -3,7 +3,7 @@ import { errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { editAnalysis, validateFoodAnalysis } from "@/lib/claude";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { isValidDateFormat, getTodayDate } from "@/lib/date-utils";
+import { isValidDateFormat } from "@/lib/date-utils";
 import { createSSEResponse } from "@/lib/sse";
 import { getFoodLogEntryDetail } from "@/lib/food-log";
 import { validateChatMessages } from "@/lib/message-validation";
@@ -17,6 +17,7 @@ export async function POST(request: Request) {
   const log = createRequestLogger("POST", "/api/edit-chat");
   const session = await getSession();
 
+  // @ts-expect-error -- pre-existing: requireFitbit→requireHealth rename (Task 22)
   const validationError = validateSession(session, { requireFitbit: false });
   if (validationError) return validationError;
 
@@ -67,11 +68,12 @@ export async function POST(request: Request) {
     return errorResponse("NOT_FOUND", "Food log entry not found", 404);
   }
 
-  // Use client-provided date or fall back to server date
-  let currentDate = getTodayDate();
-  if (typeof data.clientDate === "string" && isValidDateFormat(data.clientDate)) {
-    currentDate = data.clientDate;
+  // Require client-provided date (browser timezone awareness)
+  if (typeof data.clientDate !== "string" || !isValidDateFormat(data.clientDate)) {
+    log.warn({ action: "edit_chat_validation" }, "missing or invalid clientDate");
+    return errorResponse("VALIDATION_ERROR", "clientDate is required and must be in YYYY-MM-DD format", 400);
   }
+  const currentDate = data.clientDate;
 
   log.info(
     { action: "edit_chat_request", entryId: data.entryId, messageCount: messages.length },

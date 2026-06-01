@@ -2,6 +2,10 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getCustomFoodByShareToken } from "@/lib/food-log";
+import { checkRateLimit } from "@/lib/rate-limit";
+
+const RATE_LIMIT_MAX = 50;
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 export async function GET(
   _request: Request,
@@ -12,6 +16,11 @@ export async function GET(
 
   const validationError = validateSession(session);
   if (validationError) return validationError;
+
+  const { allowed } = checkRateLimit(`shared-food:${session!.userId}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
+  if (!allowed) {
+    return errorResponse("RATE_LIMIT_EXCEEDED", "Too many requests. Please try again later.", 429);
+  }
 
   const { token } = await params;
 

@@ -130,14 +130,14 @@ function createMockFile(
 function createMockRequest(
   files: MockFile[],
   description?: string,
-  clientDate?: string,
+  clientDate: string | null = "2026-02-15", // default to valid date; pass null to test missing
   clientTime?: string,
 ): Request {
   const formData = {
     getAll: (key: string) => (key === "images" ? files : []),
     get: (key: string) => {
       if (key === "description") return description ?? null;
-      if (key === "clientDate") return clientDate ?? null;
+      if (key === "clientDate") return clientDate;
       if (key === "clientTime") return clientTime ?? null;
       return null;
     },
@@ -649,7 +649,7 @@ describe("POST /api/analyze-food", () => {
 
     const formData = {
       getAll: (key: string) => (key === "images" ? [goodFile, failingFile, anotherGoodFile] : []),
-      get: (key: string) => (key === "description" ? null : null),
+      get: (key: string) => (key === "clientDate" ? "2026-02-15" : key === "description" ? null : null),
     };
 
     const request = {
@@ -775,7 +775,7 @@ describe("POST /api/analyze-food", () => {
 
     const formData = {
       getAll: (key: string) => (key === "images" ? [createMockFile("test.jpg", "image/jpeg", 1000)] : []),
-      get: () => null,
+      get: (key: string) => (key === "clientDate" ? "2026-02-15" : null),
     };
     const request = {
       formData: () => Promise.resolve(formData),
@@ -794,5 +794,58 @@ describe("POST /api/analyze-food", () => {
       abortController.signal,
       undefined,
     );
+  });
+});
+
+// =============================================================================
+// Task 26: clientDate enforcement — 400 on missing/invalid clientDate
+// =============================================================================
+
+describe("Task 26: clientDate enforcement (analyze-food)", () => {
+  it("returns 400 VALIDATION_ERROR when clientDate is missing", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "Test food",
+      null, // explicitly no clientDate
+    );
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 VALIDATION_ERROR when clientDate is invalid format", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "Test food",
+      "not-a-date", // invalid clientDate (string but invalid format)
+    );
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("passes valid clientDate through (non-400)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "Test food",
+      "2026-02-15",
+    );
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
   });
 });

@@ -65,6 +65,33 @@ export interface UpdateFoodLogInput {
   healthLogId?: string | null;
 }
 
+/**
+ * Build the shared Drizzle insert-values object for a custom food row.
+ * Stringifies numeric fields, Math.rounds calories, and nulls absent tier-1 nutrients.
+ * Callers may spread additional fields (e.g. isFavorite, shareToken) on top.
+ */
+export function toCustomFoodInsertValues(data: CustomFoodInput) {
+  return {
+    foodName: data.foodName,
+    amount: String(data.amount),
+    unitId: data.unitId,
+    calories: Math.round(data.calories),
+    proteinG: String(data.proteinG),
+    carbsG: String(data.carbsG),
+    fatG: String(data.fatG),
+    fiberG: String(data.fiberG),
+    sodiumMg: String(data.sodiumMg),
+    saturatedFatG: data.saturatedFatG != null ? String(data.saturatedFatG) : null,
+    transFatG: data.transFatG != null ? String(data.transFatG) : null,
+    sugarsG: data.sugarsG != null ? String(data.sugarsG) : null,
+    caloriesFromFat: data.caloriesFromFat != null ? String(data.caloriesFromFat) : null,
+    confidence: data.confidence,
+    notes: data.notes,
+    description: data.description ?? null,
+    keywords: data.keywords ?? null,
+  };
+}
+
 export async function insertCustomFood(
   userId: string,
   data: CustomFoodInput,
@@ -74,26 +101,7 @@ export async function insertCustomFood(
   const db = getDb();
   const rows = await db
     .insert(customFoods)
-    .values({
-      userId,
-      foodName: data.foodName,
-      amount: String(data.amount),
-      unitId: data.unitId,
-      calories: Math.round(data.calories),
-      proteinG: String(data.proteinG),
-      carbsG: String(data.carbsG),
-      fatG: String(data.fatG),
-      fiberG: String(data.fiberG),
-      sodiumMg: String(data.sodiumMg),
-      saturatedFatG: data.saturatedFatG != null ? String(data.saturatedFatG) : null,
-      transFatG: data.transFatG != null ? String(data.transFatG) : null,
-      sugarsG: data.sugarsG != null ? String(data.sugarsG) : null,
-      caloriesFromFat: data.caloriesFromFat != null ? String(data.caloriesFromFat) : null,
-      confidence: data.confidence,
-      notes: data.notes,
-      description: data.description ?? null,
-      keywords: data.keywords ?? null,
-    })
+    .values({ userId, ...toCustomFoodInsertValues(data) })
     .returning({ id: customFoods.id, createdAt: customFoods.createdAt });
 
   const row = rows[0];
@@ -614,26 +622,7 @@ export async function insertCustomFoodWithLogEntry(
   return db.transaction(async (tx) => {
     const foodRows = await tx
       .insert(customFoods)
-      .values({
-        userId,
-        foodName: customFoodData.foodName,
-        amount: String(customFoodData.amount),
-        unitId: customFoodData.unitId,
-        calories: Math.round(customFoodData.calories),
-        proteinG: String(customFoodData.proteinG),
-        carbsG: String(customFoodData.carbsG),
-        fatG: String(customFoodData.fatG),
-        fiberG: String(customFoodData.fiberG),
-        sodiumMg: String(customFoodData.sodiumMg),
-        saturatedFatG: customFoodData.saturatedFatG != null ? String(customFoodData.saturatedFatG) : null,
-        transFatG: customFoodData.transFatG != null ? String(customFoodData.transFatG) : null,
-        sugarsG: customFoodData.sugarsG != null ? String(customFoodData.sugarsG) : null,
-        caloriesFromFat: customFoodData.caloriesFromFat != null ? String(customFoodData.caloriesFromFat) : null,
-        confidence: customFoodData.confidence,
-        notes: customFoodData.notes,
-        description: customFoodData.description ?? null,
-        keywords: customFoodData.keywords ?? null,
-      })
+      .values({ userId, ...toCustomFoodInsertValues(customFoodData) })
       .returning({ id: customFoods.id, createdAt: customFoods.createdAt });
 
     const foodRow = foodRows[0];
@@ -757,23 +746,8 @@ export async function updateFoodLogEntry(
       .insert(customFoods)
       .values({
         userId,
-        foodName: data.foodName,
-        amount: String(data.amount),
-        unitId: data.unitId,
-        calories: Math.round(data.calories),
-        proteinG: String(data.proteinG),
-        carbsG: String(data.carbsG),
-        fatG: String(data.fatG),
-        fiberG: String(data.fiberG),
-        sodiumMg: String(data.sodiumMg),
-        saturatedFatG: data.saturatedFatG != null ? String(data.saturatedFatG) : null,
-        transFatG: data.transFatG != null ? String(data.transFatG) : null,
-        sugarsG: data.sugarsG != null ? String(data.sugarsG) : null,
-        caloriesFromFat: data.caloriesFromFat != null ? String(data.caloriesFromFat) : null,
-        confidence: data.confidence,
-        notes: data.notes,
-        description: data.description ?? null,
-        keywords: data.keywords ?? null,
+        ...toCustomFoodInsertValues(data),
+        // Preserve metadata from old record (extras spread on top of base values)
         isFavorite: oldFood?.isFavorite ?? false,
         shareToken: oldFood?.shareToken ?? null,
       })
@@ -1171,6 +1145,18 @@ export async function getCustomFoodByShareToken(shareToken: string) {
     .where(eq(customFoods.shareToken, shareToken));
 
   return rows[0] ?? null;
+}
+
+/**
+ * Revoke the share token for a custom food owned by the given user.
+ * Sets shareToken to null, scoped by id + userId to prevent cross-user revocation.
+ */
+export async function revokeShareToken(id: number, userId: string): Promise<void> {
+  const db = getDb();
+  await db
+    .update(customFoods)
+    .set({ shareToken: null })
+    .where(and(eq(customFoods.id, id), eq(customFoods.userId, userId)));
 }
 
 export async function getDateRangeNutritionSummary(

@@ -4,7 +4,7 @@ import { createRequestLogger } from "@/lib/logger";
 import { analyzeFood } from "@/lib/claude";
 import { isFileLike, MAX_IMAGES, MAX_IMAGE_SIZE, ALLOWED_TYPES } from "@/lib/image-validation";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { isValidDateFormat, getTodayDate } from "@/lib/date-utils";
+import { isValidDateFormat } from "@/lib/date-utils";
 import { createSSEResponse } from "@/lib/sse";
 
 const RATE_LIMIT_MAX = 30;
@@ -14,6 +14,7 @@ export async function POST(request: Request) {
   const log = createRequestLogger("POST", "/api/analyze-food");
   const session = await getSession();
 
+  // @ts-expect-error -- pre-existing: requireFitbit→requireHealth rename (Task 22)
   const validationError = validateSession(session, { requireFitbit: true });
   if (validationError) return validationError;
 
@@ -47,16 +48,6 @@ export async function POST(request: Request) {
     log.warn({ action: "analyze_food_validation" }, "description exceeds max length");
     return errorResponse("VALIDATION_ERROR", "Description must be 2000 characters or less", 400);
   }
-
-  const clientDateRaw = formData.get("clientDate");
-  const currentDate = typeof clientDateRaw === "string" && isValidDateFormat(clientDateRaw)
-    ? clientDateRaw
-    : getTodayDate();
-
-  const clientTimeRaw = formData.get("clientTime");
-  const currentTime = typeof clientTimeRaw === "string" && /^\d{2}:\d{2}$/.test(clientTimeRaw)
-    ? clientTimeRaw
-    : undefined;
 
   // Validate: at least one image or a description is required
   if (images.length === 0 && (!description || description.trim().length === 0)) {
@@ -106,6 +97,19 @@ export async function POST(request: Request) {
       );
     }
   }
+
+  // Require client-provided date (browser timezone awareness) — checked after content validation
+  const clientDateRaw = formData.get("clientDate");
+  if (typeof clientDateRaw !== "string" || !isValidDateFormat(clientDateRaw)) {
+    log.warn({ action: "analyze_food_validation" }, "missing or invalid clientDate");
+    return errorResponse("VALIDATION_ERROR", "clientDate is required and must be in YYYY-MM-DD format", 400);
+  }
+  const currentDate = clientDateRaw;
+
+  const clientTimeRaw = formData.get("clientTime");
+  const currentTime = typeof clientTimeRaw === "string" && /^\d{2}:\d{2}$/.test(clientTimeRaw)
+    ? clientTimeRaw
+    : undefined;
 
   log.info(
     {

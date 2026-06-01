@@ -358,6 +358,7 @@ describe("POST /api/chat-food", () => {
 
     const request = createMockRequest({
       messages: [{ role: "user", content: "x".repeat(2000) }],
+      clientDate: "2026-02-15",
     });
 
     const response = await POST(request);
@@ -445,6 +446,7 @@ describe("POST /api/chat-food", () => {
         ...validAnalysis,
         confidence: "very high",
       },
+      clientDate: "2026-02-15",
     });
 
     const response = await POST(request);
@@ -464,6 +466,7 @@ describe("POST /api/chat-food", () => {
 
     const request = createMockRequest({
       messages: [{ role: "user", content: "I had pizza" }],
+      clientDate: "2026-02-15",
     });
 
     const response = await POST(request);
@@ -480,6 +483,7 @@ describe("POST /api/chat-food", () => {
 
     const request = createMockRequest({
       messages: [{ role: "user", content: "I had pizza" }],
+      clientDate: "2026-02-15",
     });
 
     const response = await POST(request);
@@ -500,6 +504,7 @@ describe("POST /api/chat-food", () => {
         { role: "assistant", content: "Logged" },
         { role: "user", content: "Thanks!" },
       ],
+      clientDate: "2026-02-15",
     });
 
     const response = await POST(request);
@@ -526,6 +531,7 @@ describe("POST /api/chat-food", () => {
         { role: "assistant", content: "Logged" },
         { role: "user", content: "Actually it was 200g" },
       ],
+      clientDate: "2026-02-15",
     });
 
     const response = await POST(request);
@@ -544,6 +550,7 @@ describe("POST /api/chat-food", () => {
 
     const request = createMockRequest({
       messages: [{ role: "user", content: "Test" }],
+      clientDate: "2026-02-15",
     });
 
     const response = await POST(request);
@@ -565,6 +572,7 @@ describe("POST /api/chat-food", () => {
       messages: [
         { role: "user", content: "What's this?", images: ["base64imagedata1", "base64imagedata2"] },
       ],
+      clientDate: "2026-02-15",
     });
 
     const response = await POST(request);
@@ -592,6 +600,7 @@ describe("POST /api/chat-food", () => {
     const request = createMockRequest({
       messages: [{ role: "user", content: "Actually it was 200g" }],
       initialAnalysis: validAnalysis,
+      clientDate: "2026-02-15",
     });
 
     const response = await POST(request);
@@ -600,8 +609,8 @@ describe("POST /api/chat-food", () => {
     expect(mockConversationalRefine).toHaveBeenCalledWith(
       [{ role: "user", content: "Actually it was 200g" }],
       "user-uuid-123",
-      expect.any(String), // currentDate
-      validAnalysis,
+      "2026-02-15", // currentDate
+      expect.objectContaining({ food_name: validAnalysis.food_name, calories: validAnalysis.calories }),
       undefined, // request.signal (mock request has no signal)
       expect.any(Object), // logger
       undefined, // currentTime
@@ -668,6 +677,7 @@ describe("POST /api/chat-food", () => {
 
     const request = createMockRequest({
       messages: [{ role: "user", content: "Test" }],
+      clientDate: "2026-02-15",
       clientTime: "bad-time",
     });
 
@@ -684,11 +694,8 @@ describe("POST /api/chat-food", () => {
     );
   });
 
-  it("ignores invalid clientDate and falls back to server date", async () => {
+  it("returns 400 VALIDATION_ERROR for invalid clientDate format (A26)", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockConversationalRefine.mockImplementation(async function* () {
-      yield { type: "done" } as StreamEvent;
-    });
 
     const request = createMockRequest({
       messages: [{ role: "user", content: "Test" }],
@@ -696,12 +703,9 @@ describe("POST /api/chat-food", () => {
     });
 
     const response = await POST(request);
-    expect(response.status).toBe(200);
-
-    // Should fall back to a valid YYYY-MM-DD date, not use "bad-date"
-    const calledDate = mockConversationalRefine.mock.calls[0][2];
-    expect(calledDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(calledDate).not.toBe("bad-date");
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
   it("uses rate limit key chat-food:userId", async () => {
@@ -712,6 +716,7 @@ describe("POST /api/chat-food", () => {
 
     const request = createMockRequest({
       messages: [{ role: "user", content: "Test" }],
+      clientDate: "2026-02-15",
     });
 
     await POST(request);
@@ -734,6 +739,7 @@ describe("POST /api/chat-food", () => {
       messages: [
         { role: "user", content: "How many calories did I eat today?" },
       ],
+      clientDate: "2026-02-15",
     });
 
     const response = await POST(request);
