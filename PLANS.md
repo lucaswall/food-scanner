@@ -804,6 +804,8 @@ Resume at **Phase 1, Task 4** (FOO-1074 — single-owner `src/types/index.ts` re
 - `src/lib/auth.ts` (modify — import @/lib/http; widen exchangeGoogleCode)
 - `src/lib/__tests__/auth.test.ts` (modify — 3 new exchangeGoogleCode tests)
 
+<!-- REVIEW COMPLETE --> <!-- reviewed in the consolidated migration review under Iteration 6 -->
+
 ---
 
 ## Iteration 2: Phase 1 — data model + single-owner type rename + session contract
@@ -856,6 +858,8 @@ Resume at **Phase 2, Task 11** (FOO-1081 — `buildGoogleHealthAuthUrl`/`getGoog
 - `src/lib/users.ts` (modify — weightGoalType helpers), `src/lib/__tests__/users.test.ts` (modify)
 - `src/lib/session.ts` (modify), `src/lib/__tests__/session.test.ts` (modify)
 - `MIGRATIONS.md` (modify — Tasks 4–10 migration notes)
+
+<!-- REVIEW COMPLETE --> <!-- reviewed in the consolidated migration review under Iteration 6 -->
 
 ---
 
@@ -910,6 +914,8 @@ Resume at **Phase 3, Task 16** (FOO-1086 — `createNutritionLog`/`deleteNutriti
 
 ### Continuation Status
 Phase boundary reached (workers-mode checkpoint). Phase 2 complete and merged; resume at Phase 3, Task 16.
+
+<!-- REVIEW COMPLETE --> <!-- reviewed in the consolidated migration review under Iteration 6 -->
 
 ---
 
@@ -994,6 +1000,8 @@ Resume at **Phase 4, Task 22** (FOO-1092 — `use-log-to-fitbit`→`use-log-food
 ### Continuation Status
 Phase boundary reached (workers-mode checkpoint). Phase 3 complete and merged; resume at Phase 4, Task 22.
 
+<!-- REVIEW COMPLETE --> <!-- reviewed in the consolidated migration review under Iteration 6 -->
+
 ---
 
 ## Iteration 5: Phase 4 — UI cutover + Anthropic Core (A2/A3) + non-migration fixes + integration suite + E2E/docs
@@ -1077,6 +1085,8 @@ Resume at **Phase 5, Task 29** (FOO-1099 — lead-only `npx drizzle-kit generate
 ### Continuation Status
 Phase boundary reached (workers-mode checkpoint, context heavily consumed). Phase 4 complete, merged, and verified (typecheck/unit/lint/build/bug-hunter all green); E2E + live integration deferred to the infra-backed review/release gate. Resume at Phase 5, Task 29 — run inside `push-to-production`.
 
+<!-- REVIEW COMPLETE --> <!-- reviewed in the consolidated migration review under Iteration 6 -->
+
 ---
 
 ## Iteration 6: Phase 5 Task 29 (drizzle-kit generate) + full deferred-gate verification — IMPLEMENTATION COMPLETE
@@ -1117,3 +1127,101 @@ None for implementation. **Task 30 (FOO-1100)** — the production Drizzle migra
 
 ### Continuation Status
 Implementation COMPLETE. All gates green. Hand off to `push-to-production` for the release (Task 30) — the MIGRATIONS.md RELEASE RUNBOOK is the single source of truth and survives this plan's archival.
+
+### Review Findings (consolidated — all 6 iterations / Tasks 1–29)
+
+Reviewed the full `feat/google-health-migration` diff vs `main` (93 source files, 260 total) with an 8-reviewer parallel workflow partitioned by subsystem (auth/OAuth, transport, DB/schema/migration, write-routes, read-routes, claude/anthropic, UI×2), each applying security + reliability + quality lenses, plus a lead cross-check of routes outside the diff.
+
+Summary: **13 issues to FIX** (3 HIGH, 5 MEDIUM, grouped into 9 Linear issues incl. one LOW cleanup bundle) — Fix Plan created; **several findings DISCARDED** as non-bugs.
+
+**FIX — Linear issues created in Todo (full Fix Plan below):**
+- [HIGH] BUG: `POST /api/saved-analyses` still validates `unit_id` as a number → "Save for later" 400s post-migration (route was outside the diff; lead-found) — [FOO-1101]
+- [HIGH] BUG: edit-food regular-path DB-failure compensation deletes the new health log but never re-creates the original → food silently vanishes from Google Health (`edit-food/route.ts:425`) — [FOO-1102]
+- [HIGH] ERROR: incomplete HEALTH_*→HTTP error mapping (food-history DELETE missing 504/429/403; log-food missing 403; edit-food inner catches flatten to 500; health-profile missing 429; v1/activity-summary missing TOKEN_SAVE_FAILED) — [FOO-1103]
+- [MEDIUM] BUG: Claude system prompt instructs tapping a nonexistent "Log to Fitbit" button (`claude-prompts.ts:15`) — [FOO-1104]
+- [MEDIUM] BUG: log-food idempotency cache-hit returns wrong `reusedFood` flag + Map never evicts (`log-food/route.ts:27,156`) — [FOO-1105]
+- [MEDIUM] BUG: food-detail share lacks null-guard on `result.data.shareUrl` + food-detail/health-profile-card fetches lack `AbortSignal.timeout` — [FOO-1106]
+- [MEDIUM] IMPROVEMENT: log-shared page omits HealthConnectGuard / actionable not-connected UX — [FOO-1107]
+- [MEDIUM] BUG: rate-limit breaker allows `important` calls during 429 cooldown, contradicting CLAUDE.md's criticality contract (`google-health-rate-limit.ts:117`) — [FOO-1108]
+- [LOW] CONVENTION (bundle): docs/branding (layout metadata, PWA manifest, weight JSDoc, MIGRATIONS runbook accuracy) + a11y (chat SkipLink, quick-select ARIA) + conversationalRefine log `action` + open-redirect guard test + stale Fitbit comments/test-fixtures/dead-code sweep — [FOO-1109]
+
+**DISCARDED — not bugs (with reasoning):**
+- [SECURITY] token-encryption derives the health-token AES key from SESSION_SECRET (shared key material) — not a bug; AES-256-GCM encryption is correct and the secret is server-side. Key separation is a defense-in-depth hardening idea, not a vulnerability; out of scope for this migration. (Can be a backlog improvement.)
+- [TYPE] `auth/session/route.ts` uses `session!` after a side-effecting early-return — runtime-safe, style-only.
+- [EDGE-CASE] google-health 429 no-Retry-After sleep doesn't pre-check the deadline budget — adds ≤1s latency to an already-failing call; negligible, not a correctness bug.
+- [TEST] coverage-only gaps on already-correct code (5xx-retry timing path; health-connect returnTo branch) — correct code, low value; not filing. (The genuinely-missing security test for the open-redirect guard IS filed under FOO-1109.)
+- The MIGRATIONS.md "saved_analyses JSONB unit_id MUST be remapped or portion labels break" claim was reviewed as HIGH but **downgraded**: the render path coerces legacy numeric IDs via `coerceServingUnit`, so old saved analyses render correctly without the remap. The remaining work is a documentation-accuracy correction (folded into FOO-1109), not a functional release breaker.
+
+### Linear Updates
+- FOO-1071 … FOO-1099 (Tasks 1–29): Review → Merge (all original tasks completed)
+- FOO-1100 (Task 30): remains Todo — it is the production release deploy, performed by `push-to-production`
+- FOO-1101 … FOO-1109: created in Todo (Fix Plan — Bug/Improvement/Convention)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Consolidated review findings for the Google Health migration (Iterations 1–6, Tasks 1–29)
+**Linear Issues:** [FOO-1101](https://linear.app/lw-claude/issue/FOO-1101), [FOO-1102](https://linear.app/lw-claude/issue/FOO-1102), [FOO-1103](https://linear.app/lw-claude/issue/FOO-1103), [FOO-1104](https://linear.app/lw-claude/issue/FOO-1104), [FOO-1105](https://linear.app/lw-claude/issue/FOO-1105), [FOO-1106](https://linear.app/lw-claude/issue/FOO-1106), [FOO-1107](https://linear.app/lw-claude/issue/FOO-1107), [FOO-1108](https://linear.app/lw-claude/issue/FOO-1108), [FOO-1109](https://linear.app/lw-claude/issue/FOO-1109)
+
+> NOTE: These fixes must land BEFORE `push-to-production`. FOO-1101 (Save-for-later broken) and FOO-1102 (edit-food data loss) are functional regressions invisible to the existing gates (tsc green, suites pass on stale fixtures).
+
+### Fix 1: Save-for-later POST route rejects ServingUnit string unit_id (HIGH)
+**Linear Issue:** [FOO-1101](https://linear.app/lw-claude/issue/FOO-1101)
+
+1. Write a failing test in `src/app/api/saved-analyses/__tests__/route.test.ts`: POST with `unit_id: 'g'` (string) → 201; a truly-invalid unit → 400.
+2. In `src/app/api/saved-analyses/route.ts` replace the inline `typeof foodAnalysis.unit_id !== "number"` validation (line 49) with `validateFoodAnalysis` from `@/lib/food-validation` (same as the bulk route), or coerce via `coerceServingUnit`.
+3. Update the route-test fixture from numeric to ServingUnit string.
+
+### Fix 2: edit-food regular-path compensation re-creates the original log (HIGH)
+**Linear Issue:** [FOO-1102](https://linear.app/lw-claude/issue/FOO-1102)
+
+1. Write a failing test in `edit-food/__tests__/route.test.ts`: regular path, create succeeds, DB update throws → assert the original health log is re-created and DB metadata updated with the compensation id.
+2. In `src/app/api/edit-food/route.ts` regular-path DB-error catch (lines 421-441), after deleting `newHealthLogId`, re-create from `buildAnalysisFromEntry(entry)` and persist via `updateFoodLogEntryMetadata` (mirror the fast-path at 272-299).
+
+### Fix 3: Complete HEALTH_*→HTTP error mapping across routes (HIGH)
+**Linear Issue:** [FOO-1103](https://linear.app/lw-claude/issue/FOO-1103)
+
+1. Write failing tests for the uncovered statuses: food-history DELETE → 504 (TIMEOUT), 429 (RATE_LIMIT), 403 (SCOPE_MISSING); log-food → 403 (SCOPE_MISSING); health-profile → 429 (RATE_LIMIT); edit-food create/delete failures → 401/403/429/504 per code.
+2. Centralize the mapping in a shared helper covering TOKEN_INVALID→401, SCOPE_MISSING→403, RATE_LIMIT→429, RATE_LIMIT_LOW→503, TIMEOUT→504, REFRESH_TRANSIENT→502, TOKEN_SAVE_FAILED→500, API_ERROR→502; route every catch through it (preserve compensation behavior).
+
+### Fix 4: Claude prompt button label "Log to Fitbit" → "Log to Google Health" (MEDIUM)
+**Linear Issue:** [FOO-1104](https://linear.app/lw-claude/issue/FOO-1104)
+
+1. Update the `claude.test.ts:2934/2961` assertions (currently lock in `/Log to Fitbit/`) to expect the new label; add a positive assertion to the edit-prompt test (2686).
+2. Change `REPORT_NUTRITION_UI_CARD_NOTE` in `src/lib/claude-prompts.ts:15` to "Log to Google Health".
+
+### Fix 5: log-food idempotency reusedFood flag + cache eviction (MEDIUM)
+**Linear Issue:** [FOO-1105](https://linear.app/lw-claude/issue/FOO-1105)
+
+1. Write a failing test: two identical reuse-flow POSTs with the same clientToken both return `reusedFood: true` + same foodLogId.
+2. Store `reusedFood` in the cache entry and return it on a hit; add a cheap sweep of expired entries.
+
+### Fix 6: Share/refresh client robustness (MEDIUM)
+**Linear Issue:** [FOO-1106](https://linear.app/lw-claude/issue/FOO-1106)
+
+1. Write failing tests: malformed `/api/share` 200 → friendly error (no unhandled rejection); fetches use a timeout.
+2. `food-detail.tsx` handleShare: optional-chain `result?.data?.shareUrl` + error when missing; add `AbortSignal.timeout()`; add `AbortSignal.timeout()` to `health-profile-card.tsx` refresh fetch.
+
+### Fix 7: log-shared not-connected UX (MEDIUM)
+**Linear Issue:** [FOO-1107](https://linear.app/lw-claude/issue/FOO-1107)
+
+1. Write a failing test for the not-connected state on the log-shared page.
+2. Wrap the logging UI in `HealthConnectGuard` (still allow viewing the shared food) or surface an actionable `/app/connect-health` reconnect link on HEALTH_NOT_CONNECTED.
+
+### Fix 8: rate-limit `important` cooldown behavior aligned to CLAUDE.md (MEDIUM)
+**Linear Issue:** [FOO-1108](https://linear.app/lw-claude/issue/FOO-1108)
+
+1. Write/update tests in `google-health-rate-limit.test.ts`: during an active cooldown, `important` throws HEALTH_RATE_LIMIT_LOW (matching CLAUDE.md); `critical` still proceeds.
+2. Update `assertRateLimitAllowed` (lines 117-120) to block `important` during cooldown; verify the `important` callers (health-profile, daily-goals first compute) degrade gracefully on the 503/blocked path. (If allow-during-cooldown is intended instead, update CLAUDE.md + the breaker doc and justify — but do not leave code and contract divergent.)
+
+### Fix 9: Migration cleanup — docs/branding, a11y, logging, security test, stale-Fitbit sweep (LOW)
+**Linear Issue:** [FOO-1109](https://linear.app/lw-claude/issue/FOO-1109)
+
+1. User-visible/doc: `layout.tsx:45` metadata + `public/manifest.json:4` → "Google Health"; correct `google-health.ts:662` weight JSDoc (no conversion); correct `MIGRATIONS.md` saved_analyses JSONB note (optional, render coerces).
+2. A11y: fix `chat/page.tsx:16` SkipLink target; resolve `quick-select.tsx:255` aria-controls/aria-pressed conflict.
+3. Logging: add structured `action` to `claude.ts:1576` conversationalRefine error log.
+4. Security test: add the returnTo open-redirect guard test in the google callback test.
+5. Stale-Fitbit sweep: comments (daily-goals, user-profile, claude-tools-schema, types mealTypeId JSDoc, use-keyboard-shortcuts, food-analyzer, goals-setup-banner, swr); test fixtures/names (food-log stale fitbitFoodId + isFavorite coverage, find-matches, daily-goals var names, about-section name); dead test code (chat-food `if(false)`, edit-chat mock error code); log-food clientToken double-cast.
