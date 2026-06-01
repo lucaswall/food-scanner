@@ -14,8 +14,7 @@ export async function POST(request: Request) {
   const log = createRequestLogger("POST", "/api/analyze-food");
   const session = await getSession();
 
-  // @ts-expect-error -- pre-existing: requireFitbit→requireHealth rename (Task 22)
-  const validationError = validateSession(session, { requireFitbit: true });
+  const validationError = validateSession(session, { requireHealth: true });
   if (validationError) return validationError;
 
   const { allowed } = checkRateLimit(`analyze-food:${session!.userId}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);

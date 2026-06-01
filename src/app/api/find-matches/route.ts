@@ -2,6 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { findMatchingFoods } from "@/lib/food-matching";
+import { coerceServingUnit } from "@/types";
 
 export async function POST(request: Request) {
   const log = createRequestLogger("POST", "/api/find-matches");
@@ -37,7 +38,7 @@ export async function POST(request: Request) {
   if (
     typeof b.food_name !== "string" ||
     typeof b.amount !== "number" ||
-    typeof b.unit_id !== "number" ||
+    !(typeof b.unit_id === "string" && coerceServingUnit(b.unit_id) === b.unit_id) ||
     typeof b.calories !== "number" ||
     typeof b.protein_g !== "number" ||
     typeof b.carbs_g !== "number" ||

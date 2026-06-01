@@ -48,11 +48,11 @@ const mockEntry: FoodLogHistoryEntry = {
   sugarsG: 1,
   caloriesFromFat: 27,
   amount: 1,
-  unitId: 304,
+  unitId: "serving",
   mealTypeId: 1,
   date: "2026-02-10",
   time: "08:00:00",
-  fitbitLogId: null,
+  healthLogId: null,
   isFavorite: false,
 };
 

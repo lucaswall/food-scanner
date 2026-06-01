@@ -9,7 +9,7 @@ vi.mock("@/lib/session", () => ({
   getSession: () => mockGetSession(),
   validateSession: (
     session: FullSession | null,
-    options?: { requireFitbit?: boolean },
+    options?: { requireHealth?: boolean },
   ): Response | null => {
     if (!session) {
       return Response.json(
@@ -17,7 +17,7 @@ vi.mock("@/lib/session", () => ({
         { status: 401 },
       );
     }
-    if (options?.requireFitbit && !session.fitbitConnected) {
+    if (options?.requireHealth && !session.healthConnected) {
       return Response.json(
         { success: false, error: { code: "FITBIT_NOT_CONNECTED", message: "Fitbit account not connected" }, timestamp: Date.now() },
         { status: 400 },
@@ -65,8 +65,7 @@ const validSession: FullSession = {
   sessionId: "test-session",
   userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
-  fitbitConnected: true,
-  hasFitbitCredentials: true,
+  healthConnected: true,
   destroy: vi.fn(),
 };
 
@@ -87,12 +86,11 @@ const existingEntry: FoodLogEntryDetail = {
   sugarsG: null,
   caloriesFromFat: null,
   amount: 150,
-  unitId: 147,
+  unitId: "g",
   mealTypeId: 5,
   date: "2026-02-15",
   time: "20:00:00",
-  fitbitLogId: 12345,
-  fitbitFoodId: null,
+  healthLogId: "12345",
   confidence: "high",
   isFavorite: false,
   keywords: ["empanada", "carne"],

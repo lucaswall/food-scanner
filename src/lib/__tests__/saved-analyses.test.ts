@@ -66,7 +66,7 @@ const {
 const mockFoodAnalysis = {
   food_name: "Grilled Chicken",
   amount: 150,
-  unit_id: 147,
+  unit_id: "g" as const,
   calories: 250,
   protein_g: 30,
   carbs_g: 5,

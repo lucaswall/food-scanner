@@ -993,3 +993,86 @@ Resume at **Phase 4, Task 22** (FOO-1092 — `use-log-to-fitbit`→`use-log-food
 
 ### Continuation Status
 Phase boundary reached (workers-mode checkpoint). Phase 3 complete and merged; resume at Phase 4, Task 22.
+
+---
+
+## Iteration 5: Phase 4 — UI cutover + Anthropic Core (A2/A3) + non-migration fixes + integration suite + E2E/docs
+
+**Date:** 2026-06-01
+**Status:** PARTIAL — 2 tasks remaining (Phase 5, Tasks 29–30: lead-only `drizzle-kit generate` + release deploy)
+**Method:** Agent team (3 workers, worktree-isolated)
+
+### Summary
+Completed all of **Phase 4 (Tasks 22–28)** — the entire consumer/UI cutover, the Anthropic Core modernization, the non-migration review fixes, the real-Postgres integration suite, and the E2E/docs sweep. Three work units ran in parallel: **worker-1** (UI domain: 22→23→28), **worker-2** (Anthropic Core + `claude.ts` decomposition: 24→25→26), **worker-3** (real-Postgres integration suite: 27). **The global `npm run typecheck` is now GREEN again** (0 errors) — the migration's single-owner-type cascade is fully resolved, as the plan predicted (~Task 23). Full unit suite (**3419 tests, 192 files**) passes, lint is clean (zero warnings), and the production build compiles successfully. bug-hunter found **5 real Fitbit-leftover bugs** (1 HIGH, 3 MEDIUM, 1 LOW) in components that no worker task explicitly listed — all fixed with regression-test updates.
+
+### Tasks Completed This Iteration
+- **Task 22 (FOO-1092):** Renamed `use-log-to-fitbit`→`use-log-food`, retyped `FoodLogResponse.healthLogId` (string) across the 5 hook consumers + unit-renderer components + `chat-tools.ts`; swept numeric `unit_id` fixtures → ServingUnit strings. (worker-1)
+- **Task 23 (FOO-1093):** Replaced all Fitbit setup/guard/banner/card/settings UI with the one-click Connect-Google-Health flow — created `/app/connect-health` (page+loading), `HealthConnectGuard`, `HealthStatusBanner`, `HealthProfileCard`; stripped credential UI from settings; swapped 5 guard-consumer pages; added SkipLink/`#main-content` to capture/process-captures/saved; `/api/health`→`healthMode`; contrast tokens; **deleted `setup-fitbit`, the 4 `fitbit-*` components + tests, AND the orphaned `/api/auth/fitbit/*` + `/api/fitbit-credentials` routes**. (worker-1)
+- **Task 24 (FOO-1094):** A2 — `buildDateContextBlock` moves volatile date/time out of the cached system block (byte-stable system prefix); `cache_control` breakpoint over the image+description prefix. (worker-2)
+- **Task 25 (FOO-1095):** A3 — `createStreamWithRetry`→`getClient().beta.messages.stream`; shared `CONTEXT_MANAGEMENT` (`clear_tool_uses_20250919`, `exclude_tools:['web_search']`, `betas:['context-management-2025-06-27']`) at the single chokepoint; deleted `truncateConversation`/`estimateTokenCount` + all 3 call sites + tests. (worker-2)
+- **Task 26 (FOO-1096):** Decomposed `claude.ts` into `claude-prompts.ts` + `claude-tools-schema.ts` (barrel re-export, no import-site churn); role-prompt decoupling; `toCustomFoodInsertValues` helper; client-date 400 enforcement on the 4 browser routes; shared-food rate-limit + `revokeShareToken`; searchFoods SQL pushdown. (worker-2; module split completed on a lead follow-up)
+- **Task 27 (FOO-1097):** Real-Postgres integration suite (`food-log`/`user-data`/`daily-goals` `.integration.test.ts`, env-guarded + excluded from the fast loop), `deleteUserData` (FK-safe transaction, ON DELETE NO ACTION), two-body (Lucas+Mariana) goal-engine test. (worker-3; written write-only — see Verification) 
+- **Task 28 (FOO-1098):** E2E fixtures/global-setup → seed `health_tokens` + `HEALTH_DRY_RUN`; 10 specs migrated to the Connect-Google-Health flow + `healthLogId`/serving_unit; CSP form-action de-Fitbit; README/DEVELOPMENT/CLAUDE.md/.env.sample rewritten to Google Health. (worker-1)
+
+### Lead Cross-Cutting Cleanup (post-merge — the `requireFitbit→requireHealth` caller migration Task 10 flagged "for the lead")
+The single-owner type rename left ~120 typecheck errors across consumers no worker task owned; the lead resolved them as one coherent change:
+- **`requireFitbit`→`requireHealth`:** `analyze-food` + `nutrition-goals` → `{ requireHealth: true }` (they gated on connection before); `chat-food`/`edit-chat`/`process-captures`/`chat-captures` dropped the option (were `false`). Removed worker-2's 4 `@ts-expect-error` suppressions.
+- **`nutrition-goals` + `v1/nutrition-goals`:** full FITBIT_*→HEALTH_* error-code mapping (`mapFitbitError`→`mapHealthError`); dropped the obsolete `FITBIT_CREDENTIALS_MISSING`/424 arm; scope_mismatch→403 uses HEALTH_SCOPE_MISSING.
+- **`auth/session/route.ts`:** response now returns `healthConnected` (dropped `fitbitConnected`/`hasFitbitCredentials`) — matches what `HealthConnectGuard` reads.
+- **`find-matches/route.ts`:** stale `typeof unit_id !== "number"` body validation → `coerceServingUnit`-based ServingUnit-string check (a genuinely missed migration surfaced by the fixture sweep).
+- **Test fixtures (deterministic transform, scoped to the 25 erroring files only — never the negative-test files):** numeric `unit_id`/`unitId`→ServingUnit strings, `fitbitLogId`→`healthLogId` (string), removed `fitbitFoodId`/`hasFitbitCredentials`, collapsed inline `validateSession` mocks to the single `requireHealth`/`healthConnected`/`HEALTH_NOT_CONNECTED` branch; un-annotated fixtures got `as const` on the unit field; 23 stale FITBIT_* test expectations updated to HEALTH_*.
+
+### bug-hunter Findings (all fixed with regression-test updates)
+- **[HIGH]** `daily-dashboard.tsx` delete-error UI checked `FITBIT_TOKEN_INVALID`/`FITBIT_NOT_CONNECTED` and linked to the deleted `/api/auth/fitbit` → reconnect link never rendered. Fixed to `HEALTH_TOKEN_INVALID`→`/app/connect-health` and `HEALTH_NOT_CONNECTED`→`/settings`.
+- **[MEDIUM]** `targets-card.tsx` + `goals-setup-banner.tsx` blocked-goal messages said "Fitbit" → Google Health (+ test assertions).
+- **[MEDIUM]** `food-log-confirmation.tsx` success subtitles said "Fitbit library"/"Fitbit API skipped" → Google Health (+ tests).
+- **[MEDIUM]** Internal `nutrition-goals` route had an unreachable `HEALTH_SCOPE_MISSING` catch arm (the lead had added it; `getOrComputeDailyGoals` resolves scope to blocked/200) → removed the arm + its impossible test (restores original no-scope-arm behavior; v1 keeps its explicit scope_mismatch→403).
+- **[LOW]** `use-keyboard-shortcuts` prop `onLogToFitbit`→`onLogFood` (+ `food-analyzer.tsx` + test).
+
+bug-hunter explicitly verified-clean: the `requireHealth` gate correctness, the FITBIT→HEALTH error mapping + dropped 424 arm, `auth/session` `healthConnected` ↔ `HealthConnectGuard`, `find-matches` unit validation, `deleteUserData` userId-scoping + FK order, the A3 beta context-management config, `revokeShareToken` scoping, and the `toCustomFoodInsertValues` refactor.
+
+### Interpretations / decisions (documented per Autonomous-Execution rules)
+- **`requireFitbit→requireHealth` caller migration is lead-owned cross-cutting work.** No Phase-4 task listed `auth/session`, `nutrition-goals`, `chat-captures`, `find-matches`, or the ~8 route-test inline `validateSession` mocks; Task 10's note explicitly reserved "every `validateSession({requireFitbit})` caller" for the lead. Resolved as a single post-merge change.
+- **Task 27 integration suite written write-only (like E2E).** Workers run in restricted-Bash worktrees and cannot orchestrate Docker/Postgres; worker-3 wrote env-guarded `*.integration.test.ts` + `deleteUserData` and verified the default `vitest` loop excludes them. The live integration gate (Docker PG + `drizzle-kit push` + `INTEGRATION_DATABASE_URL`) is a lead/release step — Docker (OrbStack) was not running this session, so it is queued for the review/release gate alongside E2E.
+- **Phase 5 (Tasks 29–30) deferred to the release flow (`push-to-production`).** Task 29 `drizzle-kit generate` prompts interactively on the `fitbit_tokens`→`health_tokens` table/column renames (interactive tooling is unsupported in this autonomous context), and the `integer`→`text` `unit_id` change needs a hand-reviewed `USING` cast + legacy-ID backfill that drizzle won't auto-emit; Task 30 applies production Railway-env + DB changes. Both are squarely the deploy phase (the plan itself frames Task 30 as executed "via the push-to-production release flow"). Checkpointing at the Phase 4/5 boundary per phase-gated execution.
+
+### Tasks Remaining
+Resume at **Phase 5, Task 29** (FOO-1099 — lead-only `npx drizzle-kit generate` of the consolidated schema delta: token-table rename, credentials drop, food_log/custom_foods column changes, `unit_id` integer→text + USING-cast backfill, `users.weightGoalType`, indexes, daily_calorie_goals CHECK, partial unique index), then **Task 30** (FOO-1100 — release Railway-env + `DELETE FROM health_tokens` token-clear). Both are best run inside `push-to-production` (DB backup + reviewed-SQL machinery + ability to answer drizzle's interactive rename prompts). Also queued for the review/release gate: the live `npm run e2e` run and the `INTEGRATION_DATABASE_URL` integration-suite run (both need Docker, unavailable this session).
+
+### Verification
+- `npm run typecheck` — **GREEN, 0 errors** (global typecheck restored after the full consumer cascade landed).
+- `npm test` — **3419 tests pass, 192 files** (integration suite correctly excluded from the fast loop).
+- `npm run lint` — **zero warnings** (fixed 4 unused-var warnings surfaced once worktrees were pruned).
+- `npm run build` — **compiles successfully**, 57 static pages generated, zero warnings; `/app/connect-health` present, no `setup-fitbit`.
+- bug-hunter (Sonnet): 5 real bugs found, all fixed with regression tests.
+- **E2E + live integration suite: deferred** — Docker (OrbStack) not running this session; both run at the next infra-backed gate (`plan-review-implementation` before PR / `push-to-production` Phase 1.6). Specs/fixtures are committed.
+
+### Files Changed
+- Worker-1 (115 files): `use-log-food` hook + 5 consumers, ~12 unit-renderer components, `chat-tools.ts`; `connect-health/` page+loading+test, `HealthConnectGuard`/`HealthStatusBanner`/`HealthProfileCard` (+ tests); deleted `setup-fitbit/`, 4 `fitbit-*` components + tests, `/api/auth/fitbit/*` + `/api/fitbit-credentials` (+ tests); `settings-content.tsx`, 5 guard pages, capture/process-captures/saved, `/api/health`; e2e fixtures + 10 specs; `next.config.ts` CSP; README/DEVELOPMENT/CLAUDE.md/.env.sample.
+- Worker-2 (15 files): `claude.ts` (A2 date block + cache_control, A3 beta context-management, barrel), `claude-prompts.ts` (create), `claude-tools-schema.ts` (create), `food-log.ts` (`toCustomFoodInsertValues` + `revokeShareToken`), `date-utils.ts`, `analyze-food`/`chat-food`/`edit-chat`/`process-captures` (client-date 400), `shared-food/[token]` (rate-limit) + tests.
+- Worker-3 (8 files): `user-data.ts` (create — `deleteUserData`), 3 `*.integration.test.ts` (create), `vitest.config.ts` + `vitest.integration.config.ts`, `package.json` (`test:integration`), `MIGRATIONS.md`.
+- Lead cross-cutting + bug fixes: `nutrition-goals/route.ts`, `v1/nutrition-goals/route.ts`, `auth/session/route.ts`, `chat-captures/route.ts`, `analyze-food`/`chat-food`/`edit-chat`/`process-captures/route.ts` (requireHealth), `find-matches/route.ts`; `daily-dashboard.tsx`, `targets-card.tsx`, `goals-setup-banner.tsx`, `food-log-confirmation.tsx`, `use-keyboard-shortcuts.ts`, `food-analyzer.tsx`; ~27 test files (fixture/expectation cleanup).
+
+### Linear Updates
+- FOO-1092 → Todo → In Progress → Review
+- FOO-1093 → Todo → In Progress → Review
+- FOO-1094 → Todo → In Progress → Review
+- FOO-1095 → Todo → In Progress → Review
+- FOO-1096 → Todo → In Progress → Review
+- FOO-1097 → Todo → In Progress → Review
+- FOO-1098 → Todo → In Progress → Review
+- (FOO-1099, FOO-1100 remain Todo — Phase 5, deferred to push-to-production)
+
+### Work Partition
+- Worker 1: Tasks 22, 23, 28 (UI/hooks/components + E2E specs + docs — sequential, 28 depends on 22+23)
+- Worker 2: Tasks 24, 25, 26 (Anthropic Core A2/A3 + `claude.ts` decomposition — sequential, all edit `claude.ts`)
+- Worker 3: Task 27 (real-Postgres integration suite — independent)
+
+### Merge Summary
+- Worker 2 (foundation/services): fast-forward, no conflicts
+- Worker 3 (integration tests/lib): ort merge, no conflicts
+- Worker 1 (UI/routes/e2e/docs): ort merge, no conflicts
+- Lead post-merge: cross-cutting `requireFitbit→requireHealth` migration (~120 typecheck errors + 23 test expectations) + 5 bug-hunter fixes + module-split follow-up
+
+### Continuation Status
+Phase boundary reached (workers-mode checkpoint, context heavily consumed). Phase 4 complete, merged, and verified (typecheck/unit/lint/build/bug-hunter all green); E2E + live integration deferred to the infra-backed review/release gate. Resume at Phase 5, Task 29 — run inside `push-to-production`.

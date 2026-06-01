@@ -49,7 +49,7 @@ describe("formatSSEEvent", () => {
       analysis: {
         food_name: "Apple",
         amount: 1,
-        unit_id: 304,
+        unit_id: "serving",
         calories: 95,
         protein_g: 0.5,
         carbs_g: 25,

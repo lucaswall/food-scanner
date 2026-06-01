@@ -64,9 +64,9 @@ describe("GET /api/v1/nutrition-summary", () => {
               sugarsG: 1,
               caloriesFromFat: 27,
               amount: 1,
-              unitId: 304,
+              unitId: "serving",
               isFavorite: false,
-              fitbitLogId: null, zoneOffset: null,
+              healthLogId: null, zoneOffset: null,
             },
           ],
           subtotal: {

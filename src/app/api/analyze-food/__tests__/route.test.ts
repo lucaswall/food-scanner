@@ -11,7 +11,7 @@ vi.mock("@/lib/session", () => ({
   getSession: () => mockGetSession(),
   validateSession: (
     session: FullSession | null,
-    options?: { requireFitbit?: boolean },
+    options?: { requireHealth?: boolean },
   ): Response | null => {
     if (!session) {
       return Response.json(
@@ -19,15 +19,9 @@ vi.mock("@/lib/session", () => ({
         { status: 401 },
       );
     }
-    if (options?.requireFitbit && !session.fitbitConnected) {
+    if (options?.requireHealth && !session.healthConnected) {
       return Response.json(
-        { success: false, error: { code: "FITBIT_NOT_CONNECTED", message: "Fitbit account not connected" }, timestamp: Date.now() },
-        { status: 400 },
-      );
-    }
-    if (options?.requireFitbit && !session.hasFitbitCredentials) {
-      return Response.json(
-        { success: false, error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Fitbit credentials not configured" }, timestamp: Date.now() },
+        { success: false, error: { code: "HEALTH_NOT_CONNECTED", message: "Google Health not connected" }, timestamp: Date.now() },
         { status: 400 },
       );
     }
@@ -74,15 +68,14 @@ const validSession: FullSession = {
   sessionId: "test-session",
   userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
-  fitbitConnected: true,
-  hasFitbitCredentials: true,
+  healthConnected: true,
   destroy: vi.fn(),
 };
 
 const validAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
   amount: 150,
-  unit_id: 147,
+  unit_id: "g",
   calories: 320,
   protein_g: 12,
   carbs_g: 28,
@@ -190,10 +183,10 @@ describe("POST /api/analyze-food", () => {
     expect(body.error.code).toBe("AUTH_MISSING_SESSION");
   });
 
-  it("returns 400 FITBIT_NOT_CONNECTED when fitbit is not connected", async () => {
+  it("returns 400 HEALTH_NOT_CONNECTED when Google Health is not connected", async () => {
     mockGetSession.mockResolvedValue({
       ...validSession,
-      fitbitConnected: false,
+      healthConnected: false,
     });
 
     const request = createMockRequest([
@@ -203,7 +196,7 @@ describe("POST /api/analyze-food", () => {
     const response = await POST(request);
     expect(response.status).toBe(400);
     const body = await response.json();
-    expect(body.error.code).toBe("FITBIT_NOT_CONNECTED");
+    expect(body.error.code).toBe("HEALTH_NOT_CONNECTED");
   });
 
   it("returns 400 VALIDATION_ERROR for malformed request body", async () => {

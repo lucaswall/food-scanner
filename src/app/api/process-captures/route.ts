@@ -22,8 +22,7 @@ export async function POST(request: Request) {
   const log = createRequestLogger("POST", "/api/process-captures");
   const session = await getSession();
 
-  // @ts-expect-error -- pre-existing: requireFitbit→requireHealth rename (Task 22)
-  const validationError = validateSession(session, { requireFitbit: false });
+  const validationError = validateSession(session);
   if (validationError) return validationError;
 
   const { allowed } = checkRateLimit(`process-captures:${session!.userId}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);

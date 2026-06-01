@@ -4,7 +4,7 @@ import { createRequestLogger } from "@/lib/logger";
 import { getSession, validateSession, getRawSession } from "@/lib/session";
 
 async function initiate(request: Request): Promise<Response> {
-  const log = createRequestLogger("POST", "/api/auth/google-health");
+  const log = createRequestLogger(request.method, "/api/auth/google-health");
 
   const session = await getSession();
   const sessionError = validateSession(session);

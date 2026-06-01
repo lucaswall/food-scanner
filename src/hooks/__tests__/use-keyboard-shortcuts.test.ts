@@ -5,13 +5,13 @@ import { useKeyboardShortcuts } from "../use-keyboard-shortcuts";
 describe("useKeyboardShortcuts", () => {
   let handlers: {
     onAnalyze?: () => void;
-    onLogToFitbit?: () => void;
+    onLogFood?: () => void;
   };
 
   beforeEach(() => {
     handlers = {
       onAnalyze: vi.fn(),
-      onLogToFitbit: vi.fn(),
+      onLogFood: vi.fn(),
     };
   });
 
@@ -78,7 +78,7 @@ describe("useKeyboardShortcuts", () => {
   });
 
   describe("Ctrl+Shift+Enter (log to Fitbit)", () => {
-    it("triggers onLogToFitbit when Ctrl+Shift+Enter pressed and canLog is true", () => {
+    it("triggers onLogFood when Ctrl+Shift+Enter pressed and canLog is true", () => {
       renderHook(() =>
         useKeyboardShortcuts({
           ...handlers,
@@ -89,10 +89,10 @@ describe("useKeyboardShortcuts", () => {
 
       dispatchKeyboardEvent("Enter", { ctrlKey: true, shiftKey: true });
 
-      expect(handlers.onLogToFitbit).toHaveBeenCalledTimes(1);
+      expect(handlers.onLogFood).toHaveBeenCalledTimes(1);
     });
 
-    it("does not trigger onLogToFitbit when canLog is false", () => {
+    it("does not trigger onLogFood when canLog is false", () => {
       renderHook(() =>
         useKeyboardShortcuts({
           ...handlers,
@@ -103,7 +103,7 @@ describe("useKeyboardShortcuts", () => {
 
       dispatchKeyboardEvent("Enter", { ctrlKey: true, shiftKey: true });
 
-      expect(handlers.onLogToFitbit).not.toHaveBeenCalled();
+      expect(handlers.onLogFood).not.toHaveBeenCalled();
     });
 
     it("works with Cmd+Shift+Enter on Mac (metaKey)", () => {
@@ -117,7 +117,7 @@ describe("useKeyboardShortcuts", () => {
 
       dispatchKeyboardEvent("Enter", { metaKey: true, shiftKey: true });
 
-      expect(handlers.onLogToFitbit).toHaveBeenCalledTimes(1);
+      expect(handlers.onLogFood).toHaveBeenCalledTimes(1);
     });
   });
 

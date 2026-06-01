@@ -53,7 +53,6 @@ describe.skipIf(!INTEGRATION_DATABASE_URL)(
     let foodAId = 0;
     let entryAId = 0;
     let foodBId = 0;
-    let entryBId = 0;
 
     /**
      * Delete all test data in FK-safe order (food_log_entries → custom_foods → users).
@@ -141,7 +140,7 @@ describe.skipIf(!INTEGRATION_DATABASE_URL)(
       foodBId = foodB.id;
 
       // Log entry for user B
-      const entryB = await insertFoodLogEntry(userBId, {
+      await insertFoodLogEntry(userBId, {
         customFoodId: foodBId,
         mealTypeId: 3,
         amount: 182,
@@ -149,7 +148,6 @@ describe.skipIf(!INTEGRATION_DATABASE_URL)(
         date: "2030-01-01",
         time: "12:00:00",
       });
-      entryBId = entryB.id;
     });
 
     afterAll(async () => {

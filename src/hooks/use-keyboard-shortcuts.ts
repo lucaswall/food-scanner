@@ -2,7 +2,7 @@ import { useEffect, useCallback } from "react";
 
 interface UseKeyboardShortcutsOptions {
   onAnalyze?: () => void;
-  onLogToFitbit?: () => void;
+  onLogFood?: () => void;
   canAnalyze: boolean;
   canLog: boolean;
 }
@@ -16,7 +16,7 @@ interface UseKeyboardShortcutsOptions {
  */
 export function useKeyboardShortcuts({
   onAnalyze,
-  onLogToFitbit,
+  onLogFood,
   canAnalyze,
   canLog,
 }: UseKeyboardShortcutsOptions): void {
@@ -26,9 +26,9 @@ export function useKeyboardShortcuts({
 
       // Ctrl/Cmd + Shift + Enter: Log to Fitbit
       if (isCtrlOrCmd && event.shiftKey && event.key === "Enter") {
-        if (canLog && onLogToFitbit) {
+        if (canLog && onLogFood) {
           event.preventDefault();
-          onLogToFitbit();
+          onLogFood();
         }
         return;
       }
@@ -42,7 +42,7 @@ export function useKeyboardShortcuts({
         return;
       }
     },
-    [canAnalyze, canLog, onAnalyze, onLogToFitbit]
+    [canAnalyze, canLog, onAnalyze, onLogFood]
   );
 
   useEffect(() => {

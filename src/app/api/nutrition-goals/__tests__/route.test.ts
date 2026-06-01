@@ -8,7 +8,7 @@ vi.mock("@/lib/session", () => ({
   getSession: () => mockGetSession(),
   validateSession: (
     session: FullSession | null,
-    options?: { requireFitbit?: boolean },
+    options?: { requireHealth?: boolean },
   ): Response | null => {
     if (!session) {
       return Response.json(
@@ -16,15 +16,9 @@ vi.mock("@/lib/session", () => ({
         { status: 401 },
       );
     }
-    if (options?.requireFitbit && !session.fitbitConnected) {
+    if (options?.requireHealth && !session.healthConnected) {
       return Response.json(
-        { success: false, error: { code: "FITBIT_NOT_CONNECTED", message: "Fitbit account not connected" }, timestamp: Date.now() },
-        { status: 400 },
-      );
-    }
-    if (options?.requireFitbit && !session.hasFitbitCredentials) {
-      return Response.json(
-        { success: false, error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Fitbit credentials not configured" }, timestamp: Date.now() },
+        { success: false, error: { code: "HEALTH_NOT_CONNECTED", message: "Google Health not connected" }, timestamp: Date.now() },
         { status: 400 },
       );
     }
@@ -85,8 +79,7 @@ const validSession: FullSession = {
   sessionId: "test-session",
   userId: "user-123",
   expiresAt: Date.now() + 86400000,
-  fitbitConnected: true,
-  hasFitbitCredentials: true,
+  healthConnected: true,
   destroy: vi.fn(),
 };
 
@@ -128,24 +121,14 @@ describe("GET /api/nutrition-goals", () => {
     expect(data.error.code).toBe("AUTH_MISSING_SESSION");
   });
 
-  it("returns 400 when Fitbit is not connected", async () => {
-    mockGetSession.mockResolvedValue({ ...validSession, fitbitConnected: false });
+  it("returns 400 when Google Health is not connected", async () => {
+    mockGetSession.mockResolvedValue({ ...validSession, healthConnected: false });
 
     const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.error.code).toBe("FITBIT_NOT_CONNECTED");
-  });
-
-  it("returns 400 when Fitbit credentials are missing (session flag)", async () => {
-    mockGetSession.mockResolvedValue({ ...validSession, hasFitbitCredentials: false });
-
-    const response = await GET(createRequest());
-    const data = await response.json();
-
-    expect(response.status).toBe(400);
-    expect(data.error.code).toBe("FITBIT_CREDENTIALS_MISSING");
+    expect(data.error.code).toBe("HEALTH_NOT_CONNECTED");
   });
 
   // ─── Status: ok ──────────────────────────────────────────────────────────
@@ -257,81 +240,70 @@ describe("GET /api/nutrition-goals", () => {
     expect(body.data.calories).toBeNull();
   });
 
-  // ─── Fitbit errors (thrown) ───────────────────────────────────────────────
-  it("returns 424 when getOrComputeDailyGoals throws FITBIT_CREDENTIALS_MISSING", async () => {
+  // ─── Google Health errors (thrown) ────────────────────────────────────────
+  it("returns 401 when getOrComputeDailyGoals throws HEALTH_TOKEN_INVALID", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_CREDENTIALS_MISSING"));
-
-    const response = await GET(createRequest());
-    const data = await response.json();
-
-    expect(response.status).toBe(424);
-    expect(data.error.code).toBe("FITBIT_CREDENTIALS_MISSING");
-  });
-
-  it("returns 401 when getOrComputeDailyGoals throws FITBIT_TOKEN_INVALID", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_TOKEN_INVALID"));
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("HEALTH_TOKEN_INVALID"));
 
     const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(401);
-    expect(data.error.code).toBe("FITBIT_TOKEN_INVALID");
+    expect(data.error.code).toBe("HEALTH_TOKEN_INVALID");
   });
 
-  it("returns 429 when getOrComputeDailyGoals throws FITBIT_RATE_LIMIT", async () => {
+  it("returns 429 when getOrComputeDailyGoals throws HEALTH_RATE_LIMIT", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_RATE_LIMIT"));
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("HEALTH_RATE_LIMIT"));
 
     const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(429);
-    expect(data.error.code).toBe("FITBIT_RATE_LIMIT");
+    expect(data.error.code).toBe("HEALTH_RATE_LIMIT");
   });
 
-  it("returns 503 when getOrComputeDailyGoals throws FITBIT_RATE_LIMIT_LOW (FOO-1014)", async () => {
+  it("returns 503 when getOrComputeDailyGoals throws HEALTH_RATE_LIMIT_LOW (FOO-1014)", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_RATE_LIMIT_LOW"));
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("HEALTH_RATE_LIMIT_LOW"));
 
     const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(503);
-    expect(data.error.code).toBe("FITBIT_RATE_LIMIT_LOW");
+    expect(data.error.code).toBe("HEALTH_RATE_LIMIT_LOW");
   });
 
-  it("returns 504 when getOrComputeDailyGoals throws FITBIT_TIMEOUT", async () => {
+  it("returns 504 when getOrComputeDailyGoals throws HEALTH_TIMEOUT", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_TIMEOUT"));
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("HEALTH_TIMEOUT"));
 
     const response = await GET(createRequest());
 
     expect(response.status).toBe(504);
   });
 
-  it("returns 502 when getOrComputeDailyGoals throws FITBIT_REFRESH_TRANSIENT", async () => {
+  it("returns 502 when getOrComputeDailyGoals throws HEALTH_REFRESH_TRANSIENT", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_REFRESH_TRANSIENT"));
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("HEALTH_REFRESH_TRANSIENT"));
 
     const response = await GET(createRequest());
 
     expect(response.status).toBe(502);
   });
 
-  it("returns 500 when getOrComputeDailyGoals throws FITBIT_TOKEN_SAVE_FAILED", async () => {
+  it("returns 500 when getOrComputeDailyGoals throws HEALTH_TOKEN_SAVE_FAILED", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_TOKEN_SAVE_FAILED"));
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("HEALTH_TOKEN_SAVE_FAILED"));
 
     const response = await GET(createRequest());
 
     expect(response.status).toBe(500);
   });
 
-  it("returns 502 when getOrComputeDailyGoals throws FITBIT_API_ERROR", async () => {
+  it("returns 502 when getOrComputeDailyGoals throws HEALTH_API_ERROR", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_API_ERROR"));
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("HEALTH_API_ERROR"));
 
     const response = await GET(createRequest());
 

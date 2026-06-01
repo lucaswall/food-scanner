@@ -429,7 +429,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   // Register keyboard shortcuts
   useKeyboardShortcuts({
     onAnalyze: handleAnalyze,
-    onLogToFitbit: logFood,
+    onLogFood: logFood,
     canAnalyze,
     canLog,
   });

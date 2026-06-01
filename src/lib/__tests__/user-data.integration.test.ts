@@ -16,7 +16,7 @@
  * never at DATABASE_URL (dev/prod).
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, or } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import { getDb, closeDb } from "@/db/index";

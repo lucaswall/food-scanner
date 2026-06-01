@@ -4230,7 +4230,8 @@ describe("validateFoodAnalysis — serving_unit coercion (Task 21)", () => {
   it("missing serving_unit AND missing unit_id coerces to 'serving' (no throw)", async () => {
     const { validateFoodAnalysis } = await import("@/lib/claude");
     // No serving_unit, no unit_id — defaults to 'serving'
-    const { unit_id: _omit, ...withoutUnit } = validAnalysis;
+    const withoutUnit: Record<string, unknown> = { ...validAnalysis };
+    delete withoutUnit.unit_id;
     const result = validateFoodAnalysis({ ...withoutUnit });
     expect(result.unit_id).toBe("serving");
   });

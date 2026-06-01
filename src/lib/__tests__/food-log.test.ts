@@ -171,7 +171,7 @@ describe("insertCustomFood", () => {
     const result = await insertCustomFood("user-uuid-123", {
       foodName: "Salad",
       amount: 200,
-      unitId: 147,
+      unitId: "g",
       calories: 100,
       proteinG: 5,
       carbsG: 15,
@@ -220,7 +220,7 @@ describe("insertCustomFood", () => {
     await insertCustomFood("user-uuid-123", {
       foodName: "Tea with milk",
       amount: 1,
-      unitId: 91,
+      unitId: "cup",
       calories: 50,
       proteinG: 2,
       carbsG: 5,
@@ -246,7 +246,7 @@ describe("insertCustomFood", () => {
     await insertCustomFood("user-uuid-123", {
       foodName: "Apple",
       amount: 1,
-      unitId: 304,
+      unitId: "serving",
       calories: 95,
       proteinG: 0.5,
       carbsG: 25,
@@ -271,7 +271,7 @@ describe("insertCustomFood", () => {
     await insertCustomFood("user-uuid-123", {
       foodName: "Rice",
       amount: 0.5,
-      unitId: 91,
+      unitId: "cup",
       calories: 100,
       proteinG: 2.1,
       carbsG: 22.5,
@@ -301,7 +301,7 @@ describe("insertCustomFood", () => {
     await insertCustomFood("user-uuid-123", {
       foodName: "Oatmeal with berries",
       amount: 1,
-      unitId: 91,
+      unitId: "cup",
       calories: 200,
       proteinG: 8,
       carbsG: 35,
@@ -327,7 +327,7 @@ describe("insertCustomFood", () => {
     await insertCustomFood("user-uuid-123", {
       foodName: "Apple",
       amount: 1,
-      unitId: 304,
+      unitId: "serving",
       calories: 95,
       proteinG: 0.5,
       carbsG: 25,
@@ -352,7 +352,7 @@ describe("insertCustomFood", () => {
     await insertCustomFood("user-uuid-123", {
       foodName: "Pizza slice",
       amount: 150,
-      unitId: 311,
+      unitId: "slice",
       calories: 285,
       proteinG: 12,
       carbsG: 36,
@@ -384,7 +384,7 @@ describe("insertCustomFood", () => {
     await insertCustomFood("user-uuid-123", {
       foodName: "Unknown food",
       amount: 100,
-      unitId: 147,
+      unitId: "g",
       calories: 150,
       proteinG: 5,
       carbsG: 20,
@@ -416,7 +416,7 @@ describe("insertCustomFood", () => {
     await insertCustomFood("user-uuid-123", {
       foodName: "Legacy food",
       amount: 100,
-      unitId: 147,
+      unitId: "g",
       calories: 150,
       proteinG: 5,
       carbsG: 20,
@@ -448,7 +448,7 @@ describe("insertFoodLogEntry", () => {
       customFoodId: 42,
       mealTypeId: 5,
       amount: 150,
-      unitId: 147,
+      unitId: "g",
       date: "2026-02-05",
       time: "12:30:00",
       healthLogId: "456",
@@ -462,7 +462,7 @@ describe("insertFoodLogEntry", () => {
         customFoodId: 42,
         mealTypeId: 5,
         amount: "150",
-        unitId: 147,
+        unitId: "g",
         date: "2026-02-05",
         time: "12:30:00",
         healthLogId: "456",
@@ -478,7 +478,7 @@ describe("insertFoodLogEntry", () => {
       customFoodId: 1,
       mealTypeId: 3,
       amount: 200,
-      unitId: 147,
+      unitId: "g",
       date: "2026-02-05",
       time: "18:00:00",
     });
@@ -495,7 +495,7 @@ describe("insertFoodLogEntry", () => {
       customFoodId: 5,
       mealTypeId: 2,
       amount: 1,
-      unitId: 304,
+      unitId: "serving",
       date: "2026-02-05",
       time: "09:00:00",
       healthLogId: null,
@@ -518,7 +518,7 @@ describe("insertFoodLogEntry", () => {
       customFoodId: 1,
       mealTypeId: 5,
       amount: 0.5,
-      unitId: 91,
+      unitId: "cup",
       date: "2026-02-05",
       time: "19:30:00",
     });
@@ -538,7 +538,7 @@ describe("insertFoodLogEntry", () => {
       customFoodId: 1,
       mealTypeId: 5,
       amount: 1,
-      unitId: 304,
+      unitId: "serving",
       date: "2026-02-05",
       time: "19:30:00",
       zoneOffset: "-03:00",
@@ -559,7 +559,7 @@ describe("insertFoodLogEntry", () => {
       customFoodId: 1,
       mealTypeId: 5,
       amount: 1,
-      unitId: 304,
+      unitId: "serving",
       date: "2026-02-05",
       time: "19:30:00",
     });
@@ -579,7 +579,7 @@ describe("getCustomFoodById", () => {
       userId: "user-uuid-123",
       foodName: "Tea with milk",
       amount: "1",
-      unitId: 91,
+      unitId: "cup",
       calories: 50,
       proteinG: "2",
       carbsG: "5",
@@ -1481,7 +1481,7 @@ describe("getFoodLogEntry", () => {
         customFoodId: 10,
         mealTypeId: 3,
         amount: "150",
-        unitId: 147,
+        unitId: "g",
         date: "2026-02-05",
         time: "12:00:00",
         healthLogId: "789",
@@ -1596,7 +1596,7 @@ describe("getFoodLogEntryDetail", () => {
         customFoodId: 42,
         mealTypeId: 3,
         amount: "200",
-        unitId: 147,
+        unitId: "g",
         date: "2026-02-08",
         time: "12:30:00",
         healthLogId: "789",
@@ -1607,7 +1607,7 @@ describe("getFoodLogEntryDetail", () => {
         userId: "user-uuid-123",
         foodName: "Grilled Salmon",
         amount: "200",
-        unitId: 147,
+        unitId: "g",
         calories: 400,
         proteinG: "40",
         carbsG: "0",
@@ -1676,7 +1676,7 @@ describe("getFoodLogEntryDetail", () => {
         customFoodId: 43,
         mealTypeId: 1,
         amount: "100",
-        unitId: 304,
+        unitId: "serving",
         date: "2026-02-08",
         time: "08:00:00",
         healthLogId: null,
@@ -1687,7 +1687,7 @@ describe("getFoodLogEntryDetail", () => {
         userId: "user-uuid-123",
         foodName: "Apple",
         amount: "100",
-        unitId: 304,
+        unitId: "serving",
         calories: 95,
         proteinG: "0.5",
         carbsG: "25",
@@ -2320,7 +2320,7 @@ describe("setShareToken", () => {
     userId: "user-uuid-123",
     foodName: "Grilled Chicken",
     amount: "150",
-    unitId: 147,
+    unitId: "g",
     calories: 250,
     proteinG: "30",
     carbsG: "5",
@@ -2387,7 +2387,7 @@ describe("getCustomFoodByShareToken", () => {
     userId: "user-uuid-123",
     foodName: "Grilled Chicken",
     amount: "150",
-    unitId: 147,
+    unitId: "g",
     calories: 250,
     proteinG: "30",
     carbsG: "5",
@@ -2460,7 +2460,7 @@ describe("debug logging", () => {
       customFoodId: 42,
       mealTypeId: 1,
       amount: 1,
-      unitId: 147,
+      unitId: "g",
       date: "2026-02-16",
       time: "12:00:00",
     });
@@ -2476,7 +2476,7 @@ describe("updateFoodLogEntry", () => {
   const validInput = {
     foodName: "Empanada de carne actualizada",
     amount: 130,
-    unitId: 147,
+    unitId: "g" as const,
     calories: 280,
     proteinG: 10,
     carbsG: 24,
@@ -2515,7 +2515,7 @@ describe("updateFoodLogEntry", () => {
         userId: "user-uuid-123",
         foodName: "Empanada de carne actualizada",
         amount: "130",
-        unitId: 147,
+        unitId: "g",
         calories: 280,
         proteinG: "10",
         carbsG: "24",
@@ -2538,7 +2538,7 @@ describe("updateFoodLogEntry", () => {
       expect.objectContaining({
         customFoodId: 99,
         amount: "130",
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 5,
         date: "2026-02-15",
         time: "20:00:00",
@@ -2854,7 +2854,7 @@ describe("getDailyNutritionSummary", () => {
   }
 
   it("MealEntry includes amount field from food_log_entries", async () => {
-    const row = makeNutritionRow({ amount: "250", unitId: 147 });
+    const row = makeNutritionRow({ amount: "250", unitId: "g" });
     mockOrderBy.mockResolvedValue([row]);
 
     const result = await getDailyNutritionSummary("user-uuid-123", "2026-03-01");
@@ -2912,7 +2912,7 @@ describe("insertCustomFoodWithLogEntry", () => {
   const customFoodData = {
     foodName: "Test Food",
     amount: 100,
-    unitId: 147,
+    unitId: "g" as const,
     calories: 250,
     proteinG: 10,
     carbsG: 20,
@@ -2926,7 +2926,7 @@ describe("insertCustomFoodWithLogEntry", () => {
   const logEntryData = {
     mealTypeId: 1,
     amount: 100,
-    unitId: 147,
+    unitId: "g" as const,
     date: "2026-02-05",
     time: "12:00:00",
     healthLogId: null,
@@ -2968,7 +2968,7 @@ describe("Task 26: toCustomFoodInsertValues", () => {
   });
 
   it("stringifies numeric fields (amount, macros)", async () => {
-    const { toCustomFoodInsertValues } = await import("@/lib/food-log") as { toCustomFoodInsertValues: (data: Record<string, unknown>) => Record<string, unknown> };
+    const { toCustomFoodInsertValues } = await import("@/lib/food-log") as unknown as { toCustomFoodInsertValues: (data: Record<string, unknown>) => Record<string, unknown> };
     const input = {
       foodName: "Test", amount: 150, unitId: "g", calories: 320.7,
       proteinG: 12.5, carbsG: 28.3, fatG: 18.1, fiberG: 2.4, sodiumMg: 450.9,
@@ -2984,14 +2984,14 @@ describe("Task 26: toCustomFoodInsertValues", () => {
   });
 
   it("Math.rounds calories to integer", async () => {
-    const { toCustomFoodInsertValues } = await import("@/lib/food-log") as { toCustomFoodInsertValues: (data: Record<string, unknown>) => Record<string, unknown> };
+    const { toCustomFoodInsertValues } = await import("@/lib/food-log") as unknown as { toCustomFoodInsertValues: (data: Record<string, unknown>) => Record<string, unknown> };
     const input = { foodName: "Test", amount: 100, unitId: "g", calories: 320.7, proteinG: 10, carbsG: 20, fatG: 5, fiberG: 1, sodiumMg: 300, confidence: "high", notes: null };
     const result = toCustomFoodInsertValues(input);
     expect(result.calories).toBe(321);
   });
 
   it("nulls absent tier-1 nutrients (saturatedFatG, transFatG, sugarsG, caloriesFromFat)", async () => {
-    const { toCustomFoodInsertValues } = await import("@/lib/food-log") as { toCustomFoodInsertValues: (data: Record<string, unknown>) => Record<string, unknown> };
+    const { toCustomFoodInsertValues } = await import("@/lib/food-log") as unknown as { toCustomFoodInsertValues: (data: Record<string, unknown>) => Record<string, unknown> };
     const input = { foodName: "Test", amount: 100, unitId: "g", calories: 300, proteinG: 10, carbsG: 20, fatG: 5, fiberG: 1, sodiumMg: 300, confidence: "high", notes: null };
     const result = toCustomFoodInsertValues(input);
     expect(result.saturatedFatG).toBeNull();
@@ -3001,7 +3001,7 @@ describe("Task 26: toCustomFoodInsertValues", () => {
   });
 
   it("stringifies present tier-1 nutrients", async () => {
-    const { toCustomFoodInsertValues } = await import("@/lib/food-log") as { toCustomFoodInsertValues: (data: Record<string, unknown>) => Record<string, unknown> };
+    const { toCustomFoodInsertValues } = await import("@/lib/food-log") as unknown as { toCustomFoodInsertValues: (data: Record<string, unknown>) => Record<string, unknown> };
     const input = { foodName: "Test", amount: 100, unitId: "g", calories: 300, proteinG: 10, carbsG: 20, fatG: 5, fiberG: 1, sodiumMg: 300, saturatedFatG: 2.5, transFatG: 0.1, sugarsG: 5.0, caloriesFromFat: 45, confidence: "high", notes: null };
     const result = toCustomFoodInsertValues(input);
     expect(result.saturatedFatG).toBe("2.5");
