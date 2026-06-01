@@ -408,75 +408,86 @@ export interface HealthLogTiming {
   mealTypeId?: number | null; // 1..7 meal-type context
 }
 
-/**
- * Build an RFC3339 timestamp for the logged meal from its wall-clock date/time and
- * (when available) the client UTC offset. Returns undefined when no time is known —
- * the caller then omits the timestamp and the API falls back to its default.
- */
-function buildHealthTimestamp(timing: HealthLogTiming): string | undefined {
-  if (!timing.time) return undefined;
-  const t = /^\d{2}:\d{2}$/.test(timing.time) ? `${timing.time}:00` : timing.time;
-  return timing.zoneOffset ? `${timing.date}T${t}${timing.zoneOffset}` : `${timing.date}T${t}`;
+/** Convert a ±HH:MM client offset to a google-duration string (e.g. "-03:00" → "-10800s"). */
+function zoneOffsetToDuration(zoneOffset: string): string {
+  const m = /^([+-])(\d{2}):(\d{2})$/.exec(zoneOffset);
+  if (!m) return "0s";
+  const sign = m[1] === "-" ? -1 : 1;
+  const seconds = sign * (Number(m[2]) * 3600 + Number(m[3]) * 60);
+  return `${seconds}s`;
 }
 
 /**
- * Map the app's internal mealTypeId (1..7) to the Google Health MealType enum.
- * INFERRED enum values — validate against the live API (FOO-1115).
+ * Build the v4 `SessionTimeInterval` for the logged meal (a point-in-time event, so
+ * start == end). Each bound is an RFC3339 instant + a google-duration UTC offset, per
+ * the discovery schema. Returns undefined when no time is known.
+ */
+function buildInterval(timing: HealthLogTiming): Record<string, unknown> | undefined {
+  if (!timing.time) return undefined;
+  const t = /^\d{2}:\d{2}$/.test(timing.time) ? `${timing.time}:00` : timing.time;
+  const instant = timing.zoneOffset ? `${timing.date}T${t}${timing.zoneOffset}` : `${timing.date}T${t}Z`;
+  const offset = timing.zoneOffset ? zoneOffsetToDuration(timing.zoneOffset) : "0s";
+  return { startTime: instant, startUtcOffset: offset, endTime: instant, endUtcOffset: offset };
+}
+
+/**
+ * Map the app's internal mealTypeId (1..7) to the Google Health v4 `MealType` enum.
+ * Enum values confirmed from the v4 discovery doc (BEFORE_BREAKFAST, BREAKFAST,
+ * BEFORE_LUNCH, LUNCH, BEFORE_DINNER, DINNER, AFTER_DINNER, SNACK, ANYTIME).
  */
 function mapMealType(mealTypeId: number): string {
   switch (mealTypeId) {
-    case 1: return "BREAKFAST";        // Breakfast
-    case 2: return "SNACK";            // Morning snack
-    case 3: return "LUNCH";            // Lunch
-    case 4: return "SNACK";            // Afternoon snack
-    case 5: return "DINNER";           // Dinner
-    default: return "UNKNOWN";         // 7 = Anytime / unspecified
+    case 1: return "BREAKFAST";  // Breakfast
+    case 2: return "SNACK";      // Morning snack
+    case 3: return "LUNCH";      // Lunch
+    case 4: return "SNACK";      // Afternoon snack
+    case 5: return "DINNER";     // Dinner
+    default: return "ANYTIME";   // 7 = Anytime
   }
 }
 
 /**
  * Build a Google Health **v4** nutrition-log DataPoint body.
  *
- * The OUTER structure is confirmed against developers.google.com/health v4:
- *   - A DataPoint is `{ name, <dataType-member>: {...} }`; for nutrition-log the
- *     member is `nutritionLog`. `name` is the client-providable resource name, which
- *     lets us know the id without parsing the async Operation the create returns.
- *   - `nutritionLog` carries `sampleTime` (the meal instant), `food` (display name +
- *     energy), `nutrients[]` (macros), and `mealType`.
- *
- * The INNER nutritionLog field names (food/energy/nutrient enums/mealType enum/serving)
- * are BEST-EFFORT from the v4 schema and MUST be validated against the live API —
- * staging is HEALTH_DRY_RUN so writes are never exercised there (FOO-1115).
+ * Schema confirmed against the v4 discovery document
+ * (health.googleapis.com/$discovery/rest?version=v4):
+ *   - DataPoint = { name, nutritionLog: NutritionLog }. `name` is the client-provided
+ *     resource name (so we know the id without parsing the async create Operation).
+ *   - NutritionLog has TOP-LEVEL `foodDisplayName`, `energy`/`energyFromFat`
+ *     (EnergyQuantity {kcal}), `totalCarbohydrate`/`totalFat` (WeightQuantity {grams}),
+ *     `serving` (Serving {amount, foodMeasurementUnit}), `mealType`, `interval`
+ *     (SessionTimeInterval), and `nutrients[]` (NutrientQuantity {nutrient, quantity}).
+ *   - The remaining macros go in `nutrients[]` keyed by the `Nutrient` enum
+ *     (PROTEIN, DIETARY_FIBER, SODIUM, SATURATED_FAT, TRANS_FAT, SUGAR). WeightQuantity
+ *     `grams` is the canonical mass, so sodium mg is converted to grams.
  */
 function buildNutritionLogBody(name: string, food: FoodAnalysis, timing: HealthLogTiming): Record<string, unknown> {
   const nutrients: Array<Record<string, unknown>> = [
-    { nutrient: "PROTEIN", amount: { grams: food.protein_g } },
-    { nutrient: "TOTAL_CARBOHYDRATE", amount: { grams: food.carbs_g } },
-    { nutrient: "TOTAL_FAT", amount: { grams: food.fat_g } },
-    { nutrient: "DIETARY_FIBER", amount: { grams: food.fiber_g } },
-    { nutrient: "SODIUM", amount: { milligrams: food.sodium_mg } },
+    { nutrient: "PROTEIN", quantity: { grams: food.protein_g } },
+    { nutrient: "DIETARY_FIBER", quantity: { grams: food.fiber_g } },
+    { nutrient: "SODIUM", quantity: { grams: food.sodium_mg / 1000 } },
   ];
-  if (food.saturated_fat_g != null) nutrients.push({ nutrient: "SATURATED_FAT", amount: { grams: food.saturated_fat_g } });
-  if (food.trans_fat_g != null) nutrients.push({ nutrient: "TRANS_FAT", amount: { grams: food.trans_fat_g } });
-  if (food.sugars_g != null) nutrients.push({ nutrient: "SUGARS", amount: { grams: food.sugars_g } });
-  // NOTE: calories_from_fat is intentionally NOT sent to the health mirror yet — the v4
-  // nutrient enum is unconfirmed and sending an unknown enum on the critical write path
-  // could 400 ALL food logging. It is a derived value (≈ fat_g × 9) and is fully
-  // preserved locally; add it once the enum is confirmed live (FOO-1115).
+  if (food.saturated_fat_g != null) nutrients.push({ nutrient: "SATURATED_FAT", quantity: { grams: food.saturated_fat_g } });
+  if (food.trans_fat_g != null) nutrients.push({ nutrient: "TRANS_FAT", quantity: { grams: food.trans_fat_g } });
+  if (food.sugars_g != null) nutrients.push({ nutrient: "SUGAR", quantity: { grams: food.sugars_g } });
 
   const nutritionLog: Record<string, unknown> = {
-    food: {
-      name: food.food_name,
-      energy: { kilocalories: Math.round(food.calories) },
-      servingSize: { amount: food.amount, unit: food.unit_id },
-    },
+    foodDisplayName: food.food_name,
+    energy: { kcal: Math.round(food.calories) },
+    totalCarbohydrate: { grams: food.carbs_g },
+    totalFat: { grams: food.fat_g },
+    serving: { amount: food.amount, foodMeasurementUnit: food.unit_id },
     nutrients,
   };
 
+  if (food.calories_from_fat != null) {
+    nutritionLog.energyFromFat = { kcal: Math.round(food.calories_from_fat) };
+  }
+
   // Meal instant — the user's selected date/time, not "now" (FOO-1113).
-  const sampleTime = buildHealthTimestamp(timing);
-  if (sampleTime) {
-    nutritionLog.sampleTime = { sampleTime };
+  const interval = buildInterval(timing);
+  if (interval) {
+    nutritionLog.interval = interval;
   }
   if (timing.mealTypeId != null) {
     nutritionLog.mealType = mapMealType(timing.mealTypeId);
@@ -501,8 +512,9 @@ function buildNutritionLogBody(name: string, food: FoodAnalysis, timing: HealthL
  * Returns { healthLogId } — the client-generated dataPoint id.
  * Throws HEALTH_API_ERROR on non-ok response.
  *
- * NOTE: endpoint/method/envelope confirmed (v4); the nutritionLog body internals are
- * best-effort and must be validated against the live API (FOO-1115).
+ * NOTE: endpoint, method, envelope, and the NutritionLog body schema are confirmed
+ * against the v4 discovery document. Final empirical confirmation still happens against
+ * the live API on staging with HEALTH_DRY_RUN off (FOO-1115).
  */
 export async function createNutritionLog(
   accessToken: string,
@@ -621,15 +633,15 @@ function subtractDays(dateStr: string, days: number): string {
 }
 
 /**
- * Extract a YYYY-MM-DD date from a v4 ObservationSampleTime, which may be an RFC3339
- * string or an object carrying `sampleTime`. Best-effort (FOO-1115).
+ * Extract a YYYY-MM-DD date from a v4 `ObservationSampleTime`, whose `physicalTime` is
+ * an RFC3339 instant (per the v4 discovery schema). Tolerates a bare RFC3339 string.
  */
 function extractSampleDate(sampleTime: unknown): string | null {
-  if (typeof sampleTime === "string") return sampleTime.slice(0, 10);
   if (sampleTime && typeof sampleTime === "object") {
-    const st = (sampleTime as Record<string, unknown>).sampleTime;
-    if (typeof st === "string") return st.slice(0, 10);
+    const pt = (sampleTime as Record<string, unknown>).physicalTime;
+    if (typeof pt === "string") return pt.slice(0, 10);
   }
+  if (typeof sampleTime === "string") return sampleTime.slice(0, 10);
   return null;
 }
 
@@ -647,17 +659,13 @@ function parseSex(value: unknown): "MALE" | "FEMALE" | "NA" {
 }
 
 /**
- * Parse a height value from a v4 `height` dataPoint into cm. Height samples carry
- * `meters` (double) in v4; alternate shapes may use { value, unit }. Best-effort —
- * validate against the live API (FOO-1115).
+ * Parse a v4 `Height` dataPoint into cm. Per the discovery schema, Height carries
+ * `heightMillimeters` (int64 as a string). cm = mm / 10.
  */
 function parseHeightCm(height: Record<string, unknown>): number | null {
-  if (typeof height.meters === "number") return height.meters * 100;
-  if (typeof height.centimeters === "number") return height.centimeters;
-  if (typeof height.value === "number") {
-    const unit = typeof height.unit === "string" ? height.unit.toUpperCase() : "METER";
-    return unit.startsWith("CENT") ? height.value : height.value * 100;
-  }
+  const mm = height.heightMillimeters;
+  if (typeof mm === "string" && mm.trim() !== "" && !Number.isNaN(Number(mm))) return Number(mm) / 10;
+  if (typeof mm === "number") return mm / 10;
   return null;
 }
 
@@ -755,12 +763,12 @@ export async function getHealthProfile(
  * Fetch the most recent weight log on or before targetDate from Google Health.
  *
  * Reads the v4 `weight` data type's dataPoints and returns the most-recent sample
- * on/before targetDate within a 14-day window, or null if empty. Weight samples carry
- * `kilograms` directly (no unit conversion).
+ * on/before targetDate within a 14-day window, or null if empty. Per the v4 discovery
+ * schema, Weight carries `weightGrams` (double) + `sampleTime.physicalTime` (RFC3339),
+ * so kg = weightGrams / 1000.
  *
- * NOTE: endpoint confirmed (v4 /dataTypes/weight/dataPoints, weight.kilograms); the v4
- * ranged-read filter syntax isn't confirmed, so points are filtered client-side to the
- * window. Best-effort — validate against the live API (FOO-1115).
+ * NOTE: the v4 ranged-read filter syntax isn't confirmed, so points are fetched
+ * (pageSize 100) and filtered client-side to the window.
  */
 export async function getHealthLatestWeightKg(
   accessToken: string,
@@ -798,14 +806,14 @@ export async function getHealthLatestWeightKg(
   const data = await jsonWithTimeout<Record<string, unknown>>(response);
   const points = Array.isArray(data.dataPoints) ? (data.dataPoints as Array<Record<string, unknown>>) : [];
 
-  // Parse weight samples, keep those within [startDate, targetDate].
+  // Parse weight samples (weightGrams → kg), keep those within [startDate, targetDate].
   const valid: Array<{ weightKg: number; date: string }> = [];
   for (const p of points) {
     const w = p.weight as Record<string, unknown> | undefined;
-    if (!w || typeof w.kilograms !== "number") continue;
+    if (!w || typeof w.weightGrams !== "number") continue;
     const d = extractSampleDate(w.sampleTime);
     if (!d || d < startDate || d > targetDate) continue;
-    valid.push({ weightKg: w.kilograms, date: d });
+    valid.push({ weightKg: w.weightGrams / 1000, date: d });
   }
 
   if (valid.length === 0) {
@@ -824,11 +832,12 @@ export async function getHealthLatestWeightKg(
 /**
  * Fetch the daily activity summary (caloriesOut) from Google Health.
  *
- * Returns { caloriesOut: number } from dailyRollUp, or { caloriesOut: null }
- * if the roll-up is empty or caloriesOut is not yet available (no throw).
- * Converts kJ → kcal if energyUnit is "kJ".
+ * Returns { caloriesOut: number } summed from the v4 daily roll-up's `kcalSum`, or
+ * { caloriesOut: null } if the roll-up is empty (no throw).
  *
- * NOTE: endpoint and body shape inferred from docs — confirm during staging QA (FOO-1088).
+ * NOTE: the roll-up RESPONSE shape (rollupDataPoints[] / kcalSum) is confirmed from the
+ * v4 schema; the dailyRollUp REQUEST body + the exact "total-calories" data-type id are
+ * the remaining live-validation items for this optional, non-blocking read (FOO-1115).
  */
 export async function getHealthActivitySummary(
   accessToken: string,
@@ -862,22 +871,30 @@ export async function getHealthActivitySummary(
   }
 
   const data = await jsonWithTimeout<Record<string, unknown>>(response);
-  // dailyRollUp returns per-day roll-ups; pull the first day's total-calories kcal.
-  // Response shape is best-effort: accept either a top-level rollUp or a dailyRollUps[] array.
-  const rollUps = Array.isArray(data.dailyRollUps)
-    ? (data.dailyRollUps as Array<Record<string, unknown>>)
-    : (data.dailyRollUp ? [data.dailyRollUp as Record<string, unknown>] : []);
-  const rollUp = rollUps[0];
+  // Per the v4 discovery schema, a daily-rollup response is
+  // { rollupDataPoints: [ { ...value union... } ] }, and the total-calories value is a
+  // TotalCaloriesRollupValue carrying `kcalSum`. Sum kcalSum across the day's point(s).
+  const rollupPoints = Array.isArray(data.rollupDataPoints)
+    ? (data.rollupDataPoints as Array<Record<string, unknown>>)
+    : [];
 
-  // Prefer kcal fields; fall back to kilojoule fields converted to kcal (÷4.184) —
-  // Google fitness energy is often reported in kJ. Best-effort field names (FOO-1115).
-  const kcal =
-    rollUp && typeof rollUp.totalCaloriesKcal === "number" ? rollUp.totalCaloriesKcal
-    : rollUp && typeof rollUp.caloriesKcal === "number" ? rollUp.caloriesKcal
-    : rollUp && typeof rollUp.caloriesOut === "number" ? rollUp.caloriesOut
-    : rollUp && typeof rollUp.totalCaloriesKj === "number" ? rollUp.totalCaloriesKj / 4.184
-    : rollUp && typeof rollUp.kilojoules === "number" ? rollUp.kilojoules / 4.184
-    : null;
+  /** Recursively find the first numeric `kcalSum` in a rollup point's value union. */
+  function findKcalSum(node: unknown): number | null {
+    if (!node || typeof node !== "object") return null;
+    const obj = node as Record<string, unknown>;
+    if (typeof obj.kcalSum === "number") return obj.kcalSum;
+    for (const v of Object.values(obj)) {
+      const found = findKcalSum(v);
+      if (found !== null) return found;
+    }
+    return null;
+  }
+
+  let kcal: number | null = null;
+  for (const point of rollupPoints) {
+    const k = findKcalSum(point);
+    if (k !== null) kcal = (kcal ?? 0) + k;
+  }
 
   if (kcal === null) {
     l.debug({ action: "health_get_activity_summary_empty", date }, "activity summary caloriesOut not yet available");

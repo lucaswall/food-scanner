@@ -112,13 +112,14 @@ Nullable, no backfill. The Google Health v4 Profile resource does NOT expose bio
 
 **No new SQL.** All Phase-3 changes are code rewires against the schema already migrated in Phase 1 (Task 29 emits the single consolidated Drizzle migration). The notes below are **API/route-contract and release-QA** items, not data migrations.
 
-### Task 16 / 18 — Google Health API body shapes (FOO-1086, FOO-1088)
-The Google Health REST request/response field paths are **inferred from docs, not a live API**, and must be confirmed during staging QA:
-- `createNutritionLog` / `deleteNutritionLogs` — `nutrition-log/dataPoints` create (`food_display_name` + `energy`/`protein`/`carbs`/`fat`/`fiber`/`sodium`, optional `trans_fat`/`sugars`/`saturated_fat`/`calories_from_fat`) and `batchDelete`.
-- `getHealthProfile` — `https://health.googleapis.com/v4/users/me` (sex/height/DOB → `{ ageYears, sex, heightCm }`).
-- `getHealthLatestWeightKg` — single ranged fetch over `[targetDate-13d, targetDate]` (replaces the old 14-day walk-back), most-recent point on/before `targetDate`.
-- `getHealthActivitySummary` — `/activity-summary?date=` dailyRollUp → `{ caloriesOut }`.
-The request-body construction is isolated in `buildNutritionLogBody` / per-read parser helpers so a wrong field path has a contained blast radius — correct only those helpers if staging QA finds a mismatch.
+### Task 16 / 18 — Google Health API body shapes (FOO-1086, FOO-1088, FOO-1115)
+The Google Health REST request/response field paths are now **confirmed against the v4 discovery document** (`health.googleapis.com/$discovery/rest?version=v4`), corrected in commit df1361b/this branch:
+- `createNutritionLog` / `deleteNutritionLogs` — `POST .../dataTypes/nutrition-log/dataPoints` with a DataPoint `{ name, nutritionLog }`; NutritionLog = `foodDisplayName`, `energy`/`energyFromFat` (`{kcal}`), `totalCarbohydrate`/`totalFat` (`{grams}`), `serving` (`{amount, foodMeasurementUnit}`), `interval` (SessionTimeInterval), `mealType` (BREAKFAST/LUNCH/DINNER/SNACK/ANYTIME), `nutrients[]` (`{nutrient, quantity:{grams}}` keyed PROTEIN/DIETARY_FIBER/SODIUM/SATURATED_FAT/TRANS_FAT/SUGAR — sodium mg→grams). Delete = `:batchDelete` with `{ names: [resourceName] }`. Create returns a long-running Operation, so the dataPoint id is client-generated.
+- `getHealthProfile` — `GET /v4/users/me/profile` (exposes `age` only — NO sex/height). **sex is a local setting (FOO-1116)**; height read from the `height` data type (`heightMillimeters` → cm).
+- `getHealthLatestWeightKg` — `GET .../dataTypes/weight/dataPoints` (`weightGrams`→kg, `sampleTime.physicalTime`), client-side filtered to `[targetDate-13d, targetDate]`.
+- `getHealthActivitySummary` — `POST .../dataTypes/total-calories/dataPoints:dailyRollUp`, response `rollupDataPoints[]` summed by `kcalSum`.
+
+**Remaining LIVE-only validation (FOO-1115):** staging runs `HEALTH_DRY_RUN=true`, so the WRITE path (create/batchDelete) is never exercised there — to confirm it against the live API, flip `HEALTH_DRY_RUN` off on staging (real writes) before promoting. Also unconfirmed: the exact `dailyRollUp` request body + the `total-calories` data-type id (optional, non-blocking read). The request-body construction is isolated in `buildNutritionLogBody` / per-read parser helpers so any remaining mismatch has a contained blast radius.
 
 ### Task 17 — write-route contract (FOO-1087)
 `POST /api/log-food` gains an **optional `clientToken`** for idempotency (per-user, in-memory, ~5-min TTL, resets on deploy — acceptable for the 2-user app). Responses now expose **`healthLogId` (string)** in place of the old numeric Fitbit ids. Pre-existing rows carrying legacy numeric ids hold stale, string-incompatible handles — they are replaced on the next edit/delete. (DB column change itself is Task 7 / Phase 1.)
