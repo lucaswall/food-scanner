@@ -27,7 +27,7 @@ This release promotes the entire Fitbit→Google Health cutover. **Classificatio
 
 **Drizzle migration files:** `0027` (consolidated cutover, above) **and `0028_cold_white_queen.sql`** (`users.sex` nullable column + CHECK — FOO-1116; safe nullable add on populated tables). Both are committed; the manual migration must journal-insert BOTH so startup-migrate skips them.
 
-**🟠 Railway env changes — MANUAL operator steps (NOT automated).** `push-to-production`'s Railway tools are READ-ONLY (`get_logs`, `list_deployments`, `environment_status`); it CANNOT set variables. Set these by hand in the Railway dashboard at release:
+**Railway env changes — applied via the Railway CLI at release** (agent-runnable through Bash; the Railway *MCP* tools are read-only, but `railway variables` writes fine). Run `railway status` to confirm the linked project, `railway environment <name>` to target staging vs production, then set/unset (verify the exact set/delete flags for the installed CLI version — set is `railway variables --set "KEY=VALUE"`; FITBIT_* removal via the CLI's delete command or the dashboard):
 - **staging:** `HEALTH_DRY_RUN=true`; remove `FITBIT_DRY_RUN`, `FITBIT_CLIENT_ID`, `FITBIT_CLIENT_SECRET`.
 - **production:** `HEALTH_DRY_RUN=false` (live writes); remove `FITBIT_CLIENT_ID`, `FITBIT_CLIENT_SECRET`.
 - **Invariant:** staging always `HEALTH_DRY_RUN=true` (write/delete are no-ops, everything else real); production always `false`. Only drop `FITBIT_DRY_RUN` AFTER the migrated code (which reads `HEALTH_DRY_RUN`) is live.
