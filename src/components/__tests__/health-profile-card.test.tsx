@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import type { HealthProfileData } from "@/types";
 
 const mockFetch = vi.fn();
@@ -112,6 +112,30 @@ describe("HealthProfileCard", () => {
       "/api/health-profile",
       expect.anything(),
       expect.anything(),
+    );
+  });
+
+  it("calls refresh fetch with AbortSignal timeout", async () => {
+    mockUseSWRImplementation.mockImplementation((key: string) => {
+      if (key === "/api/health-profile") {
+        return { data: mockProfileData, error: null, isLoading: false, mutate: mockMutate };
+      }
+      return { data: null, error: null, isLoading: false };
+    });
+    mockFetch.mockResolvedValue({ ok: true });
+    mockMutate.mockResolvedValue(undefined);
+
+    const { HealthProfileCard } = await import("@/components/health-profile-card");
+    render(<HealthProfileCard />);
+
+    const refreshBtn = screen.getByRole("button", { name: /refresh from google health/i });
+    await act(async () => {
+      fireEvent.click(refreshBtn);
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/health-profile?refresh=1",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 });

@@ -6,6 +6,7 @@ import { apiFetcher } from "@/lib/swr";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
 import { MealTypeSelector } from "@/components/meal-type-selector";
 import { FoodLogConfirmation } from "@/components/food-log-confirmation";
+import { HealthConnectGuard } from "@/components/health-connect-guard";
 import { Button } from "@/components/ui/button";
 import { AlertCircle } from "lucide-react";
 import { MealType } from "@/types";
@@ -97,26 +98,28 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
         caloriesFromFat={data.calories_from_fat}
       />
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Meal type</label>
-        <MealTypeSelector
-          value={mealTypeId}
-          onChange={setMealTypeId}
+      <HealthConnectGuard>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Meal type</label>
+          <MealTypeSelector
+            value={mealTypeId}
+            onChange={setMealTypeId}
+            disabled={isLogging}
+          />
+        </div>
+
+        {logError && (
+          <p className="text-sm text-destructive text-center">{logError}</p>
+        )}
+
+        <Button
+          onClick={logFood}
           disabled={isLogging}
-        />
-      </div>
-
-      {logError && (
-        <p className="text-sm text-destructive text-center">{logError}</p>
-      )}
-
-      <Button
-        onClick={logFood}
-        disabled={isLogging}
-        className="w-full min-h-[44px]"
-      >
-        {isLogging ? "Logging..." : "Log to Google Health"}
-      </Button>
+          className="w-full min-h-[44px]"
+        >
+          {isLogging ? "Logging..." : "Log to Google Health"}
+        </Button>
+      </HealthConnectGuard>
     </div>
   );
 }
