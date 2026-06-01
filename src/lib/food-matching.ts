@@ -89,7 +89,6 @@ export async function findMatchingFoods(
         unitId: customFoods.unitId,
       },
       lastLoggedAt: max(foodLogEntries.loggedAt),
-      latestHealthLogId: max(foodLogEntries.healthLogId),
     })
     .from(customFoods)
     .leftJoin(
@@ -100,7 +99,6 @@ export async function findMatchingFoods(
       and(
         eq(customFoods.userId, userId),
         isNotNull(customFoods.keywords),
-        ...(process.env.HEALTH_DRY_RUN !== "true" ? [isNotNull(foodLogEntries.healthLogId)] : []),
       ),
     )
     .groupBy(customFoods.id);
@@ -110,7 +108,6 @@ export async function findMatchingFoods(
   for (const row of rows) {
     const food = row.custom_foods;
     if (!food.keywords) continue;
-    if (process.env.HEALTH_DRY_RUN !== "true" && !row.latestHealthLogId) continue;
 
     const matchRatio = computeMatchRatio(newAnalysis.keywords, food.keywords);
     if (matchRatio < 0.5) continue;

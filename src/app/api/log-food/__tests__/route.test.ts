@@ -344,6 +344,7 @@ describe("POST /api/log-food", () => {
     expect(mockCreateNutritionLog).toHaveBeenCalledWith(
       "fresh-token",
       expect.any(Object),
+      expect.objectContaining({ date: "2024-01-15", time: "20:30:00" }),
       expect.any(Object),
       "user-uuid-123",
     );

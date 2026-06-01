@@ -381,6 +381,29 @@ function isHealthDryRun(): boolean {
 }
 
 /**
+ * Timing + meal context for a nutrition-log write. The Google Health entry must be
+ * stamped with the meal date/time the user selected (not the current instant), and
+ * carry the meal-type context — mirroring the data the old Fitbit path sent.
+ */
+export interface HealthLogTiming {
+  date: string;              // YYYY-MM-DD (meal wall-clock date)
+  time: string | null;       // HH:mm[:ss] (meal wall-clock time) — null if unknown
+  zoneOffset?: string | null; // ±HH:MM client UTC offset, when available
+  mealTypeId?: number | null; // 1..7 meal-type context
+}
+
+/**
+ * Build an RFC3339 timestamp for the logged meal from its wall-clock date/time and
+ * (when available) the client UTC offset. Returns undefined when no time is known —
+ * the caller then omits the timestamp and the API falls back to its default.
+ */
+function buildHealthTimestamp(timing: HealthLogTiming): string | undefined {
+  if (!timing.time) return undefined;
+  const t = /^\d{2}:\d{2}$/.test(timing.time) ? `${timing.time}:00` : timing.time;
+  return timing.zoneOffset ? `${timing.date}T${t}${timing.zoneOffset}` : `${timing.date}T${t}`;
+}
+
+/**
  * Build the JSON body for a Google Health nutrition-log dataPoint.
  *
  * Ports the nutrient-param logic from fitbit.ts (createFood body builder):
@@ -388,11 +411,14 @@ function isHealthDryRun(): boolean {
  *   - Conditional tier-1 nutrients (saturated_fat, trans_fat, sugars,
  *     calories_from_fat) are omitted when null and included when present.
  *   - Calories and calories_from_fat are rounded via Math.round.
+ *   - The meal timestamp (start_time/end_time) + meal_type carry the user's selected
+ *     date/time/meal context so the Health entry isn't stamped at "now" (FOO-1113).
  *
- * NOTE: JSON field paths are inferred from Google Health Connect REST API docs
- * and must be confirmed during staging QA (FOO-1086).
+ * NOTE: JSON field paths (including start_time/end_time/meal_type) are inferred from
+ * Google Health Connect REST API docs and must be confirmed against the real API
+ * (production — staging is dry-run) — see FOO-1086 / FOO-1113.
  */
-function buildNutritionLogBody(food: FoodAnalysis): Record<string, unknown> {
+function buildNutritionLogBody(food: FoodAnalysis, timing: HealthLogTiming): Record<string, unknown> {
   const body: Record<string, unknown> = {
     food_display_name: food.food_name,
     amount: food.amount,
@@ -419,6 +445,16 @@ function buildNutritionLogBody(food: FoodAnalysis): Record<string, unknown> {
     body.calories_from_fat = Math.round(food.calories_from_fat);
   }
 
+  // Meal timing + context — the user's selected date/time, not "now".
+  const startTime = buildHealthTimestamp(timing);
+  if (startTime) {
+    body.start_time = startTime;
+    body.end_time = startTime; // point-in-time meal event
+  }
+  if (timing.mealTypeId != null) {
+    body.meal_type = timing.mealTypeId;
+  }
+
   return body;
 }
 
@@ -437,6 +473,7 @@ function buildNutritionLogBody(food: FoodAnalysis): Record<string, unknown> {
 export async function createNutritionLog(
   accessToken: string,
   food: FoodAnalysis,
+  timing: HealthLogTiming,
   log?: Logger,
   userId?: string,
 ): Promise<{ healthLogId: string }> {
@@ -447,7 +484,7 @@ export async function createNutritionLog(
     return { healthLogId: "dry-run" };
   }
 
-  const body = buildNutritionLogBody(food);
+  const body = buildNutritionLogBody(food, timing);
 
   const response = await fetchWithRetry(
     `${GOOGLE_HEALTH_API_BASE}/users/me/nutrition-log/dataPoints`,

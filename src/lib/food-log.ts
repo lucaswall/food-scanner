@@ -1,4 +1,4 @@
-import { eq, and, or, isNotNull, isNull, gte, lte, lt, gt, desc, asc, between, sql } from "drizzle-orm";
+import { eq, and, or, isNull, gte, lte, lt, gt, desc, asc, between, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
@@ -276,7 +276,6 @@ export async function getCommonFoods(
     .where(
       and(
         eq(foodLogEntries.userId, userId),
-        ...(process.env.HEALTH_DRY_RUN !== "true" ? [isNotNull(foodLogEntries.healthLogId)] : []),
         gte(foodLogEntries.date, cutoffDate),
       ),
     );
@@ -390,10 +389,6 @@ export async function getRecentFoods(
   const limit = options.limit ?? 10;
 
   const conditions = [eq(foodLogEntries.userId, userId)];
-
-  if (process.env.HEALTH_DRY_RUN !== "true") {
-    conditions.push(isNotNull(foodLogEntries.healthLogId));
-  }
 
   if (options.cursor) {
     const { lastDate, lastTime, lastId } = options.cursor;
@@ -790,10 +785,6 @@ export async function searchFoods(
   const limit = options.limit ?? 10;
 
   const conditions = [eq(customFoods.userId, userId)];
-
-  if (process.env.HEALTH_DRY_RUN !== "true") {
-    conditions.push(isNotNull(foodLogEntries.healthLogId));
-  }
 
   const rows = await db
     .select()

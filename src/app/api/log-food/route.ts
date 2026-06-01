@@ -229,7 +229,7 @@ export async function POST(request: Request) {
           description: existingFood.description ?? "",
           keywords: existingFood.keywords ?? [],
         };
-        const createResult = await createNutritionLog(accessToken, foodAnalysis, log, userId);
+        const createResult = await createNutritionLog(accessToken, foodAnalysis, { date, time, zoneOffset, mealTypeId: body.mealTypeId }, log, userId);
         healthLogId = createResult.healthLogId;
       }
 
@@ -349,6 +349,7 @@ export async function POST(request: Request) {
           description: body.description ?? "",
           keywords: body.keywords ?? [],
         },
+        { date, time, zoneOffset, mealTypeId: body.mealTypeId },
         log,
         userId,
       );

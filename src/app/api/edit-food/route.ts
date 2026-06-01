@@ -136,6 +136,11 @@ export async function POST(request: Request) {
     return errorResponse("NOT_FOUND", "Food log entry not found", 404);
   }
 
+  // Health-write timing: primary creates use the edited request values; compensation
+  // re-creates restore the entry's original date/time/meal (FOO-1113).
+  const requestTiming = { date, time, zoneOffset, mealTypeId };
+  const entryTiming = { date: entry.date, time: entry.time, mealTypeId: entry.mealTypeId };
+
   log.info(
     { action: "edit_food_request", entryId, foodName: analysis.food_name, mealTypeId },
     "processing food edit request"
@@ -171,7 +176,7 @@ export async function POST(request: Request) {
 
       // Re-create with entry's stored nutrition (anonymous logs aren't editable in place)
       try {
-        const createResult = await createNutritionLog(accessToken, buildAnalysisFromEntry(entry), log, userId);
+        const createResult = await createNutritionLog(accessToken, buildAnalysisFromEntry(entry), requestTiming, log, userId);
         fastPathHealthLogId = createResult.healthLogId;
       } catch (logErr) {
         const errMsg = logErr instanceof Error ? logErr.message : String(logErr);
@@ -181,7 +186,7 @@ export async function POST(request: Request) {
         if (entry.healthLogId) {
           try {
             const freshToken = await ensureFreshToken(userId, log);
-            const compensationResult = await createNutritionLog(freshToken, buildAnalysisFromEntry(entry), log, userId);
+            const compensationResult = await createNutritionLog(freshToken, buildAnalysisFromEntry(entry), entryTiming, log, userId);
             const compensationHealthLogId = compensationResult.healthLogId;
             try {
               await updateFoodLogEntryMetadata(userId, entryId, {
@@ -249,7 +254,7 @@ export async function POST(request: Request) {
         try {
           const freshToken = await ensureFreshToken(userId, log);
           await deleteNutritionLogs(freshToken, [fastPathHealthLogId!], log, userId);
-          const compensationResult = await createNutritionLog(freshToken, buildAnalysisFromEntry(entry), log, userId);
+          const compensationResult = await createNutritionLog(freshToken, buildAnalysisFromEntry(entry), entryTiming, log, userId);
           const compensationHealthLogId = compensationResult.healthLogId;
           try {
             await updateFoodLogEntryMetadata(userId, entryId, {
@@ -308,6 +313,7 @@ export async function POST(request: Request) {
       const createResult = await createNutritionLog(
         accessToken,
         { ...analysis, calories },
+        requestTiming,
         log,
         userId,
       );
@@ -320,7 +326,7 @@ export async function POST(request: Request) {
       if (entry.healthLogId) {
         try {
           const freshToken = await ensureFreshToken(userId, log);
-          const compensationResult = await createNutritionLog(freshToken, buildAnalysisFromEntry(entry), log, userId);
+          const compensationResult = await createNutritionLog(freshToken, buildAnalysisFromEntry(entry), entryTiming, log, userId);
           const compensationHealthLogId = compensationResult.healthLogId;
           try {
             await updateFoodLogEntryMetadata(userId, entryId, {
@@ -406,7 +412,7 @@ export async function POST(request: Request) {
         const freshToken = await ensureFreshToken(userId, log);
         await deleteNutritionLogs(freshToken, [newHealthLogId], log, userId);
         // Re-create the original health log from the entry's stored nutrients
-        const compensationResult = await createNutritionLog(freshToken, buildAnalysisFromEntry(entry), log, userId);
+        const compensationResult = await createNutritionLog(freshToken, buildAnalysisFromEntry(entry), entryTiming, log, userId);
         const compensationHealthLogId = compensationResult.healthLogId;
         try {
           await updateFoodLogEntryMetadata(userId, entryId, {

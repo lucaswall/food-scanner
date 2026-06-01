@@ -870,17 +870,19 @@ describe("getCommonFoods", () => {
     expect(result.foods[0].mealTypeId).toBe(3); // from the higher-scoring entry
   });
 
-  describe("HEALTH_DRY_RUN=true", () => {
-    it("includes foods with no remote health log in dry-run mode", async () => {
-      vi.stubEnv("HEALTH_DRY_RUN", "true");
+  describe("foods with no remote health log (FOO-1114)", () => {
+    it("includes foods with no health_log_id in production mode (filter removed — historical/migrated foods stay visible)", async () => {
+      // HEALTH_DRY_RUN unset (production). Migrated/pre-cutover entries have a NULL
+      // health_log_id; they MUST still appear in quick-select — never hidden by a remote-sync filter.
+      vi.stubEnv("HEALTH_DRY_RUN", "");
       mockWhere.mockResolvedValue([
-        makeRow({ customFoodId: 1, foodName: "Dry Run Food", time: "12:00:00", date: "2026-02-08", healthLogId: null, mealTypeId: 3 }),
+        makeRow({ customFoodId: 1, foodName: "Migrated Food", time: "12:00:00", date: "2026-02-08", healthLogId: null, mealTypeId: 3 }),
       ]);
 
       const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08");
 
       expect(result.foods).toHaveLength(1);
-      expect(result.foods[0].foodName).toBe("Dry Run Food");
+      expect(result.foods[0].foodName).toBe("Migrated Food");
     });
   });
 
@@ -1236,17 +1238,19 @@ describe("getRecentFoods", () => {
     expect(result.nextCursor).toBeNull();
   });
 
-  describe("HEALTH_DRY_RUN=true", () => {
-    it("includes foods with no remote health log in dry-run mode", async () => {
-      vi.stubEnv("HEALTH_DRY_RUN", "true");
+  describe("foods with no remote health log (FOO-1114)", () => {
+    it("includes foods with no health_log_id in production mode (filter removed — historical/migrated foods stay visible)", async () => {
+      // HEALTH_DRY_RUN unset (production). Migrated/pre-cutover entries have a NULL
+      // health_log_id; they MUST still appear in recent foods — never hidden by a remote-sync filter.
+      vi.stubEnv("HEALTH_DRY_RUN", "");
       mockLimit.mockResolvedValue([
-        makeRecentRow({ id: 1, customFoodId: 1, foodName: "Dry Run Food", time: "12:00:00", date: "2026-02-08", healthLogId: null, mealTypeId: 3 }),
+        makeRecentRow({ id: 1, customFoodId: 1, foodName: "Migrated Food", time: "12:00:00", date: "2026-02-08", healthLogId: null, mealTypeId: 3 }),
       ]);
 
       const result = await getRecentFoods("user-uuid-123");
 
       expect(result.foods).toHaveLength(1);
-      expect(result.foods[0].foodName).toBe("Dry Run Food");
+      expect(result.foods[0].foodName).toBe("Migrated Food");
     });
   });
 });
@@ -1892,6 +1896,20 @@ describe("searchFoods", () => {
     await searchFoods("user-uuid-123", ["pollo"]);
 
     expect(mockWhere).toHaveBeenCalled();
+  });
+
+  it("returns foods with no health_log_id in production mode (FOO-1114 — no remote-sync filter)", async () => {
+    // HEALTH_DRY_RUN unset (production). A migrated/pre-cutover food whose entry has a
+    // NULL health_log_id MUST still be searchable — historical foods are never hidden.
+    vi.stubEnv("HEALTH_DRY_RUN", "");
+    mockWhere.mockResolvedValue([
+      makeSearchRow({ customFoodId: 1, foodName: "Pollo al horno", keywords: ["pollo", "horno"], entryId: 1, healthLogId: null }),
+    ]);
+
+    const result = await searchFoods("user-uuid-123", ["pollo", "horno"]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].foodName).toBe("Pollo al horno");
   });
 
   describe("food name fallback", () => {

@@ -114,6 +114,13 @@ const sampleFood = {
   keywords: [],
 };
 
+const sampleTiming = {
+  date: "2026-02-08",
+  time: "20:00:00",
+  zoneOffset: "-03:00",
+  mealTypeId: 5,
+};
+
 describe("google-health", () => {
   let fetchWithRetry: typeof import("@/lib/google-health").fetchWithRetry;
   let refreshGoogleHealthToken: typeof import("@/lib/google-health").refreshGoogleHealthToken;
@@ -304,7 +311,7 @@ describe("google-health", () => {
     it("makes exactly ONE POST to nutrition-log/dataPoints (not two)", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-abc-123" }));
 
-      await createNutritionLog("token", sampleFood, fakeLog, "user-1");
+      await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -315,7 +322,7 @@ describe("google-health", () => {
     it("body carries food_display_name, energy (rounded), protein, carbs, fat, fiber, sodium", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-abc" }));
 
-      await createNutritionLog("token", sampleFood, fakeLog, "user-1");
+      await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(init.body as string);
@@ -331,7 +338,7 @@ describe("google-health", () => {
     it("body includes amount and serving_unit (string)", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-xyz" }));
 
-      await createNutritionLog("token", sampleFood, fakeLog, "user-1");
+      await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(init.body as string);
@@ -343,7 +350,7 @@ describe("google-health", () => {
     it("omits saturated_fat, trans_fat, sugars, calories_from_fat when null", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-abc" }));
 
-      await createNutritionLog("token", sampleFood, fakeLog, "user-1");
+      await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(init.body as string);
@@ -363,7 +370,7 @@ describe("google-health", () => {
       };
       fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-rich" }));
 
-      await createNutritionLog("token", richFood, fakeLog, "user-1");
+      await createNutritionLog("token", richFood, sampleTiming, fakeLog, "user-1");
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(init.body as string);
@@ -377,7 +384,7 @@ describe("google-health", () => {
       const food = { ...sampleFood, calories: 250.6 };
       fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-rounded" }));
 
-      await createNutritionLog("token", food, fakeLog, "user-1");
+      await createNutritionLog("token", food, sampleTiming, fakeLog, "user-1");
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(init.body as string);
@@ -387,7 +394,7 @@ describe("google-health", () => {
     it("returns { healthLogId: string } from response id field", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({ id: "health-log-id-999" }));
 
-      const result = await createNutritionLog("token", sampleFood, fakeLog, "user-1");
+      const result = await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
       expect(result).toEqual({ healthLogId: "health-log-id-999" });
     });
@@ -397,7 +404,7 @@ describe("google-health", () => {
       fetchMock.mockResolvedValue(new Response(null, { status: 400 }));
 
       await expect(
-        createNutritionLog("token", sampleFood, fakeLog, "user-1"),
+        createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1"),
       ).rejects.toThrow("HEALTH_API_ERROR");
     });
 
@@ -405,14 +412,14 @@ describe("google-health", () => {
       fetchMock.mockResolvedValue(makeJsonResponse({ notId: 42 }));
 
       await expect(
-        createNutritionLog("token", sampleFood, fakeLog, "user-1"),
+        createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1"),
       ).rejects.toThrow("HEALTH_API_ERROR");
     });
 
     it("does not call fetch when HEALTH_DRY_RUN=true", async () => {
       vi.stubEnv("HEALTH_DRY_RUN", "true");
 
-      await createNutritionLog("token", sampleFood, fakeLog, "user-1");
+      await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
       expect(fetchMock).not.toHaveBeenCalled();
       vi.stubEnv("HEALTH_DRY_RUN", ""); // reset for next tests
@@ -421,11 +428,60 @@ describe("google-health", () => {
     it("sends Authorization: Bearer header", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-bearer" }));
 
-      await createNutritionLog("my-access-token", sampleFood, fakeLog, "user-1");
+      await createNutritionLog("my-access-token", sampleFood, sampleTiming, fakeLog, "user-1");
 
       const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       const headers = init.headers as Record<string, string>;
       expect(headers["Authorization"]).toBe("Bearer my-access-token");
+    });
+
+    // FOO-1113: the Health entry must carry the user's selected meal time + context,
+    // not be stamped at "now".
+    it("body carries the meal timestamp (start_time/end_time) and meal_type from timing", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-ts" }));
+
+      await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string);
+      expect(body.start_time).toBe("2026-02-08T20:00:00-03:00");
+      expect(body.end_time).toBe("2026-02-08T20:00:00-03:00");
+      expect(body.meal_type).toBe(5);
+    });
+
+    it("builds the timestamp without an offset when zoneOffset is absent and normalizes HH:mm", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-ts2" }));
+
+      await createNutritionLog(
+        "token",
+        sampleFood,
+        { date: "2026-02-08", time: "08:30", mealTypeId: 1 },
+        fakeLog,
+        "user-1",
+      );
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string);
+      expect(body.start_time).toBe("2026-02-08T08:30:00");
+      expect(body.meal_type).toBe(1);
+    });
+
+    it("omits start_time/end_time and meal_type when timing has no time or meal", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-ts3" }));
+
+      await createNutritionLog(
+        "token",
+        sampleFood,
+        { date: "2026-02-08", time: null },
+        fakeLog,
+        "user-1",
+      );
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string);
+      expect(body).not.toHaveProperty("start_time");
+      expect(body).not.toHaveProperty("end_time");
+      expect(body).not.toHaveProperty("meal_type");
     });
   });
 

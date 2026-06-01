@@ -422,9 +422,11 @@ describe("findMatchingFoods", () => {
     expect(result).toEqual([]);
   });
 
-  describe("HEALTH_DRY_RUN=true", () => {
-    it("includes foods with no remote health log in dry-run mode", async () => {
-      vi.stubEnv("HEALTH_DRY_RUN", "true");
+  describe("foods with no remote health log (FOO-1114)", () => {
+    it("matches foods with no health_log_id in production mode (filter removed — historical/migrated foods stay visible)", async () => {
+      // HEALTH_DRY_RUN unset (production). Pre-cutover/migrated foods have a NULL
+      // health_log_id; they MUST still be matchable — never hidden behind a remote-sync filter.
+      vi.stubEnv("HEALTH_DRY_RUN", "");
       mockGroupBy.mockResolvedValue([
         {
           custom_foods: {
