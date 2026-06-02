@@ -517,3 +517,29 @@ The unit/lint/typecheck gates and the review are all green, but the **E2E suite 
 ### Continuation Status
 **All Fix Plan tasks complete (FOO-1140, FOO-1141).** The E2E release gate is now GREEN — all 135 E2E tests pass. With the 19 original migration-fix tasks (FOO-1117..1135) and the 3 inline review fixes (FOO-1136/1137/1138) already done, the full plan is implementation-complete.
 **Release gate unchanged:** the FOO-1115 staging smoke test (`HEALTH_DRY_RUN=false`, real Google Health round-trip — create→read-back→edit→delete→confirm-gone) remains a hard manual gate before `push-to-production`, reconciling the live response shapes flagged in Tasks 4/6/9/18.
+
+### Review Findings
+
+Files reviewed: 3 (`e2e/fixtures/db.ts`, `src/components/daily-goals-card.tsx`, `src/components/__tests__/daily-goals-card.test.tsx`)
+Reviewer: single-agent (3 files, no security-sensitive changes)
+Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
+
+No issues found — both fixes are correct and follow project conventions.
+
+- **Fix 1 (FOO-1140):** the seed now sets `scope: GOOGLE_HEALTH_SCOPES.join(' ')`, byte-identical to the production OAuth format (`auth.ts:33`). `checkHealthConnection` splits on `/\s+/` and finds every required scope → `healthy`. No E2E test asserts on `scope_mismatch`/403, so the seed change neutralizes no existing coverage; the 403 scope-gate path stays covered by unit tests (FOO-1138).
+- **Fix 2 (FOO-1141):** removing the full-card `profileError` early-return is safe — `canPreview` requires `profileData !== undefined` (`daily-goals-card.tsx:100`), which is always false when SWR carries an error on first load, so the live preview and the new `role="status"` notice are mutually exclusive (no contradictory double-render in the normal failure path). Save remains gated only by `saving || isRequiredFieldsMissing`; `settingsError` still hard-errors the card and is now protected by a regression test. Unused `mutateProfile` destructure removed (zero-warnings).
+
+**Discarded findings (genuinely not bugs):**
+- [DISCARDED] EDGE-CASE: SWR could in theory hold stale `profileData` *and* an `error` simultaneously (successful load followed by a failing revalidation), rendering both the live preview and the "preview unavailable" notice. Defensible degradation (last-known preview + a notice that the refresh failed), not a correctness bug, and not reachable on the first-load-failure path the fix targets. No change.
+
+### Linear Updates
+- FOO-1140: Review → Merge
+- FOO-1141: Review → Merge
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully across Iterations 1–2 plus the E2E-gate Fix Plan. All 24 Linear issues moved to Merge (FOO-1117..1138, FOO-1140, FOO-1141; FOO-1139 deferred to Backlog). E2E release gate green (135/135). The FOO-1115 staging smoke test (`HEALTH_DRY_RUN=false`, real Google Health round-trip) remains the only hard manual gate before `push-to-production`.
