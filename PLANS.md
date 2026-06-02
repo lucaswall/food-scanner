@@ -285,3 +285,62 @@
 - **Live contract:** the nutrition write/edit/delete mechanics (Task 4) can only be fully confirmed against the real API — the staging smoke test is a hard release gate.
 - **Data semantics:** legacy numeric `unit_id` mapping (Tasks 1–2) must cover all historical values or some historical foods mislabel/400.
 - **Post-cutover:** both users must set biological sex once or the macro engine stays blocked (Task 15).
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-06-01
+**Method:** Single-agent (phase-gated; google-health.ts is shared across 8 tasks + Tasks 1–2 are lead-owned manual migrations, so the work collapses to ~1 dominant unit → parallel workers would have spent more time in merge conflicts than they'd save)
+
+### Tasks Completed This Iteration
+- **Task 1 (FOO-1117):** Migration 0027 `unit_id` integer→text now carries the `USING (CASE … END)` legacy-id backfill (baked into the committed file — correct for populated tables, not just empty CI DBs); added `assertUnitIdConverted` boot guard in `src/db/migrate.ts` that FATAL-fails the boot if 0027 is applied but `unit_id` is still integer (or a column is missing). MIGRATIONS.md runbook item 1 marked RESOLVED.
+- **Task 2 (FOO-1118):** Extended 0027 with a `jsonb_set` remap of `saved_analyses.food_analysis.unit_id` for JSON-numeric rows; added defensive `coerceServingUnit` at the read boundaries (`getSavedAnalysis`, `GET /api/shared-food/[token]`). MIGRATIONS.md runbook item 2 marked RESOLVED.
+- **Task 3 (FOO-1119):** `getGoogleHealthIdentity` now reads `healthUserId` (real v4 `{name, legacyUserId, healthUserId}` shape) instead of the non-existent `userId`; throws the typed error when `healthUserId` is missing.
+- **Task 4 (FOO-1120):** `createNutritionLog` switched from POST-to-collection to `PATCH …/dataPoints/{id}`; the stored `healthLogId` now comes from the parsed server response (`parsePatchedDataPointId` — handles DataPoint name, Operation-wrapped name, and falls back to the PATCHed id). `deleteNutritionLogs` gained a `mode: "user" | "cleanup"` (default cleanup/idempotent; `"user"` throws a distinct `HEALTH_LOG_NOT_FOUND` on 404). `food-history` DELETE uses `"user"` mode but catches the drift and still removes the local row (never strands the user — bug-hunter HIGH fix).
+- **Task 5 (FOO-1121):** dry-run `createNutritionLog` returns `{ healthLogId: null }` (return type widened to `string | null`) so the partial unique index never collides; log-food/edit-food coalesce. (Both callers already guard create behind `!isDryRun`; this hardens the source.)
+- **Task 6 (FOO-1122):** `getHealthActivitySummary` dailyRollUp body fixed to `{ range: { start, end:nextDay }, windowSizeDays: 1 }` (closed-open civil interval; was a zero-length `{startTime,endTime}` window).
+- **Task 7 (FOO-1123):** `HealthProfile.heightCm`/`HealthProfileData.heightCm` are now `number | null`; `getHealthProfile` returns `null` (no throw) when the user has no height dataPoint; `daily-goals` applies a population-neutral `FALLBACK_HEIGHT_CM = 170` with a warning log; component guards added to `health-profile-card` + `daily-goals-card` (full "height unavailable" UI is Task 16).
+
+### Tasks Remaining
+- **Task 8 (FOO-1124):** Branch HEALTH errors by status (4xx→specific, 5xx→502).
+- **Task 9 (FOO-1125):** Rate-limit breaker detects 403 RESOURCE_EXHAUSTED + evicts stale cooldowns.
+- **Task 10 (FOO-1126):** Enforce granted scopes on write routes (depends on Task 11).
+- **Task 11 (FOO-1127):** Treat omitted OAuth `scope` as all-granted.
+- **Task 12 (FOO-1128):** Bind health-connect tokens to the initiating user.
+- **Task 13 (FOO-1129):** Consistent edit-food compensation contract + CRITICAL logging + nested-failure tests (coordinates with Task 4's fail-loud delete).
+- **Task 14 (FOO-1130):** Environment↔HEALTH_DRY_RUN boot invariant.
+- **Task 15 (FOO-1131):** Require sex + activity level before save; `goals_not_set` hint.
+- **Task 16 (FOO-1132):** Health components render error/timeout states (depends on Task 7 — height-unavailable UI).
+- **Task 17 (FOO-1133):** Claude slow-path `report_nutrition` tool_result pairing.
+- **Task 18 (FOO-1134):** Align meal-write timezone with activity rollup query (coordinates with Task 6).
+- **Task 19 (FOO-1135):** Migration tech-debt sweep (stale mocks, comments, integration coverage) — includes downgrading now-stale "POST/Operation" comments in MIGRATIONS.md Phase-3 + the createNutritionLog doc that Task 4 superseded.
+
+### Files Modified
+- `drizzle/0027_google_health_migration.sql` — USING(CASE) backfill on both `unit_id` columns + `saved_analyses` jsonb_set remap
+- `src/db/migrate.ts` — `assertUnitIdConverted` boot guard (integer + missing-column checks)
+- `src/db/__tests__/migrate.test.ts` — boot-guard tests
+- `src/types/index.ts` — `HealthProfile`/`HealthProfileData` `heightCm: number | null`; legacy-map invariant test (in `src/types/__tests__/index.test.ts`)
+- `src/lib/saved-analyses.ts` + `__tests__` — coerce unit_id at `getSavedAnalysis`
+- `src/app/api/shared-food/[token]/route.ts` + `__tests__` — coerce unit_id
+- `src/lib/auth.ts` + `__tests__` — read `healthUserId`
+- `src/lib/google-health.ts` + `__tests__` — PATCH write + server-id parse, delete `mode`, dailyRollUp range, nullable height, `addDays`/`civilDateTime` helpers
+- `src/app/api/food-history/[id]/route.ts` + `__tests__` — user-delete drift handling
+- `src/app/api/log-food/route.ts` + `__tests__`, `src/app/api/edit-food/route.ts` — dry-run null healthLogId coalescing
+- `src/lib/daily-goals.ts` + `__tests__` — `FALLBACK_HEIGHT_CM` for null height
+- `src/components/health-profile-card.tsx`, `src/components/daily-goals-card.tsx` — null-height guards
+- `MIGRATIONS.md` — runbook items 1 & 2 marked RESOLVED
+
+### Linear Updates
+- FOO-1117, FOO-1118, FOO-1119, FOO-1120, FOO-1121, FOO-1122, FOO-1123: Todo → In Progress → Review
+
+### Pre-commit Verification
+- **bug-hunter:** Found 3 bugs (1 HIGH, 2 MEDIUM) + 1 withdrawn false positive. All fixed:
+  - HIGH — `mode:"user"` 404 made entries permanently undeletable (throw→502, local row stranded). Fixed: distinct `HEALTH_LOG_NOT_FOUND` error + route catches it, logs CRITICAL drift, and still deletes the local row.
+  - MEDIUM — boot guard passed silently when a `unit_id` column was absent. Fixed: missing-column check.
+  - MEDIUM — `civilDateTime` produced a `NaN` body on a malformed date. Fixed: fail-fast validation.
+- **verifier:** 3,469 tests pass (193 files), lint clean, build clean — zero warnings.
+
+### Continuation Status
+Point budget reached at a clean phase boundary (BLOCKERS 1–5 + the two contiguous google-health read fixes 6–7). Tasks 8–19 remain — the next invocation resumes at Task 8 (FOO-1124).
+**Release gate unchanged:** the FOO-1115 staging smoke test (`HEALTH_DRY_RUN=false`, real round-trip) is still required before `push-to-production`.

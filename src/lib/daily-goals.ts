@@ -12,6 +12,15 @@ import type { Logger } from "@/lib/logger";
 import type { Sex } from "@/lib/users";
 import type { ActivityLevel, NutritionGoals, NutritionGoalsAudit } from "@/types";
 
+/**
+ * Last-resort height (cm) when the user has no `height` dataPoint in Google Health
+ * (FOO-1123). A population-neutral adult median — NOT tuned to either user — so the
+ * macro engine degrades gracefully instead of blocking. The user is prompted to set an
+ * accurate height in the UI (FOO-1132); once Google Health has a height dataPoint this
+ * fallback is never used.
+ */
+const FALLBACK_HEIGHT_CM = 170;
+
 // ─── DB row shape ─────────────────────────────────────────────────────────────
 
 interface DbRow {
@@ -362,10 +371,16 @@ async function doCompute(
     }
 
     // ── Step 4: Compute macros ───────────────────────────────────────────────
+    if (profile.heightCm === null) {
+      l.warn(
+        { action: "daily_goals_height_fallback", userId, date, fallbackHeightCm: FALLBACK_HEIGHT_CM },
+        "no Google Health height dataPoint — using fallback height for macro compute",
+      );
+    }
     const engineOut = computeMacroTargets({
       sex:               userSex,
       ageYears:          profile.ageYears,
-      heightCm:          profile.heightCm,
+      heightCm:          profile.heightCm ?? FALLBACK_HEIGHT_CM,
       currentWeightKg:   weightLog.weightKg,
       activityLevel:     userActivityLevel as ActivityLevel,
       goalWeightKg:      parseFloat(userGoalWeightKg),

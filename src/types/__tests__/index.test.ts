@@ -97,6 +97,16 @@ describe("coerceServingUnit", () => {
     expect(LEGACY_FITBIT_UNIT_ID_TO_SERVING_UNIT[147]).toBe("g");
     expect(Object.keys(LEGACY_FITBIT_UNIT_ID_TO_SERVING_UNIT)).toHaveLength(8);
   });
+
+  it("maps every legacy id to a valid ServingUnit (migration backfill invariant)", () => {
+    for (const [id, unit] of Object.entries(LEGACY_FITBIT_UNIT_ID_TO_SERVING_UNIT)) {
+      // every mapped target must be a real serving unit (the migration USING-clause
+      // and coerceServingUnit both rely on this — a typo here corrupts portion labels)
+      expect(SERVING_UNITS[unit]).toBeDefined();
+      // round-trip: coercing the numeric id yields the same unit
+      expect(coerceServingUnit(Number(id))).toBe(unit);
+    }
+  });
 });
 
 describe("ServingUnit typing on data shapes", () => {

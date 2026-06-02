@@ -455,7 +455,10 @@ describe("buildGoogleHealthAuthUrl", () => {
 describe("getGoogleHealthIdentity", () => {
   it("calls health.googleapis.com identity endpoint with Bearer token", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ userId: "health-user-id-123" }), { status: 200 }),
+      new Response(
+        JSON.stringify({ name: "users/abc", legacyUserId: "legacy-123", healthUserId: "health-user-id-123" }),
+        { status: 200 },
+      ),
     );
 
     await getGoogleHealthIdentity("my-access-token");
@@ -470,13 +473,27 @@ describe("getGoogleHealthIdentity", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns the health user id string", async () => {
+  it("returns healthUserId from the documented {name, legacyUserId, healthUserId} shape", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ userId: "health-user-id-123" }), { status: 200 }),
+      new Response(
+        JSON.stringify({ name: "users/abc", legacyUserId: "legacy-999", healthUserId: "health-user-id-123" }),
+        { status: 200 },
+      ),
     );
 
     const result = await getGoogleHealthIdentity("access-token");
     expect(result).toBe("health-user-id-123");
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws the typed error when healthUserId is missing", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      // legacyUserId present but no healthUserId — must NOT be accepted
+      new Response(JSON.stringify({ name: "users/abc", legacyUserId: "legacy-999" }), { status: 200 }),
+    );
+
+    await expect(getGoogleHealthIdentity("access-token")).rejects.toThrow(/healthUserId/);
 
     vi.restoreAllMocks();
   });

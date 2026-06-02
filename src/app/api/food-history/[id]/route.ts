@@ -73,7 +73,21 @@ export async function DELETE(
     // Delete from Google Health first (if applicable), then local DB
     if (entry.healthLogId && !isDryRun) {
       const accessToken = await ensureFreshToken(session!.userId, log);
-      await deleteNutritionLogs(accessToken, [entry.healthLogId], log, session!.userId);
+      // User-initiated delete: a 404 means our stored id has no live Health entry (data
+      // drift). Surface it loudly, but the Health entry is definitively gone, so still
+      // remove the local row — never strand the user with an undeletable entry.
+      try {
+        await deleteNutritionLogs(accessToken, [entry.healthLogId], log, session!.userId, "user");
+      } catch (healthErr) {
+        if (healthErr instanceof Error && healthErr.message === "HEALTH_LOG_NOT_FOUND") {
+          log.error(
+            { action: "delete_food_log_health_drift", entryId: id, healthLogId: entry.healthLogId },
+            "CRITICAL: Google Health entry already gone (data drift) — proceeding with local delete",
+          );
+        } else {
+          throw healthErr; // transient/other Health error → mapped to the right HTTP status below
+        }
+      }
     }
 
     try {

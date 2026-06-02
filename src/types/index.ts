@@ -591,7 +591,8 @@ export interface SavedAnalysisDetail extends SavedAnalysisListItem {
 export interface HealthProfileData {
   ageYears: number;
   sex: "MALE" | "FEMALE" | "NA";
-  heightCm: number;
+  /** null when the user has no height dataPoint in Google Health (height is its own data type). */
+  heightCm: number | null;
   weightKg: number | null;
   weightLoggedDate: string | null;
   goalType: "LOSE" | "MAINTAIN" | "GAIN" | null;
@@ -601,7 +602,8 @@ export interface HealthProfileData {
 export interface HealthProfile {
   ageYears: number;
   sex: "MALE" | "FEMALE" | "NA";
-  heightCm: number;
+  /** null when the user has no height dataPoint — the goals layer applies a fallback. */
+  heightCm: number | null;
 }
 
 export interface HealthWeightLog {

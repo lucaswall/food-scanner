@@ -14,8 +14,9 @@ ALTER TABLE "fitbit_credentials" DISABLE ROW LEVEL SECURITY;--> statement-breakp
 ALTER TABLE "fitbit_tokens" DISABLE ROW LEVEL SECURITY;--> statement-breakpoint
 DROP TABLE "fitbit_credentials" CASCADE;--> statement-breakpoint
 DROP TABLE "fitbit_tokens" CASCADE;--> statement-breakpoint
-ALTER TABLE "custom_foods" ALTER COLUMN "unit_id" SET DATA TYPE text;--> statement-breakpoint
-ALTER TABLE "food_log_entries" ALTER COLUMN "unit_id" SET DATA TYPE text;--> statement-breakpoint
+ALTER TABLE "custom_foods" ALTER COLUMN "unit_id" SET DATA TYPE text USING (CASE "unit_id" WHEN 147 THEN 'g' WHEN 226 THEN 'oz' WHEN 91 THEN 'cup' WHEN 349 THEN 'tbsp' WHEN 364 THEN 'tsp' WHEN 209 THEN 'ml' WHEN 311 THEN 'slice' WHEN 304 THEN 'serving' ELSE 'serving' END);--> statement-breakpoint
+ALTER TABLE "food_log_entries" ALTER COLUMN "unit_id" SET DATA TYPE text USING (CASE "unit_id" WHEN 147 THEN 'g' WHEN 226 THEN 'oz' WHEN 91 THEN 'cup' WHEN 349 THEN 'tbsp' WHEN 364 THEN 'tsp' WHEN 209 THEN 'ml' WHEN 311 THEN 'slice' WHEN 304 THEN 'serving' ELSE 'serving' END);--> statement-breakpoint
+UPDATE "saved_analyses" SET "food_analysis" = jsonb_set("food_analysis", '{unit_id}', to_jsonb((CASE ("food_analysis"->>'unit_id') WHEN '147' THEN 'g' WHEN '226' THEN 'oz' WHEN '91' THEN 'cup' WHEN '349' THEN 'tbsp' WHEN '364' THEN 'tsp' WHEN '209' THEN 'ml' WHEN '311' THEN 'slice' WHEN '304' THEN 'serving' ELSE 'serving' END)::text)) WHERE jsonb_typeof("food_analysis"->'unit_id') = 'number';--> statement-breakpoint
 ALTER TABLE "food_log_entries" ADD COLUMN "health_log_id" text;--> statement-breakpoint
 ALTER TABLE "users" ADD COLUMN "weight_goal_type" text;--> statement-breakpoint
 ALTER TABLE "health_tokens" ADD CONSTRAINT "health_tokens_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint

@@ -99,7 +99,9 @@ describe("GET /api/shared-food/[token]", () => {
     expect(body.data.fat_g).toBe(10);
     expect(body.data.fiber_g).toBe(2);
     expect(body.data.sodium_mg).toBe(400);
-    expect(body.data.unit_id).toBe(147);
+    // 147 is the legacy Fitbit numeric id for grams — the read boundary coerces it
+    // to the ServingUnit string so clients never receive a raw numeric unit_id.
+    expect(body.data.unit_id).toBe("g");
     expect(body.data.amount).toBe(150);
     expect(body.data.saturated_fat_g).toBeNull();
     expect(body.data.trans_fat_g).toBeNull();
@@ -137,6 +139,24 @@ describe("GET /api/shared-food/[token]", () => {
     expect(body.data.transFatG).toBeUndefined();
     expect(body.data.sugarsG).toBeUndefined();
     expect(body.data.caloriesFromFat).toBeUndefined();
+  });
+
+  it("coerces a legacy numeric-string unit_id to a ServingUnit string", async () => {
+    mockGetCustomFoodByShareToken.mockResolvedValue({ ...mockFood, unitId: "91" });
+
+    const response = await GET(makeRequest("valid-token-12"), makeParams("valid-token-12"));
+    const body = await response.json();
+
+    expect(body.data.unit_id).toBe("cup");
+  });
+
+  it("passes a valid serving unit through unchanged", async () => {
+    mockGetCustomFoodByShareToken.mockResolvedValue({ ...mockFood, unitId: "tbsp" });
+
+    const response = await GET(makeRequest("valid-token-12"), makeParams("valid-token-12"));
+    const body = await response.json();
+
+    expect(body.data.unit_id).toBe("tbsp");
   });
 
   it("returns 404 for invalid token", async () => {

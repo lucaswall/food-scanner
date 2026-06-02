@@ -105,7 +105,8 @@ export function DailyGoalsCard() {
       const result = computeMacroTargets({
         sex,
         ageYears: profileData.ageYears,
-        heightCm: profileData.heightCm,
+        // null height → 0 makes the engine throw INVALID_PROFILE_DATA → preview shows "—"
+        heightCm: profileData.heightCm ?? 0,
         currentWeightKg: profileData.weightKg as number,
         activityLevel: activityLevel as ActivityLevel,
         goalWeightKg: goalWeightNum,

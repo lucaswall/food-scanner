@@ -230,7 +230,7 @@ export async function POST(request: Request) {
           keywords: existingFood.keywords ?? [],
         };
         const createResult = await createNutritionLog(accessToken, foodAnalysis, { date, time, zoneOffset, mealTypeId: body.mealTypeId }, log, userId);
-        healthLogId = createResult.healthLogId;
+        healthLogId = createResult.healthLogId ?? undefined;
       }
 
       try {
@@ -353,7 +353,7 @@ export async function POST(request: Request) {
         log,
         userId,
       );
-      healthLogId = createResult.healthLogId;
+      healthLogId = createResult.healthLogId ?? undefined;
     }
 
     // Log to database — DB is authoritative, failures trigger compensation

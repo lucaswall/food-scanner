@@ -391,6 +391,36 @@ function dataPointName(dataType: string, id: string): string {
   return `users/me/dataTypes/${dataType}/dataPoints/${id}`;
 }
 
+/** URL of a single dataPoint (id in the path) — the v4 PATCH (create/update) target. */
+function dataPointUrl(dataType: string, id: string): string {
+  return `${GOOGLE_HEALTH_API_BASE}/users/me/dataTypes/${dataType}/dataPoints/${id}`;
+}
+
+/**
+ * Extract the server-confirmed dataPoint id from a PATCH response. The body is either
+ * the DataPoint itself (`{ name: "users/.../dataPoints/{id}", … }`) or a long-running
+ * Operation wrapping it (`{ name: "operations/…", response: { name } }`). Falls back to
+ * the id we PATCHed — authoritative for a PATCH-by-id — when no dataPoint name is present.
+ */
+function parsePatchedDataPointId(data: unknown, fallbackId: string): string {
+  const idFromName = (name: unknown): string | null => {
+    if (typeof name !== "string") return null;
+    const m = /\/dataPoints\/([^/]+)$/.exec(name);
+    return m ? m[1] : null;
+  };
+  if (data && typeof data === "object") {
+    const d = data as Record<string, unknown>;
+    const fromTop = idFromName(d.name);
+    if (fromTop) return fromTop;
+    const resp = d.response;
+    if (resp && typeof resp === "object") {
+      const fromResp = idFromName((resp as Record<string, unknown>).name);
+      if (fromResp) return fromResp;
+    }
+  }
+  return fallbackId;
+}
+
 /** Module-level dry-run gate — single source of truth for both write functions. */
 function isHealthDryRun(): boolean {
   return process.env.HEALTH_DRY_RUN === "true";
@@ -503,13 +533,14 @@ function buildNutritionLogBody(name: string, food: FoodAnalysis, timing: HealthL
  * Anonymous logs are not editable in place — the app always does
  * delete-old + create-new on edit.
  *
- * POSTs to the v4 dataPoints collection. The create returns a long-running
- * Operation (not the DataPoint), so we CLIENT-PROVIDE the dataPoint `name` (the v4
- * schema allows a client id of 4–63 lowercase letters/numbers/hyphens — a UUID fits)
- * and return that id as the healthLogId without parsing the Operation. The stored id
- * is later turned back into a resource name for batchDelete.
+ * Writes are `PATCH …/dataPoints/{id}` (id in the URL path — the v4 API has no
+ * POST-to-collection create). We CLIENT-PROVIDE the dataPoint id (4–63 lowercase
+ * letters/numbers/hyphens — a UUID fits), but the stored healthLogId is taken from the
+ * PARSED response (the server-confirmed dataPoint name, or an Operation's wrapped name),
+ * falling back to the PATCHed id only when the body carries no resource name. The stored
+ * id is later turned back into a resource name for batchDelete.
  *
- * Returns { healthLogId } — the client-generated dataPoint id.
+ * Returns { healthLogId } — the server-confirmed dataPoint id.
  * Throws HEALTH_API_ERROR on non-ok response.
  *
  * NOTE: endpoint, method, envelope, and the NutritionLog body schema are confirmed
@@ -522,23 +553,25 @@ export async function createNutritionLog(
   timing: HealthLogTiming,
   log?: Logger,
   userId?: string,
-): Promise<{ healthLogId: string }> {
+): Promise<{ healthLogId: string | null }> {
   const l = log ?? logger;
 
   if (isHealthDryRun()) {
     l.debug({ action: "health_create_nutrition_log_dry_run" }, "dry run: skipping nutrition log creation");
-    return { healthLogId: "dry-run" };
+    // null (not a "dry-run" sentinel) so the partial unique index on
+    // (user_id, health_log_id) never collides across repeated dry-run logs.
+    return { healthLogId: null };
   }
 
   // Client-generated dataPoint id (lowercase hex + hyphens, 36 chars — within the
-  // 4–63 char constraint), so we know the id without parsing the async Operation.
+  // 4–63 char constraint) used as the PATCH path id.
   const dataPointId = crypto.randomUUID();
   const body = buildNutritionLogBody(dataPointName(NUTRITION_LOG_DATA_TYPE, dataPointId), food, timing);
 
   const response = await fetchWithRetry(
-    dataPointsUrl(NUTRITION_LOG_DATA_TYPE),
+    dataPointUrl(NUTRITION_LOG_DATA_TYPE, dataPointId),
     {
-      method: "POST",
+      method: "PATCH",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
@@ -558,9 +591,18 @@ export async function createNutritionLog(
     throw new Error("HEALTH_API_ERROR");
   }
 
-  // Create returns a long-running Operation; the dataPoint id is the one we supplied.
-  l.info({ action: "health_create_nutrition_log_success", healthLogId: dataPointId }, "nutrition log created");
-  return { healthLogId: dataPointId };
+  // Prefer the server-confirmed dataPoint id from the response (DataPoint name or an
+  // Operation's wrapped name); fall back to the id we PATCHed when the body has none.
+  let parsed: unknown = null;
+  try {
+    parsed = await response.json();
+  } catch {
+    parsed = null;
+  }
+  const healthLogId = parsePatchedDataPointId(parsed, dataPointId);
+
+  l.info({ action: "health_create_nutrition_log_success", healthLogId }, "nutrition log created");
+  return { healthLogId };
 }
 
 /**
@@ -569,8 +611,11 @@ export async function createNutritionLog(
  * Replaces Fitbit's deleteFoodLog (single) — batchDelete handles multi-delete
  * and makes compensation simpler (one call for edit-old-delete).
  *
- * 404 resolves without error (already-deleted idempotency — port from
- * fitbit.ts:343-349 not-found handling).
+ * `mode` controls 404 handling:
+ *   - `"cleanup"` (default) — compensation/rollback delete; a 404 means the entry is
+ *     already gone, which is the desired idempotent outcome → resolve.
+ *   - `"user"` — the user explicitly deleted a logged food; a 404 means our DB id has
+ *     no Health entry (data drift) and must NOT be silently swallowed → throw.
  * Other non-ok responses throw HEALTH_API_ERROR.
  */
 export async function deleteNutritionLogs(
@@ -578,6 +623,7 @@ export async function deleteNutritionLogs(
   ids: string[],
   log?: Logger,
   userId?: string,
+  mode: "user" | "cleanup" = "cleanup",
 ): Promise<void> {
   const l = log ?? logger;
 
@@ -601,10 +647,20 @@ export async function deleteNutritionLogs(
     0, Date.now(), l, userId, "critical",
   );
 
-  // 404 = already deleted — treat as success (idempotency)
+  // 404 = entry already gone. Idempotent for cleanup/compensation; a hard error for a
+  // user-initiated delete (the DB id has no live Health entry — surface the drift).
   if (response.status === 404) {
+    if (mode === "user") {
+      l.error(
+        { action: "health_delete_nutrition_logs_not_found", ids, mode },
+        "user-initiated delete: nutrition logs not found on Google Health (data drift)",
+      );
+      // Distinct typed error so the caller can surface the drift loudly yet still
+      // complete the user's local delete (the Health entry is definitively gone).
+      throw new Error("HEALTH_LOG_NOT_FOUND");
+    }
     l.warn(
-      { action: "health_delete_nutrition_logs_not_found", ids },
+      { action: "health_delete_nutrition_logs_not_found", ids, mode },
       "nutrition logs not found on Google Health, treating as already deleted",
     );
     return;
@@ -630,6 +686,25 @@ function subtractDays(dateStr: string, days: number): string {
   const date = new Date(dateStr + "T00:00:00Z");
   date.setUTCDate(date.getUTCDate() - days);
   return date.toISOString().slice(0, 10);
+}
+
+/** Add days to a YYYY-MM-DD date string, returning YYYY-MM-DD (handles month/year rollover). */
+function addDays(dateStr: string, days: number): string {
+  const date = new Date(dateStr + "T00:00:00Z");
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Build a v4 CivilDateTime `{ date: { year, month, day } }` from a YYYY-MM-DD string. */
+function civilDateTime(dateStr: string): { date: { year: number; month: number; day: number } } {
+  const parts = dateStr.split("-").map(Number);
+  // Fail fast on a malformed date rather than POSTing { year: NaN, … } and getting an
+  // opaque upstream 400.
+  if (parts.length !== 3 || parts.some((n) => !Number.isInteger(n))) {
+    throw new Error(`Invalid YYYY-MM-DD date for Google Health civil interval: ${dateStr}`);
+  }
+  const [year, month, day] = parts;
+  return { date: { year, month, day } };
 }
 
 /**
@@ -708,7 +783,8 @@ async function getHealthHeightCm(
  * Returns { ageYears, sex, heightCm }. The v4 `users/me/profile` resource carries the
  * derived `age` but NOT sex or height (confirmed — FOO-1115): sex is unavailable so it
  * defaults to 'NA' (keeps the daily-goals sex_unset path alive), and height is read
- * from the separate `height` data type.
+ * from the separate `height` data type — which many users will not have, so heightCm is
+ * `null` (NOT a throw) when absent; the goals layer degrades gracefully with a fallback.
  *
  * NOTE: endpoints confirmed (v4 /users/me/profile + /dataTypes/height/dataPoints); the
  * height value shape is best-effort — validate against the live API (FOO-1115).
@@ -749,13 +825,11 @@ export async function getHealthProfile(
   // sex is not part of the v4 Profile → NA (parse defensively in case it ever appears).
   const sex = parseSex(data.sex);
 
-  // height is its own data type, not a profile field.
+  // height is its own data type, not a profile field — null when the user has none.
+  // Tolerate it (mirror the sex→NA tolerance); the goals layer applies a fallback.
   const heightCm = await getHealthHeightCm(accessToken, l, userId, criticality);
-  if (heightCm === null) {
-    throw new Error("HEALTH_API_ERROR");
-  }
 
-  l.debug({ action: "health_get_profile_success" }, "profile fetched");
+  l.debug({ action: "health_get_profile_success", heightAvailable: heightCm !== null }, "profile fetched");
   return { ageYears, sex, heightCm };
 }
 
@@ -849,10 +923,9 @@ export async function getHealthActivitySummary(
   const l = log ?? logger;
   l.debug({ action: "health_get_activity_summary", date }, "fetching activity summary from Google Health");
 
-  // v4 DailyRollUp requires a `range` (CivilTimeInterval of CivilDateTime{date}),
-  // NOT {startDate,endDate} — confirmed via the v4 client + discovery Date schema.
-  const [y, mo, d] = date.split("-").map(Number);
-  const civil = { date: { year: y, month: mo, day: d } };
+  // v4 DailyRollUp requires a `range` (CivilTimeInterval { start, end } of CivilDateTime),
+  // NOT {startTime,endTime}. The interval is closed-open, so `end` is the NEXT civil day
+  // (start == end would be a zero-length window → no points). windowSizeDays:1 → one bucket.
   const response = await fetchWithRetry(
     `${dataPointsUrl("total-calories")}:dailyRollUp`,
     {
@@ -861,7 +934,10 @@ export async function getHealthActivitySummary(
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ range: { startTime: civil, endTime: civil } }),
+      body: JSON.stringify({
+        range: { start: civilDateTime(date), end: civilDateTime(addDays(date, 1)) },
+        windowSizeDays: 1,
+      }),
     },
     0, Date.now(), l, userId, criticality,
   );

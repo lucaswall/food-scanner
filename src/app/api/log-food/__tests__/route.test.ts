@@ -785,6 +785,25 @@ describe("POST /api/log-food", () => {
       expect(body.data.healthLogId).toBeUndefined();
     });
 
+    it("logs two foods for the same user in dry-run with health_log_id null each time (no unique-index collision)", async () => {
+      vi.stubEnv("HEALTH_DRY_RUN", "true");
+      mockGetSession.mockResolvedValue(validSession);
+      mockInsertCustomFoodWithLogEntry
+        .mockResolvedValueOnce({ customFoodId: 1, foodLogId: 1 })
+        .mockResolvedValueOnce({ customFoodId: 2, foodLogId: 2 });
+
+      const first = await POST(createMockRequest(validFoodLogRequest));
+      const second = await POST(createMockRequest(validFoodLogRequest));
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      // both persisted health_log_id = null — never the "dry-run" sentinel that the
+      // partial unique index (user_id, health_log_id) would reject on the 2nd insert
+      for (const call of mockInsertCustomFoodWithLogEntry.mock.calls) {
+        expect(call[2]).toEqual(expect.objectContaining({ healthLogId: null }));
+      }
+    });
+
     it("still calls insertCustomFoodWithLogEntry in new food flow with healthLogId: null", async () => {
       vi.stubEnv("HEALTH_DRY_RUN", "true");
       mockGetSession.mockResolvedValue(validSession);

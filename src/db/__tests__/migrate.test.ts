@@ -1,15 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockMigrate, mockGetDb, mockCloseDb, mockLogger } = vi.hoisted(() => ({
-  mockMigrate: vi.fn(),
-  mockGetDb: vi.fn(() => ({})),
-  mockCloseDb: vi.fn(),
-  mockLogger: {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-}));
+const { mockMigrate, mockGetDb, mockCloseDb, mockExecute, mockLogger } = vi.hoisted(() => {
+  const mockExecute = vi.fn(async () => ({
+    rows: [
+      { table_name: "custom_foods", data_type: "text" },
+      { table_name: "food_log_entries", data_type: "text" },
+    ],
+  }));
+  return {
+    mockMigrate: vi.fn(),
+    mockGetDb: vi.fn(() => ({ execute: mockExecute })),
+    mockCloseDb: vi.fn(),
+    mockExecute,
+    mockLogger: {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+    },
+  };
+});
 
 vi.mock("drizzle-orm/node-postgres/migrator", () => ({
   migrate: mockMigrate,
@@ -128,5 +138,53 @@ describe("runMigrations", () => {
     const closeDbOrder = mockCloseDb.mock.invocationCallOrder[0];
     const secondMigrateOrder = mockMigrate.mock.invocationCallOrder[1];
     expect(closeDbOrder).toBeLessThan(secondMigrateOrder);
+  });
+
+  describe("0027 unit_id boot guard", () => {
+    it("passes when unit_id columns are text after migration", async () => {
+      mockMigrate.mockResolvedValueOnce(undefined);
+
+      await runMigrations();
+
+      expect(mockExecute).toHaveBeenCalled();
+      expect(mockLogger.fatal).not.toHaveBeenCalled();
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ action: "migrations_success" }),
+        expect.any(String),
+      );
+    });
+
+    it("refuses to boot (FATAL) when 0027 is applied but unit_id is still integer", async () => {
+      mockMigrate.mockResolvedValueOnce(undefined);
+      mockExecute.mockResolvedValueOnce({
+        rows: [
+          { table_name: "custom_foods", data_type: "integer" },
+          { table_name: "food_log_entries", data_type: "text" },
+        ],
+      });
+
+      await expect(runMigrations()).rejects.toThrow(/unit_id/i);
+
+      expect(mockLogger.fatal).toHaveBeenCalledWith(
+        expect.objectContaining({ action: "migration_guard_failed" }),
+        expect.any(String),
+      );
+      // Guard failure must not retry — migrate runs exactly once.
+      expect(mockMigrate).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not log migrations_success when the guard fails", async () => {
+      mockMigrate.mockResolvedValueOnce(undefined);
+      mockExecute.mockResolvedValueOnce({
+        rows: [{ table_name: "food_log_entries", data_type: "integer" }],
+      });
+
+      await expect(runMigrations()).rejects.toThrow();
+
+      expect(mockLogger.info).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: "migrations_success" }),
+        expect.any(String),
+      );
+    });
   });
 });

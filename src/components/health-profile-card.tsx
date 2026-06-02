@@ -115,7 +115,7 @@ export function HealthProfileCard() {
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Height</span>
-            <span>{data.heightCm} cm</span>
+            <span>{data.heightCm != null ? `${data.heightCm} cm` : "Not set"}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Weight</span>

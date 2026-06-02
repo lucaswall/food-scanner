@@ -148,6 +148,7 @@ describe("DELETE /api/food-history/[id]", () => {
       ["health-log-id-789"],
       expect.any(Object),
       "user-uuid-123",
+      "user",
     );
     expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.any(Object));
 
@@ -203,6 +204,22 @@ describe("DELETE /api/food-history/[id]", () => {
     expect(response.status).toBe(502);
     const body = await response.json();
     expect(body.error.code).toBe("HEALTH_API_ERROR");
+  });
+
+  it("still deletes the local row (200) when Health reports the entry already gone (HEALTH_LOG_NOT_FOUND drift)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockDeleteNutritionLogs.mockRejectedValue(new Error("HEALTH_LOG_NOT_FOUND"));
+    mockDeleteFoodLogEntry.mockResolvedValue(undefined);
+
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
+
+    // drift is surfaced in logs, but the user is not stranded — local row is removed
+    expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.any(Object));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.deleted).toBe(true);
   });
 
   it("returns 503 HEALTH_RATE_LIMIT_LOW on rate limit", async () => {

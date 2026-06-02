@@ -317,7 +317,7 @@ export async function POST(request: Request) {
         log,
         userId,
       );
-      newHealthLogId = createResult.healthLogId;
+      newHealthLogId = createResult.healthLogId ?? undefined;
     } catch (logErr) {
       const errMsg = logErr instanceof Error ? logErr.message : String(logErr);
       log.error({ action: "edit_food_relog_failed", error: errMsg }, "failed to create new health log, attempting compensation");
