@@ -1053,13 +1053,20 @@ export async function* analyzeFood(
       throw new ClaudeApiError("The request was flagged by our safety systems and cannot be processed.");
     }
 
-    // Check if report_nutrition was called directly (fast path)
+    // Check data tools first — when both report_nutrition AND data tools appear in the same
+    // response, the slow path must run so all tools are executed and every tool_use in the
+    // assistant turn has a matching tool_result (Anthropic API requirement).
+    const dataToolUseBlocks = response.content.filter(
+      (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name !== "report_nutrition"
+    ) as Anthropic.ToolUseBlock[];
+
+    // Check if report_nutrition was called directly (fast path — only when NO data tools present)
     const reportNutritionBlock = response.content.find(
       (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name === "report_nutrition"
     ) as Anthropic.ToolUseBlock | undefined;
 
-    if (reportNutritionBlock) {
-      // Fast path: Claude called report_nutrition directly
+    if (reportNutritionBlock && dataToolUseBlocks.length === 0 && response.stop_reason !== "pause_turn") {
+      // Fast path: Claude called report_nutrition directly (no data tools in same response)
       // Record usage (fire-and-forget)
       recordUsage(userId, response.model, "food-analysis", {
         inputTokens: response.usage.input_tokens,
@@ -1100,17 +1107,35 @@ export async function* analyzeFood(
       return;
     }
 
-    // Check if Claude used any data tools (not report_nutrition)
-    const dataToolUseBlocks = response.content.filter(
-      (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name !== "report_nutrition"
-    ) as Anthropic.ToolUseBlock[];
-
     if (dataToolUseBlocks.length > 0 || response.stop_reason === "pause_turn") {
       // Slow path: data tools were used or server-side tools paused the turn
       l.info(
         { action: "analyze_food_tool_loop", dataToolCount: dataToolUseBlocks.length, stopReason: response.stop_reason },
         "running tool loop for data tools in food analysis"
       );
+
+      // Mirror runToolLoop: if response also contains report_nutrition alongside data tools,
+      // capture the analysis and add a synthetic tool_result so every tool_use in the
+      // assistant turn has a matching tool_result (Anthropic API requirement).
+      const initialReportNutritionBlocks = response.content.filter(
+        (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name === "report_nutrition"
+      ) as Anthropic.ToolUseBlock[];
+
+      let slowPathPendingAnalysis: FoodAnalysis | undefined;
+      if (initialReportNutritionBlocks.length > 0) {
+        try {
+          slowPathPendingAnalysis = validateFoodAnalysis(initialReportNutritionBlocks[0].input);
+          l.info(
+            { action: "analyze_food_slow_path_report_nutrition", foodName: slowPathPendingAnalysis.food_name },
+            "captured report_nutrition alongside data tools in slow path"
+          );
+        } catch (err) {
+          l.warn(
+            { action: "analyze_food_slow_path_report_nutrition_invalid", error: err instanceof Error ? err.message : String(err) },
+            "invalid report_nutrition in slow path, ignoring"
+          );
+        }
+      }
 
       // Yield tool_start for each data tool
       for (const tool of dataToolUseBlocks) {
@@ -1151,13 +1176,23 @@ export async function* analyzeFood(
       });
 
       // Execute the initial data tools (may be empty for pause_turn with server-side tools only)
-      const toolResults = await executeDataTools(dataToolUseBlocks, userId, currentDate, l);
+      const dataToolResults = await executeDataTools(dataToolUseBlocks, userId, currentDate, l);
+
+      // Build tool results: synthetic results for any report_nutrition blocks + actual data tool results
+      const allInitialToolResults = [
+        ...initialReportNutritionBlocks.map((block) => ({
+          type: "tool_result" as const,
+          tool_use_id: block.id,
+          content: "Nutrition analysis recorded.",
+        })),
+        ...dataToolResults,
+      ];
 
       // Build updated conversation: original user message + initial assistant response + tool results
       const updatedMessages: Anthropic.MessageParam[] = [
         userMessage,
         { role: "assistant", content: response.content },
-        ...(toolResults.length > 0 ? [{ role: "user" as const, content: toolResults }] : []),
+        ...(allInitialToolResults.length > 0 ? [{ role: "user" as const, content: allInitialToolResults }] : []),
       ];
 
       // Continue with the tool loop — wrap iteration to detect text-only completion
@@ -1195,8 +1230,12 @@ export async function* analyzeFood(
           sawAnalysis = true;
           yield event;
         } else if (event.type === "done") {
-          // If no analysis was produced and we have text, emit needs_chat
-          if (!sawAnalysis && accumulatedText.trim()) {
+          // If the tool loop didn't produce analysis, fall back to analysis captured from the
+          // initial response (e.g. report_nutrition + data tool in the same first response).
+          if (!sawAnalysis && slowPathPendingAnalysis) {
+            yield { type: "analysis", analysis: slowPathPendingAnalysis };
+          } else if (!sawAnalysis && accumulatedText.trim()) {
+            // If no analysis was produced and we have text, emit needs_chat
             yield { type: "needs_chat", message: accumulatedText };
           }
           yield event;
@@ -1486,18 +1525,50 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         });
       }
 
+      // Mirror runToolLoop: if response also contains report_nutrition alongside data tools,
+      // capture the analysis and add a synthetic tool_result so every tool_use has a result.
+      const initialReportNutritionBlocksRefine = response.content.filter(
+        (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name === "report_nutrition"
+      ) as Anthropic.ToolUseBlock[];
+
+      let refineSlowPathPendingAnalysis: FoodAnalysis | undefined;
+      if (initialReportNutritionBlocksRefine.length > 0) {
+        try {
+          refineSlowPathPendingAnalysis = validateFoodAnalysis(initialReportNutritionBlocksRefine[0].input);
+          l.info(
+            { action: "conversational_refine_slow_path_report_nutrition", foodName: refineSlowPathPendingAnalysis.food_name },
+            "captured report_nutrition alongside data tools in conversationalRefine slow path"
+          );
+        } catch (err) {
+          l.warn(
+            { action: "conversational_refine_slow_path_report_nutrition_invalid", error: err instanceof Error ? err.message : String(err) },
+            "invalid report_nutrition in conversationalRefine slow path, ignoring"
+          );
+        }
+      }
+
       // Execute initial data tools (may be empty for pause_turn with server-side tools only)
-      const toolResults = await executeDataTools(dataToolUseBlocks, userId, currentDate, l);
+      const dataToolResultsRefine = await executeDataTools(dataToolUseBlocks, userId, currentDate, l);
+
+      // Build tool results: synthetic results for report_nutrition blocks + actual data tool results
+      const allRefineInitialToolResults = [
+        ...initialReportNutritionBlocksRefine.map((block) => ({
+          type: "tool_result" as const,
+          tool_use_id: block.id,
+          content: "Nutrition analysis recorded.",
+        })),
+        ...dataToolResultsRefine,
+      ];
 
       // Build updated conversation
       const updatedMessages: Anthropic.MessageParam[] = [
         ...anthropicMessages,
         { role: "assistant", content: response.content },
-        ...(toolResults.length > 0 ? [{ role: "user" as const, content: toolResults }] : []),
+        ...(allRefineInitialToolResults.length > 0 ? [{ role: "user" as const, content: allRefineInitialToolResults }] : []),
       ];
 
-      // Continue with tool loop
-      yield* runToolLoop(updatedMessages, userId, currentDate, {
+      // Continue with tool loop — iterate to inject pendingAnalysis if the loop ends without one
+      const refineToolLoop = runToolLoop(updatedMessages, userId, currentDate, {
         systemPrompt,
         tools: allTools,
         operation: "food-chat",
@@ -1505,6 +1576,21 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         log: l,
         containerId: response.container?.id,
       });
+      let sawRefineAnalysis = false;
+      for await (const event of refineToolLoop) {
+        if (event.type === "analysis") {
+          sawRefineAnalysis = true;
+          yield event;
+        } else if (event.type === "done") {
+          // Fall back to analysis captured from the initial response if the loop didn't yield one
+          if (!sawRefineAnalysis && refineSlowPathPendingAnalysis) {
+            yield { type: "analysis", analysis: refineSlowPathPendingAnalysis };
+          }
+          yield event;
+        } else {
+          yield event;
+        }
+      }
 
       l.info({ action: "conversational_refine_done_via_tool_loop", durationMs: elapsed() }, "conversational refinement completed via tool loop");
       return;

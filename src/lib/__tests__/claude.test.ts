@@ -1224,6 +1224,95 @@ describe("analyzeFood", () => {
     const toolLoopCall = mockStream.mock.calls[1][0];
     expect(toolLoopCall.container).toBe("ctr_xyz");
   });
+
+  // ── FOO-1133: slow-path report_nutrition + data tool tool_result pairing ─────
+
+  it("slow path: first response with report_nutrition + data tool → next request has tool_results for ALL tool_uses (FOO-1133)", async () => {
+    // First stream: BOTH report_nutrition AND a data tool in the same response
+    mockStream.mockReturnValueOnce(createMockStream(
+      [
+        { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: {} } },
+        { type: "content_block_stop", index: 0 },
+        { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "t_search", name: "search_food_log", input: {} } },
+        { type: "content_block_stop", index: 1 },
+        { type: "message_stop" },
+      ],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "tool_use",
+        content: [
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: rawToolInput },
+          { type: "tool_use", id: "t_search", name: "search_food_log", input: { query: "empanada" } },
+        ],
+        usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+    mockExecuteTool.mockResolvedValueOnce("Found: Empanada — 150g, 320 cal");
+    // Second stream: end_turn (no new report_nutrition — the one in the initial response is already captured)
+    mockStream.mockReturnValueOnce(makeTextStream("Done."));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await collectEvents(analyzeFood([], "empanada", "user-123", "2026-02-15"));
+
+    // The second call (runToolLoop's first call) must have tool_results for BOTH tool_use blocks
+    const secondCall = mockStream.mock.calls[1][0];
+    // Find the assistant message with the two tool_use blocks
+    const assistantMsg = secondCall.messages.find((m: { role: string }) => m.role === "assistant");
+    const toolUseIds = (assistantMsg.content as Array<{ type: string; id?: string }>)
+      .filter((b) => b.type === "tool_use")
+      .map((b: { id?: string }) => b.id);
+    expect(toolUseIds).toHaveLength(2);
+    expect(toolUseIds).toContain("t_rpt");
+    expect(toolUseIds).toContain("t_search");
+
+    // User message after assistant must have tool_results for ALL tool_uses
+    const userToolResultMsg = secondCall.messages.find(
+      (m: { role: string; content: unknown[] }) =>
+        m.role === "user" &&
+        Array.isArray(m.content) &&
+        (m.content as Array<{ type: string }>).some((b) => b.type === "tool_result"),
+    );
+    expect(userToolResultMsg).toBeDefined();
+    const toolResultIds = (userToolResultMsg!.content as Array<{ type: string; tool_use_id?: string }>)
+      .filter((b) => b.type === "tool_result")
+      .map((b) => b.tool_use_id);
+    expect(toolResultIds).toContain("t_rpt");
+    expect(toolResultIds).toContain("t_search");
+    expect(toolResultIds).toHaveLength(2);
+  });
+
+  it("slow path: first response with report_nutrition + data tool → analysis captured as pendingAnalysis and yielded (FOO-1133)", async () => {
+    // First stream: BOTH report_nutrition AND a data tool
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "tool_use",
+        content: [
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: rawToolInput },
+          { type: "tool_use", id: "t_search", name: "search_food_log", input: { query: "empanada" } },
+        ],
+        usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+    mockExecuteTool.mockResolvedValueOnce("Found: Empanada — 150g, 320 cal");
+    // Second stream: end_turn without report_nutrition (analysis comes from pendingAnalysis captured above)
+    mockStream.mockReturnValueOnce(makeTextStream("Analysis complete."));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const events = await collectEvents(analyzeFood([], "empanada", "user-123", "2026-02-15"));
+
+    // Data tool must be executed (not silently ignored by the fast path)
+    expect(mockExecuteTool).toHaveBeenCalledTimes(1);
+    expect(mockExecuteTool).toHaveBeenCalledWith("search_food_log", expect.any(Object), expect.any(String), expect.any(String), expect.any(Object));
+    // Both streams must be consumed (initial + runToolLoop)
+    expect(mockStream).toHaveBeenCalledTimes(2);
+    // Analysis from the initial report_nutrition block must be yielded
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent).toBeDefined();
+    expect(analysisEvent?.analysis).toEqual(validAnalysis);
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+  });
 });
 
 // =============================================================================
@@ -2450,6 +2539,109 @@ describe("conversationalRefine", () => {
 
     const toolLoopCall = mockStream.mock.calls[1][0];
     expect(toolLoopCall.container).toBe("ctr_refine");
+  });
+
+  // ── FOO-1133: slow-path report_nutrition + data tool tool_result pairing ─────
+
+  it("slow path: first response with report_nutrition + data tool → next request has tool_results for ALL tool_uses (FOO-1133)", async () => {
+    // First stream: BOTH report_nutrition AND a data tool in the same response
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "tool_use",
+        content: [
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: rawToolInput },
+          { type: "tool_use", id: "t_search", name: "search_food_log", input: { query: "empanada" } },
+        ],
+        usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+    mockExecuteTool.mockResolvedValueOnce("Found: Empanada — 150g, 320 cal");
+    // Second stream (runToolLoop): end_turn
+    mockStream.mockReturnValueOnce(makeTextStream("Done."));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await collectEvents(
+      conversationalRefine(
+        [
+          { role: "user", content: "Update the analysis" },
+          { role: "assistant", content: "Got it", analysis: validAnalysis },
+          { role: "user", content: "Actually make it 200g" },
+        ],
+        "user-123",
+        "2026-02-15",
+      )
+    );
+
+    // The second call (runToolLoop's first call) must have tool_results for BOTH tool_use blocks
+    const secondCall = mockStream.mock.calls[1][0];
+    // Find the assistant message that contains the tool_use blocks (may not be the first assistant msg)
+    const assistantMsg = secondCall.messages.find(
+      (m: { role: string; content: unknown }) =>
+        m.role === "assistant" &&
+        Array.isArray(m.content) &&
+        (m.content as Array<{ type: string }>).some((b) => b.type === "tool_use"),
+    );
+    expect(assistantMsg).toBeDefined();
+    const toolUseIds = (assistantMsg!.content as Array<{ type: string; id?: string }>)
+      .filter((b) => b.type === "tool_use")
+      .map((b: { id?: string }) => b.id);
+    expect(toolUseIds).toHaveLength(2);
+    expect(toolUseIds).toContain("t_rpt");
+    expect(toolUseIds).toContain("t_search");
+
+    const userToolResultMsg = secondCall.messages.find(
+      (m: { role: string; content: unknown[] }) =>
+        m.role === "user" &&
+        Array.isArray(m.content) &&
+        (m.content as Array<{ type: string }>).some((b) => b.type === "tool_result"),
+    );
+    expect(userToolResultMsg).toBeDefined();
+    const toolResultIds = (userToolResultMsg!.content as Array<{ type: string; tool_use_id?: string }>)
+      .filter((b) => b.type === "tool_result")
+      .map((b) => b.tool_use_id);
+    expect(toolResultIds).toContain("t_rpt");
+    expect(toolResultIds).toContain("t_search");
+    expect(toolResultIds).toHaveLength(2);
+  });
+
+  it("slow path: first response with report_nutrition + data tool → analysis captured as pendingAnalysis and yielded (FOO-1133)", async () => {
+    // First stream: BOTH report_nutrition AND a data tool
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "tool_use",
+        content: [
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: rawToolInput },
+          { type: "tool_use", id: "t_search", name: "search_food_log", input: { query: "empanada" } },
+        ],
+        usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+    mockExecuteTool.mockResolvedValueOnce("Found: Empanada — 150g, 320 cal");
+    // Second stream (runToolLoop): end_turn without report_nutrition
+    mockStream.mockReturnValueOnce(makeTextStream("Update applied."));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    const events = await collectEvents(
+      conversationalRefine(
+        [
+          { role: "user", content: "Update the analysis" },
+          { role: "assistant", content: "Got it", analysis: validAnalysis },
+          { role: "user", content: "Actually make it 200g" },
+        ],
+        "user-123",
+        "2026-02-15",
+      )
+    );
+
+    // Analysis from the initial report_nutrition block must be yielded
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent).toBeDefined();
+    expect(analysisEvent?.analysis).toEqual(validAnalysis);
+    expect(events[events.length - 1]).toEqual({ type: "done" });
   });
 });
 

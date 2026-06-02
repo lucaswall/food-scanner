@@ -59,7 +59,7 @@ vi.mock("@/lib/food-log", () => ({
   updateCustomFoodMetadata: (...args: unknown[]) => mockUpdateCustomFoodMetadata(...args),
 }));
 
-const { POST, isNutritionUnchanged } = await import("@/app/api/edit-food/route");
+const { POST, isNutritionUnchanged, buildAnalysisFromEntry } = await import("@/app/api/edit-food/route");
 
 const validSession: FullSession = {
   sessionId: "test-session",
@@ -223,6 +223,7 @@ describe("POST /api/edit-food", () => {
       ["health-log-old-12345"],
       expect.any(Object),
       "user-uuid-123",
+      "user",
     );
     expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
   });
@@ -269,6 +270,7 @@ describe("POST /api/edit-food", () => {
       ["new-log-to-delete"],
       expect.any(Object),
       "user-uuid-123",
+      "cleanup",
     );
   });
 
@@ -288,12 +290,13 @@ describe("POST /api/edit-food", () => {
     const body = await response.json();
     expect(body.error.code).toBe("INTERNAL_ERROR");
 
-    // delete the new log
+    // delete the new log (cleanup mode — idempotent, no throw on 404)
     expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
       "fresh-token-compensation",
       ["new-log-to-delete"],
       expect.any(Object),
       "user-uuid-123",
+      "cleanup",
     );
     // re-create original from entry's nutrients
     expect(mockCreateNutritionLog).toHaveBeenCalledTimes(2);
@@ -306,14 +309,21 @@ describe("POST /api/edit-food", () => {
     );
   });
 
-  it("regular path: relog failure calls createNutritionLog for compensation (re-create original)", async () => {
-    // First createNutritionLog (new food) fails, triggering compensation
-    mockCreateNutritionLog.mockRejectedValue(new Error("HEALTH_API_ERROR"));
+  it("regular path: relog failure + compensation success → original error propagated (HEALTH_API_ERROR)", async () => {
+    // Relog fails, compensation re-creates original successfully → original health error propagated
+    mockCreateNutritionLog
+      .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")) // relog fails
+      .mockResolvedValueOnce({ healthLogId: "compensation-restored-log" }); // compensation succeeds
+    mockEnsureFreshToken
+      .mockResolvedValueOnce("token-primary")
+      .mockResolvedValueOnce("token-compensation");
 
     const response = await POST(createMockRequest(validBody));
     expect(response.status).toBe(502);
     const body = await response.json();
     expect(body.error.code).toBe("HEALTH_API_ERROR");
+    // Verify compensation was triggered (2 createNutritionLog calls)
+    expect(mockCreateNutritionLog).toHaveBeenCalledTimes(2);
   });
 
   it("regular path: delete failure with HEALTH_SCOPE_MISSING returns 403", async () => {
@@ -370,6 +380,7 @@ describe("POST /api/edit-food", () => {
         ["health-log-old-12345"],
         expect.any(Object),
         "user-uuid-123",
+        "user",
       );
       expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
     });
@@ -395,23 +406,32 @@ describe("POST /api/edit-food", () => {
       // leaving an orphaned compensation log + stale DB pointer → PARTIAL_ERROR so the
       // client knows manual cleanup may be needed (not a silent INTERNAL_ERROR).
       expect(body.error.code).toBe("PARTIAL_ERROR");
-      // Compensation: delete new log
+      // Compensation: delete new log (cleanup mode — idempotent)
       expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
         expect.any(String),
         ["fast-path-new-rollback"],
         expect.any(Object),
         "user-uuid-123",
+        "cleanup",
       );
     });
 
-    it("fast path: relog failure triggers compensation (re-create original)", async () => {
-      // First createNutritionLog (fast path relog) fails
-      mockCreateNutritionLog.mockRejectedValue(new Error("HEALTH_API_ERROR"));
+    it("fast path: relog failure + compensation success → original error propagated (HEALTH_API_ERROR)", async () => {
+      // Fast-path relog fails, but compensation re-create succeeds (original restored)
+      // When compensation succeeds, the original health error is returned (502 HEALTH_API_ERROR)
+      mockCreateNutritionLog
+        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")) // fast-path relog fails
+        .mockResolvedValueOnce({ healthLogId: "compensation-restored-log" }); // compensation succeeds
+      mockEnsureFreshToken
+        .mockResolvedValueOnce("token-fast-path")
+        .mockResolvedValueOnce("token-compensation");
 
       const response = await POST(createMockRequest(unchangedBody));
       expect(response.status).toBe(502);
       const body = await response.json();
       expect(body.error.code).toBe("HEALTH_API_ERROR");
+      // Verify compensation was triggered (2 createNutritionLog calls)
+      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(2);
     });
 
     it("fast path: relog-failure compensation re-creates original but DB id-link update fails → PARTIAL_ERROR", async () => {
@@ -515,6 +535,182 @@ describe("POST /api/edit-food", () => {
 
       const body = await response.json();
       expect(body.data.dryRun).toBe(true);
+    });
+  });
+
+  // ── FOO-1129: compensation contract + CRITICAL logging ──────────────────────
+
+  describe("fast path: compensation failure contract (FOO-1129)", () => {
+    const unchangedBodyFP = {
+      entryId: 42,
+      food_name: "Empanada de carne",
+      amount: 150,
+      unit_id: "g",
+      calories: 320,
+      protein_g: 12,
+      carbs_g: 28,
+      fat_g: 18,
+      fiber_g: 2,
+      sodium_mg: 450,
+      saturated_fat_g: null,
+      trans_fat_g: null,
+      sugars_g: null,
+      calories_from_fat: null,
+      confidence: "high" as const,
+      notes: "Baked style",
+      description: "Standard Argentine beef empanada",
+      keywords: ["empanada", "carne"],
+      mealTypeId: 5,
+      date: "2026-02-15",
+      time: "20:00:00",
+    };
+
+    it("delete-ok + relog-fail + compensation-fail → PARTIAL_ERROR (not the original health error) (FOO-1129)", async () => {
+      // Delete succeeds, fast-path relog fails, compensation re-create also fails
+      mockCreateNutritionLog
+        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")) // fast-path relog fails
+        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")); // compensation re-create fails
+      mockEnsureFreshToken
+        .mockResolvedValueOnce("token-fast-path")
+        .mockResolvedValueOnce("token-compensation");
+
+      const response = await POST(createMockRequest(unchangedBodyFP));
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      // Must be PARTIAL_ERROR, not the original HEALTH_API_ERROR (which would be 502)
+      expect(body.error.code).toBe("PARTIAL_ERROR");
+    });
+
+    it("delete-ok + relog-fail + compensation-fail → CRITICAL log includes oldHealthLogId (FOO-1129)", async () => {
+      mockCreateNutritionLog
+        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR"))
+        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR"));
+      mockEnsureFreshToken
+        .mockResolvedValueOnce("token-fast-path")
+        .mockResolvedValueOnce("token-compensation");
+
+      await POST(createMockRequest(unchangedBodyFP));
+
+      const { logger } = await import("@/lib/logger") as unknown as { logger: { error: ReturnType<typeof vi.fn> } };
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ oldHealthLogId: "health-log-old-12345" }),
+        expect.stringContaining("CRITICAL"),
+      );
+    });
+
+    it("fast path: primary delete uses mode=user (throws on 404 drift) (FOO-1129)", async () => {
+      await POST(createMockRequest(unchangedBodyFP));
+      // Primary delete should use mode "user" so a 404 surfaces as HEALTH_LOG_NOT_FOUND
+      expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
+        expect.any(String),
+        ["health-log-old-12345"],
+        expect.any(Object),
+        "user-uuid-123",
+        "user",
+      );
+    });
+  });
+
+  describe("regular path: compensation failure contract (FOO-1129)", () => {
+    it("delete-ok + relog-fail + compensation-fail → PARTIAL_ERROR (not the original health error) (FOO-1129)", async () => {
+      // Delete succeeds, new log creation fails, compensation re-create also fails
+      mockCreateNutritionLog
+        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")) // relog fails
+        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")); // compensation re-create fails
+      mockEnsureFreshToken
+        .mockResolvedValueOnce("token-primary")
+        .mockResolvedValueOnce("token-compensation");
+
+      const response = await POST(createMockRequest(validBody));
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body.error.code).toBe("PARTIAL_ERROR");
+    });
+
+    it("delete-ok + relog-fail + compensation-fail → CRITICAL log includes oldHealthLogId (FOO-1129)", async () => {
+      mockCreateNutritionLog
+        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR"))
+        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR"));
+      mockEnsureFreshToken
+        .mockResolvedValueOnce("token-primary")
+        .mockResolvedValueOnce("token-compensation");
+
+      await POST(createMockRequest(validBody));
+
+      const { logger } = await import("@/lib/logger") as unknown as { logger: { error: ReturnType<typeof vi.fn> } };
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ oldHealthLogId: "health-log-old-12345" }),
+        expect.stringContaining("CRITICAL"),
+      );
+    });
+
+    it("regular path: primary delete uses mode=user (throws on 404 drift) (FOO-1129)", async () => {
+      await POST(createMockRequest(validBody));
+      expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
+        expect.any(String),
+        ["health-log-old-12345"],
+        expect.any(Object),
+        "user-uuid-123",
+        "user",
+      );
+    });
+
+    it("DB compensation: delete-fail → PARTIAL_ERROR (FOO-1129)", async () => {
+      // New log created, DB update fails, then compensation deleteNutritionLogs also fails
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "new-log-123" });
+      mockUpdateFoodLogEntry.mockRejectedValue(new Error("DB error"));
+      mockDeleteNutritionLogs
+        .mockResolvedValueOnce(undefined)  // primary delete succeeds
+        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")); // compensation delete fails
+      mockEnsureFreshToken
+        .mockResolvedValueOnce("token-primary")
+        .mockResolvedValueOnce("token-compensation");
+
+      const response = await POST(createMockRequest(validBody));
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body.error.code).toBe("PARTIAL_ERROR");
+    });
+  });
+
+  // ── buildAnalysisFromEntry unit tests (FOO-1129) ────────────────────────────
+
+  describe("buildAnalysisFromEntry", () => {
+    it("maps all entry fields to FoodAnalysis correctly", () => {
+      const result = buildAnalysisFromEntry(existingEntry);
+      expect(result.food_name).toBe("Empanada de carne");
+      expect(result.amount).toBe(150);
+      expect(result.unit_id).toBe("g");
+      expect(result.calories).toBe(320);
+      expect(result.protein_g).toBe(12);
+      expect(result.carbs_g).toBe(28);
+      expect(result.fat_g).toBe(18);
+      expect(result.fiber_g).toBe(2);
+      expect(result.sodium_mg).toBe(450);
+      expect(result.saturated_fat_g).toBeNull();
+      expect(result.trans_fat_g).toBeNull();
+      expect(result.sugars_g).toBeNull();
+      expect(result.calories_from_fat).toBeNull();
+      expect(result.confidence).toBe("high");
+      expect(result.notes).toBe("Baked style");
+      expect(result.description).toBe("Standard Argentine beef empanada");
+      expect(result.keywords).toEqual(["empanada", "carne"]);
+    });
+
+    it("coerces null optional fields to null (not undefined)", () => {
+      const entryWithNulls = { ...existingEntry, saturatedFatG: null, transFatG: null, sugarsG: null, caloriesFromFat: null };
+      const result = buildAnalysisFromEntry(entryWithNulls);
+      expect(result.saturated_fat_g).toBeNull();
+      expect(result.trans_fat_g).toBeNull();
+      expect(result.sugars_g).toBeNull();
+      expect(result.calories_from_fat).toBeNull();
+    });
+
+    it("coerces null notes/description to empty string", () => {
+      const entryWithNulls = { ...existingEntry, notes: null, description: null };
+      const result = buildAnalysisFromEntry(entryWithNulls);
+      expect(result.notes).toBe("");
+      expect(result.description).toBe("");
     });
   });
 });
