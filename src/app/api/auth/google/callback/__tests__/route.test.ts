@@ -11,6 +11,8 @@ vi.mock("@/lib/auth", () => ({
   buildGoogleAuthUrl: vi.fn(),
   exchangeGoogleCode: vi.fn(),
   getGoogleProfile: vi.fn(),
+  exchangeGoogleHealthCode: vi.fn(),
+  getGoogleHealthIdentity: vi.fn(),
 }));
 
 // Mock session module — getRawSession returns mutable iron-session object
@@ -30,20 +32,18 @@ vi.mock("@/lib/session", () => ({
 
 // Mock session-db
 const mockCreateSession = vi.fn();
+const mockGetSessionById = vi.fn();
 vi.mock("@/lib/session-db", () => ({
   createSession: (...args: unknown[]) => mockCreateSession(...args),
+  getSessionById: (...args: unknown[]) => mockGetSessionById(...args),
 }));
 
-// Mock fitbit-tokens
-const mockGetFitbitTokens = vi.fn();
-vi.mock("@/lib/fitbit-tokens", () => ({
-  getFitbitTokens: (...args: unknown[]) => mockGetFitbitTokens(...args),
-}));
-
-// Mock fitbit-credentials
-const mockHasFitbitCredentials = vi.fn();
-vi.mock("@/lib/fitbit-credentials", () => ({
-  hasFitbitCredentials: (...args: unknown[]) => mockHasFitbitCredentials(...args),
+// Mock health-tokens
+const mockGetHealthTokens = vi.fn();
+const mockUpsertHealthTokens = vi.fn();
+vi.mock("@/lib/health-tokens", () => ({
+  getHealthTokens: (...args: unknown[]) => mockGetHealthTokens(...args),
+  upsertHealthTokens: (...args: unknown[]) => mockUpsertHealthTokens(...args),
 }));
 
 // Mock rate limiter
@@ -72,14 +72,22 @@ vi.mock("@/lib/logger", () => {
   };
 });
 
-const { exchangeGoogleCode, getGoogleProfile } = await import("@/lib/auth");
+const { exchangeGoogleCode, getGoogleProfile, exchangeGoogleHealthCode, getGoogleHealthIdentity } = await import("@/lib/auth");
 const { GET } = await import("@/app/api/auth/google/callback/route");
 const { logger } = await import("@/lib/logger");
 
 const mockExchangeGoogleCode = vi.mocked(exchangeGoogleCode);
 const mockGetGoogleProfile = vi.mocked(getGoogleProfile);
+const mockExchangeGoogleHealthCode = vi.mocked(exchangeGoogleHealthCode);
+const mockGetGoogleHealthIdentity = vi.mocked(getGoogleHealthIdentity);
 
 const fakeUser = { id: "user-uuid-123", email: "test@example.com", name: "Test User" };
+const fakeDbSession = {
+  id: "new-session-uuid",
+  userId: "user-uuid-123",
+  createdAt: new Date(),
+  expiresAt: new Date(Date.now() + 86400000),
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -91,10 +99,13 @@ beforeEach(() => {
   mockRawSession.destroy = vi.fn();
   mockRawSession.oauthState = "test-state"; // State stored in iron-session
   mockCreateSession.mockResolvedValue("new-session-uuid");
-  mockGetFitbitTokens.mockResolvedValue(null);
-  mockHasFitbitCredentials.mockResolvedValue(false);
+  mockGetHealthTokens.mockResolvedValue(null);
+  mockUpsertHealthTokens.mockResolvedValue(undefined);
+  mockGetSessionById.mockResolvedValue(null);
   mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 9 });
   mockGetOrCreateUser.mockResolvedValue(fakeUser);
+  // Default: emailVerified: true so login flow tests pass without explicit setup
+  mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User", emailVerified: true });
 });
 
 function makeCallbackRequest(code: string | null, state: string | null) {
@@ -107,10 +118,7 @@ function makeCallbackRequest(code: string | null, state: string | null) {
 describe("GET /api/auth/google/callback", () => {
   it("creates user record and DB session with userId, stores sessionId in cookie, and redirects", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
-    mockGetGoogleProfile.mockResolvedValue({
-      email: "test@example.com",
-      name: "Test User",
-    });
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User", emailVerified: true });
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state"));
     expect(response.status).toBe(302);
@@ -123,10 +131,7 @@ describe("GET /api/auth/google/callback", () => {
   it("allows second email in allowlist", async () => {
     vi.stubEnv("ALLOWED_EMAILS", "first@example.com, test@example.com");
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
-    mockGetGoogleProfile.mockResolvedValue({
-      email: "test@example.com",
-      name: "Test User",
-    });
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User", emailVerified: true });
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state"));
     expect(response.status).toBe(302);
@@ -136,10 +141,7 @@ describe("GET /api/auth/google/callback", () => {
   it("reads OAuth state from iron-session, not plain cookie", async () => {
     mockRawSession.oauthState = "session-state";
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
-    mockGetGoogleProfile.mockResolvedValue({
-      email: "test@example.com",
-      name: "Test User",
-    });
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User", emailVerified: true });
 
     // State in URL matches session state
     const response = await GET(makeCallbackRequest("valid-code", "session-state"));
@@ -155,10 +157,7 @@ describe("GET /api/auth/google/callback", () => {
 
   it("clears oauthState from session after successful auth", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
-    mockGetGoogleProfile.mockResolvedValue({
-      email: "test@example.com",
-      name: "Test User",
-    });
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User", emailVerified: true });
 
     await GET(makeCallbackRequest("valid-code", "test-state"));
     expect(mockRawSession.oauthState).toBeUndefined();
@@ -167,10 +166,7 @@ describe("GET /api/auth/google/callback", () => {
 
   it("returns 403 for disallowed email", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
-    mockGetGoogleProfile.mockResolvedValue({
-      email: "hacker@evil.com",
-      name: "Hacker",
-    });
+    mockGetGoogleProfile.mockResolvedValue({ email: "hacker@evil.com", name: "Hacker", emailVerified: true });
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state"));
     expect(response.status).toBe(403);
@@ -181,10 +177,7 @@ describe("GET /api/auth/google/callback", () => {
   it("uses APP_URL for redirect URI and post-login redirect, not request.url", async () => {
     vi.stubEnv("APP_URL", "https://food.lucaswall.me");
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
-    mockGetGoogleProfile.mockResolvedValue({
-      email: "test@example.com",
-      name: "Test User",
-    });
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User", emailVerified: true });
 
     const url = new URL("http://internal:8080/api/auth/google/callback");
     url.searchParams.set("code", "valid-code");
@@ -241,48 +234,22 @@ describe("GET /api/auth/google/callback", () => {
     );
   });
 
-  it("redirects to /app when Fitbit tokens exist in DB", async () => {
+  it("redirects to /app when health tokens exist in DB", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
-    mockGetGoogleProfile.mockResolvedValue({
-      email: "test@example.com",
-      name: "Test User",
-    });
-    mockGetFitbitTokens.mockResolvedValue({ accessToken: "existing" });
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User", emailVerified: true });
+    mockGetHealthTokens.mockResolvedValue({ accessToken: "existing" });
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state"));
-    expect(response.headers.get("location")).toBe(
-      "http://localhost:3000/app",
-    );
+    expect(response.headers.get("location")).toBe("http://localhost:3000/app");
   });
 
-  it("redirects to /app/setup-fitbit when no credentials and no tokens", async () => {
+  it("redirects to /app/connect-health when no health tokens", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
-    mockGetGoogleProfile.mockResolvedValue({
-      email: "test@example.com",
-      name: "Test User",
-    });
-    mockGetFitbitTokens.mockResolvedValue(null);
-    mockHasFitbitCredentials.mockResolvedValue(false);
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User", emailVerified: true });
+    mockGetHealthTokens.mockResolvedValue(null);
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state"));
-    expect(response.headers.get("location")).toBe(
-      "http://localhost:3000/app/setup-fitbit",
-    );
-  });
-
-  it("redirects to /api/auth/fitbit when credentials exist but no tokens", async () => {
-    mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
-    mockGetGoogleProfile.mockResolvedValue({
-      email: "test@example.com",
-      name: "Test User",
-    });
-    mockGetFitbitTokens.mockResolvedValue(null);
-    mockHasFitbitCredentials.mockResolvedValue(true);
-
-    const response = await GET(makeCallbackRequest("valid-code", "test-state"));
-    expect(response.headers.get("location")).toBe(
-      "http://localhost:3000/api/auth/fitbit",
-    );
+    expect(response.headers.get("location")).toBe("http://localhost:3000/app/connect-health");
   });
 
   // Logging tests
@@ -296,7 +263,7 @@ describe("GET /api/auth/google/callback", () => {
 
   it("logs warn on unauthorized email with masked email", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "token" });
-    mockGetGoogleProfile.mockResolvedValue({ email: "bad@evil.com", name: "Bad" });
+    mockGetGoogleProfile.mockResolvedValue({ email: "bad@evil.com", name: "Bad", emailVerified: true });
     await GET(makeCallbackRequest("code", "test-state"));
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -310,7 +277,7 @@ describe("GET /api/auth/google/callback", () => {
   it("throws when ALLOWED_EMAILS env var is unset", async () => {
     vi.stubEnv("ALLOWED_EMAILS", "");
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "token" });
-    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test" });
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test", emailVerified: true });
 
     await expect(GET(makeCallbackRequest("code", "test-state"))).rejects.toThrow(
       "Required environment variable ALLOWED_EMAILS is not set",
@@ -322,10 +289,7 @@ describe("GET /api/auth/google/callback", () => {
 
   it("logs info on successful login with masked email", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "token" });
-    mockGetGoogleProfile.mockResolvedValue({
-      email: "test@example.com",
-      name: "Test User",
-    });
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User", emailVerified: true });
     await GET(makeCallbackRequest("code", "test-state"));
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -336,29 +300,28 @@ describe("GET /api/auth/google/callback", () => {
     );
   });
 
-  it("redirects to returnTo when JSON state contains returnTo and user has Fitbit tokens", async () => {
+  it("redirects to returnTo when JSON state contains returnTo and user has health tokens", async () => {
     const jsonState = JSON.stringify({ nonce: "abc-nonce", returnTo: "/app/log-shared/tok123" });
     mockRawSession.oauthState = jsonState;
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
-    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User" });
-    mockGetFitbitTokens.mockResolvedValue({ accessToken: "existing" });
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User", emailVerified: true });
+    mockGetHealthTokens.mockResolvedValue({ accessToken: "existing" });
 
     const response = await GET(makeCallbackRequest("valid-code", jsonState));
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("http://localhost:3000/app/log-shared/tok123");
   });
 
-  it("uses normal /app redirect when JSON state has returnTo but user is in Fitbit setup flow", async () => {
+  it("redirects to /app/connect-health when JSON state has returnTo but user has no health tokens", async () => {
     const jsonState = JSON.stringify({ nonce: "abc-nonce", returnTo: "/app/log-shared/tok123" });
     mockRawSession.oauthState = jsonState;
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
-    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User" });
-    mockGetFitbitTokens.mockResolvedValue(null);
-    mockHasFitbitCredentials.mockResolvedValue(false);
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User", emailVerified: true });
+    mockGetHealthTokens.mockResolvedValue(null);
 
     const response = await GET(makeCallbackRequest("valid-code", jsonState));
     expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe("http://localhost:3000/app/setup-fitbit");
+    expect(response.headers.get("location")).toBe("http://localhost:3000/app/connect-health");
   });
 
   it("returns 429 when rate limit exceeded", async () => {
@@ -381,10 +344,7 @@ describe("GET /api/auth/google/callback", () => {
       return { access_token: "google-token" };
     });
 
-    mockGetGoogleProfile.mockResolvedValue({
-      email: "test@example.com",
-      name: "Test User",
-    });
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User", emailVerified: true });
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state"));
     expect(response.status).toBe(302);
@@ -394,5 +354,176 @@ describe("GET /api/auth/google/callback", () => {
 
     // Save should have been called at least once before token exchange
     expect(saveCallCount).toBeGreaterThanOrEqual(1);
+  });
+
+  // email_verified gate tests
+  it("returns 403 with AUTH_INVALID_EMAIL when emailVerified is false", async () => {
+    mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User", emailVerified: false });
+
+    const response = await GET(makeCallbackRequest("valid-code", "test-state"));
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body.error.code).toBe("AUTH_INVALID_EMAIL");
+  });
+
+  it("does not call getOrCreateUser or createSession when emailVerified is false", async () => {
+    mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User", emailVerified: false });
+
+    await GET(makeCallbackRequest("valid-code", "test-state"));
+    expect(mockGetOrCreateUser).not.toHaveBeenCalled();
+    expect(mockCreateSession).not.toHaveBeenCalled();
+  });
+
+  it("warns with google_callback_email_not_verified when emailVerified is false", async () => {
+    mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User", emailVerified: false });
+
+    await GET(makeCallbackRequest("valid-code", "test-state"));
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "google_callback_email_not_verified" }),
+      expect.any(String),
+    );
+  });
+
+  // health-connect flow tests
+  it("health-connect: happy path - upserts health tokens and redirects to /app", async () => {
+    const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect" });
+    mockRawSession.oauthState = healthState;
+    mockRawSession.sessionId = "existing-session-id";
+    mockGetSessionById.mockResolvedValue(fakeDbSession);
+    mockExchangeGoogleHealthCode.mockResolvedValue({
+      access_token: "health-at",
+      refresh_token: "health-rt",
+      expires_in: 3600,
+      scope: "https://www.googleapis.com/auth/googlehealth.profile.readonly",
+    });
+    mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
+
+    const response = await GET(makeCallbackRequest("health-code", healthState));
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("http://localhost:3000/app");
+    expect(mockUpsertHealthTokens).toHaveBeenCalledWith(
+      "user-uuid-123",
+      expect.objectContaining({
+        healthUserId: "health-uid-123",
+        refreshToken: "health-rt",
+        scope: "https://www.googleapis.com/auth/googlehealth.profile.readonly",
+      }),
+      expect.anything(),
+    );
+    expect(mockCreateSession).not.toHaveBeenCalled();
+  });
+
+  it("health-connect: does not call createSession", async () => {
+    const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect" });
+    mockRawSession.oauthState = healthState;
+    mockRawSession.sessionId = "existing-session-id";
+    mockGetSessionById.mockResolvedValue(fakeDbSession);
+    mockExchangeGoogleHealthCode.mockResolvedValue({
+      access_token: "health-at",
+      refresh_token: "health-rt",
+    });
+    mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
+
+    await GET(makeCallbackRequest("health-code", healthState));
+    expect(mockCreateSession).not.toHaveBeenCalled();
+  });
+
+  it("health-connect: returns 401 when no sessionId in cookie", async () => {
+    const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect" });
+    mockRawSession.oauthState = healthState;
+    // sessionId NOT set in raw session
+    mockGetSessionById.mockResolvedValue(null);
+
+    const response = await GET(makeCallbackRequest("health-code", healthState));
+    expect(response.status).toBe(401);
+    const body = await response.json();
+    expect(body.error.code).toBe("AUTH_MISSING_SESSION");
+  });
+
+  it("health-connect: returns 401 when DB session not found", async () => {
+    const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect" });
+    mockRawSession.oauthState = healthState;
+    mockRawSession.sessionId = "stale-session-id";
+    mockGetSessionById.mockResolvedValue(null); // DB session expired/not found
+
+    const response = await GET(makeCallbackRequest("health-code", healthState));
+    expect(response.status).toBe(401);
+    const body = await response.json();
+    expect(body.error.code).toBe("AUTH_MISSING_SESSION");
+  });
+
+  it("health-connect: returns 400 when refresh_token is missing from token response", async () => {
+    const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect" });
+    mockRawSession.oauthState = healthState;
+    mockRawSession.sessionId = "existing-session-id";
+    mockGetSessionById.mockResolvedValue(fakeDbSession);
+    mockExchangeGoogleHealthCode.mockRejectedValue(new Error("Invalid Google Health token response: missing refresh_token"));
+
+    const response = await GET(makeCallbackRequest("health-code", healthState));
+    expect(response.status).toBe(400);
+  });
+
+  it("health-connect: returns 500 HEALTH_TOKEN_SAVE_FAILED when upsert throws", async () => {
+    const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect" });
+    mockRawSession.oauthState = healthState;
+    mockRawSession.sessionId = "existing-session-id";
+    mockGetSessionById.mockResolvedValue(fakeDbSession);
+    mockExchangeGoogleHealthCode.mockResolvedValue({
+      access_token: "health-at",
+      refresh_token: "health-rt",
+      expires_in: 3600,
+    });
+    mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
+    mockUpsertHealthTokens.mockRejectedValue(new Error("db connection lost"));
+
+    const response = await GET(makeCallbackRequest("health-code", healthState));
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_TOKEN_SAVE_FAILED");
+  });
+
+  // open-redirect guard tests
+  it("health-connect: rejects absolute-URL returnTo and falls back to /app", async () => {
+    // An attacker could embed returnTo: "https://evil.com" hoping for an open redirect.
+    // The guard (startsWith("/") && !startsWith("//")) must reject it and fall back to /app.
+    const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect", returnTo: "https://evil.com/steal" });
+    mockRawSession.oauthState = healthState;
+    mockRawSession.sessionId = "existing-session-id";
+    mockGetSessionById.mockResolvedValue(fakeDbSession);
+    mockExchangeGoogleHealthCode.mockResolvedValue({
+      access_token: "health-at",
+      refresh_token: "health-rt",
+      expires_in: 3600,
+    });
+    mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
+
+    const response = await GET(makeCallbackRequest("health-code", healthState));
+    expect(response.status).toBe(302);
+    // Must redirect to /app, NOT to the external URL
+    expect(response.headers.get("location")).toBe("http://localhost:3000/app");
+    expect(response.headers.get("location")).not.toContain("evil.com");
+  });
+
+  it("health-connect: rejects protocol-relative returnTo (//evil.com) and falls back to /app", async () => {
+    // Protocol-relative URLs start with "/" but also with "//" — both checks are needed.
+    const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect", returnTo: "//evil.com/steal" });
+    mockRawSession.oauthState = healthState;
+    mockRawSession.sessionId = "existing-session-id";
+    mockGetSessionById.mockResolvedValue(fakeDbSession);
+    mockExchangeGoogleHealthCode.mockResolvedValue({
+      access_token: "health-at",
+      refresh_token: "health-rt",
+      expires_in: 3600,
+    });
+    mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
+
+    const response = await GET(makeCallbackRequest("health-code", healthState));
+    expect(response.status).toBe(302);
+    // Must redirect to /app, NOT to the protocol-relative external URL
+    expect(response.headers.get("location")).toBe("http://localhost:3000/app");
+    expect(response.headers.get("location")).not.toContain("evil.com");
   });
 });

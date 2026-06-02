@@ -2,7 +2,7 @@
 name: plan-inline
 description: Create TDD implementation plans from direct feature requests. Use when user provides a task description like "add X feature", "create Y function", or "implement Z". Creates Linear issues in Todo state. Faster than plan-backlog for ad-hoc requests that don't need backlog tracking.
 argument-hint: <task description>
-allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+allowed-tools: Read, Edit, Write, Glob, Grep, Agent, Bash, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
 
@@ -72,7 +72,7 @@ Example arguments:
 **IMPORTANT: Do NOT hardcode MCP names or folder paths.** Always read CLAUDE.md to discover:
 
 1. **Available MCP servers** - Look for the "MCP SERVERS" section to find:
-   - Railway MCP for deployment context (`get-logs`, `list-deployments`, `list-services`, `list-variables`)
+   - Railway MCP for deployment context (`get_logs`, `list_deployments`, `list_services`, `list_variables`, `environment_status`)
    - Linear MCP for issue tracking (`list_issues`, `get_issue`, `create_issue`, etc.)
 
 2. **Project structure** - Look for "STRUCTURE" section to understand:
@@ -90,7 +90,7 @@ Example arguments:
 1. **Read PLANS.md** - Pre-flight check
 2. **Read CLAUDE.md** - Understand TDD workflow, agents, project rules, available MCPs, discover team name
 3. **Parse $ARGUMENTS** - Understand what needs to be implemented
-4. **Explore codebase** - Use Glob/Grep/Task to find relevant files and understand patterns
+4. **Explore codebase** - Use Glob/Grep/Agent to find relevant files and understand patterns
 5. **Gather MCP context** - If the task relates to:
    - Deployment → Check service status, recent logs
    - Existing issues → Check Linear for related issues or context
@@ -119,7 +119,7 @@ Example arguments:
 **How to explore:**
 - Use Glob for finding files by pattern: `src/**/*.ts`, `**/*.test.ts`
 - Use Grep for finding code: function names, type definitions, error messages
-- Use Task with `subagent_type=Explore` for broader questions about the codebase
+- Use the Agent tool with `subagent_type=Explore` for broader questions about the codebase
 
 **What to discover:**
 - Existing functions that could be reused or extended

@@ -8,6 +8,8 @@ const mockStream = vi.fn();
 vi.mock("@anthropic-ai/sdk", () => {
   class MockAnthropic {
     messages = { stream: mockStream };
+    // Task 25: beta.messages.stream is the path used after A3 migration
+    beta = { messages: { stream: mockStream } };
   }
   return { default: MockAnthropic };
 });
@@ -73,7 +75,7 @@ function makeValidItem(overrides: Record<string, unknown> = {}): Record<string, 
   return {
     food_name: "Empanada de carne",
     amount: 150,
-    unit_id: 147,
+    serving_unit: "g",
     calories: 320,
     protein_g: 12,
     carbs_g: 28,
@@ -109,7 +111,7 @@ describe("validateSessionItems", () => {
   it("filters out invalid items missing required fields", () => {
     const input = [
       makeValidItem(), // valid
-      { food_name: "", amount: 100, unit_id: 147, calories: 100, protein_g: 5, carbs_g: 10, fat_g: 3, fiber_g: 1, sodium_mg: 100, confidence: "high", notes: "", description: "", keywords: [], time: "12:30", meal_type_id: 3, date: "2026-04-09", capture_indices: [] }, // invalid: empty food_name
+      { food_name: "", amount: 100, serving_unit: "g", calories: 100, protein_g: 5, carbs_g: 10, fat_g: 3, fiber_g: 1, sodium_mg: 100, confidence: "high", notes: "", description: "", keywords: [], time: "12:30", meal_type_id: 3, date: "2026-04-09", capture_indices: [] }, // invalid: empty food_name
       makeValidItem({ food_name: "Valid item 2", calories: 200 }), // valid
     ];
     const result = validateSessionItems(input);
@@ -206,7 +208,7 @@ describe("REPORT_SESSION_ITEMS_TOOL", () => {
 
     expect(itemRequired).toContain("food_name");
     expect(itemRequired).toContain("amount");
-    expect(itemRequired).toContain("unit_id");
+    expect(itemRequired).toContain("serving_unit");
     expect(itemRequired).toContain("calories");
     expect(itemRequired).toContain("protein_g");
     expect(itemRequired).toContain("carbs_g");

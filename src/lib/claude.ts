@@ -1,14 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 import * as Sentry from "@sentry/nextjs";
 import type { FoodAnalysis, ConversationMessage, FoodLogEntryDetail } from "@/types";
-import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
+import { getUnitLabel, MEAL_TYPE_LABELS, coerceServingUnit } from "@/types";
 import { logger, startTimer } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
 import { isValidDateFormat } from "@/lib/date-utils";
 import { recordUsage } from "@/lib/claude-usage";
 import { executeTool, SEARCH_FOOD_LOG_TOOL, GET_NUTRITION_SUMMARY_TOOL, GET_FASTING_INFO_TOOL, SEARCH_NUTRITION_LABELS_TOOL, SAVE_NUTRITION_LABEL_TOOL, MANAGE_NUTRITION_LABEL_TOOL } from "@/lib/chat-tools";
-import { buildUserProfile } from "@/lib/user-profile";
+// buildUserProfile moved to @/lib/claude-prompts (used by getSystemPrompt)
 import type { StreamEvent } from "@/lib/sse";
 
 // Using base model alias — dated snapshots may not be available yet
@@ -28,209 +28,42 @@ function getClient(): Anthropic {
   return _client;
 }
 
-export const SYSTEM_PROMPT = `You are a nutrition analyst specializing in Argentine and Latin American cuisine.
-Analyze food images and descriptions to provide accurate nutritional information.
-Consider typical Argentine portions and preparation methods.
-Choose the most natural measurement unit for each food (e.g., cups for beverages, grams for solid food, slices for pizza/bread).
-Always estimate Tier 1 nutrients (saturated_fat_g, trans_fat_g, sugars_g, calories_from_fat) — provide your best numeric estimate (use 0 when the value is likely negligible).`;
+// ─── Prompt constants and builders — re-exported from claude-prompts.ts (barrel) ───
+export {
+  SYSTEM_PROMPT,
+  CHAT_ROLE_INSTRUCTIONS,
+  CHAT_SYSTEM_PROMPT,
+  ANALYSIS_ROLE_INSTRUCTIONS,
+  ANALYSIS_SYSTEM_PROMPT,
+  EDIT_ROLE_INSTRUCTIONS,
+  EDIT_SYSTEM_PROMPT,
+  TRIAGE_SYSTEM_PROMPT,
+  getSystemPrompt,
+  getAnalysisSystemPrompt,
+  getChatSystemPrompt,
+  getEditSystemPrompt,
+  mapStopReasonToError,
+} from "@/lib/claude-prompts";
+// Import only what is directly referenced inside claude.ts function bodies
+import {
+  CHAT_SYSTEM_PROMPT,
+  TRIAGE_SYSTEM_PROMPT,
+  getAnalysisSystemPrompt,
+  getChatSystemPrompt,
+  getEditSystemPrompt,
+} from "@/lib/claude-prompts";
 
-const THINKING_INSTRUCTION = `Before calling any tool, emit a brief natural-language sentence describing what you're about to do (e.g., 'Let me check your food history...', 'Looking up nutrition info for this restaurant...', 'Checking your fasting patterns...'). This gives the user real-time feedback. Keep it to one short sentence per tool batch.`;
-
-const REPORT_NUTRITION_UI_CARD_NOTE = `Calling report_nutrition surfaces a UI card with nutrition details and a "Log to Fitbit" button — it does NOT log food directly. The user must tap "Log to Fitbit" to actually commit the food log. Text confirmation before calling report_nutrition is never necessary — the user confirms via the UI button.`;
-
-const REPORT_NUTRITION_EDIT_UI_CARD_NOTE = `Calling report_nutrition surfaces a UI card with updated nutrition details and a "Save Changes" button — it does NOT save the changes directly. The user must tap "Save Changes" to actually commit the updated entry. Text confirmation before calling report_nutrition is never necessary — the user confirms via the UI button.`;
-
-export const CHAT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
-
-You are a friendly nutrition advisor having a conversational interaction with the user. You have access to their food log, nutrition summaries, goals, and fasting data through the available tools.
-
-You can help with:
-- Analyzing food from descriptions or images and reporting nutrition information
-- Refining existing food analyses when the user provides corrections
-- Answering questions about what they've eaten (today, this week, any date)
-- Checking progress against calorie and macro goals
-- Suggesting meals based on their eating patterns and remaining goals
-- Analyzing fasting patterns
-- Providing general nutrition advice with their personal context
-
-CRITICAL — single-entry constraint: Each chat session produces exactly ONE food log entry. Every report_nutrition call replaces the previous one — only the last one can be logged by the user. Therefore, ALWAYS combine all food items into a single report_nutrition call with combined nutritional totals. Never call report_nutrition multiple times for separate components of the same meal — instead, sum up all components and report them as one entry with a descriptive composite name (e.g., "Sanguches de pollo con tomate y pan proteico" instead of separate entries for bread, chicken, and tomato).
-
-Follow these rules:
-- When the user describes or shows food (with or without images), analyze it and call report_nutrition with complete nutritional information — combining all items into ONE entry
-- When refining an existing analysis, confirm changes with an updated summary of the meal
-- Don't repeat information that hasn't changed — only mention what was updated
-- When new photos are provided, they add to the existing meal unless the user explicitly says otherwise
-- Corrections from the user override previous values
-- When the user asks questions about their eating habits, nutrition, or goals, use the data tools (search_food_log, get_nutrition_summary, get_fasting_info) to look up their actual data before responding
-- Base your answers on real data from the tools, not assumptions
-- Do not re-search for food data that is already present in the conversation from a previous tool call. If search_food_log already returned a food's nutritional data in an earlier turn, use that data directly instead of searching again.
-- If the user's intent is ambiguous, ask clarifying questions before updating the analysis
-- Be concise and conversational in your responses
-- Use specific numbers from their data when available
-- When suggesting meals, consider their typical eating patterns and current goal progress
-- CRITICAL: Food is ONLY registered/logged when you call report_nutrition. Never say food is "registered", "logged", or "recorded" unless you have called report_nutrition in that same response. If report_nutrition was not called, the food has NOT been logged — do not claim otherwise.
-- ${REPORT_NUTRITION_UI_CARD_NOTE}
-- When the user references food from their history or from a displayed list and wants to log it (e.g., "comí eso", "registra eso", "quiero lo mismo", "comí dos", naming a food from search results, responding with a food name when asked "¿Querés registrar algo?"), call report_nutrition immediately. Do not ask for unnecessary confirmation — the user's intent to log is clear whenever they reference a specific food in a context where logging intent is established.
-- Never ask "should I log/register this?" — always call report_nutrition and let the user confirm via the UI button.
-- Always suggest a meal_type_id based on: (1) the current time, (2) what meals have already been logged today (from the user profile), and (3) the type of food being analyzed (snack-like foods → Morning Snack or Afternoon Snack, full meals → Lunch or Dinner). Exception: when editing an existing entry (editing_entry_id is set), always preserve the original meal_type_id from the search_food_log results unless the user explicitly asks to change it.
-- Only set the time field when the user explicitly mentions a time (e.g., "I had this at 8:30", "breakfast was at 7am"). Exception: when editing an existing entry (editing_entry_id is set), always preserve the original time from the search_food_log results unless the user explicitly asks to change it. Do NOT guess or infer the time. Leave it null when the user doesn't specify.
-- Only set the date field when the user explicitly mentions a date (e.g., "log this for yesterday", "move this to the 21st"). When editing an existing entry (editing_entry_id is set), always set date to the original entry's date from the search_food_log results unless the user asks to change it. Leave null for new entries — the app uses today's date by default.
-- When reporting food that came directly from search_food_log results without modification, set source_custom_food_id to the [id:N] value from the search result. When modifying nutrition values (half portion, different ingredients, different amount), set source_custom_food_id to null.
-- editing_entry_id rules: Set editing_entry_id to the [entry:N] value from search_food_log results when the user explicitly asks to modify an existing entry (e.g., "edit that", "change the chicken to 200g", "update my lunch", "fix the calories for that entry"). Note: [entry:N] is the food log entry ID (different from [id:N] which is the food definition ID). Leave editing_entry_id null when: (a) describing new food, (b) uploading new photos, (c) saying "log the same thing" or "I had that again" (create-intent). Key distinction: "log the same thing" = new entry (editing_entry_id null), "change what I had for lunch" = edit existing (set ID). When editing, set editing_entry_id to the entry ID AND set source_custom_food_id to null.
-- ${THINKING_INSTRUCTION}
-
-Web search guidelines:
-- You have access to web search. Use it to look up nutrition info for specific restaurants, branded products, packaged foods with known labels, and unfamiliar regional dishes.
-- Do NOT search for generic or common foods like "an apple", "grilled chicken with rice", or "scrambled eggs" — estimate those from your training data.
-- When you use web search results, cite the source — mention where the nutrition info came from (e.g., "Based on McDonald's nutrition page...").
-- If web search returns nothing useful, fall back to estimation from your training data and say so.
-
-Nutrition label library:
-- You have access to the user's personal nutrition label library via search_nutrition_labels, save_nutrition_label, and manage_nutrition_label.
-- BEFORE estimating nutrition for any branded, packaged, or commercial food product, ALWAYS call search_nutrition_labels with the brand and product name as keywords.
-- A nutrition label represents a SPECIFIC branded product. Only use a label when the user's description clearly refers to that exact product. "Cheese" does NOT match a "Dambo cheese" label. "La Serenisima whole milk" DOES match a "La Serenisima Entera" label.
-- Matching tiers: (1) Exact match (brand + product + variant align) → use silently, set confidence "high", include "Used label: [product]" in notes. (2) Probable match (brand + product match, variant ambiguous) → mention briefly "Using your label for X". (3) Category only (generic food, specific brand label exists) → do NOT use, estimate as usual.
-- When you detect a nutrition facts label in the user's photos, extract the data and call save_nutrition_label immediately. Do NOT ask for confirmation — auto-save is the default. Mention what you saved: "Saved label for [product]."
-- For portion estimation when using a label: use photo context, description, and common sense. Do NOT ask the user for exact grams unless truly ambiguous. If the portion looks close to the label's serving size, use it. If clearly different (half a package, double serving), scale proportionally.
-- Argentine labels: read the "por porcion" column (not per 100g). Watch for comma as decimal separator. Both kcal and kJ may be present — use kcal.
-- Users can manage labels via chat: "update my yogurt label", "delete the cheese label", "save a label for X". Use manage_nutrition_label for updates/deletes and save_nutrition_label for manual additions.`;
-
-
-export const WEB_SEARCH_TOOL = {
-  type: "web_search_20260209",
-  name: "web_search",
-} as const;
-
-export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
-  name: "report_nutrition",
-  description:
-    "Report the nutritional analysis of food for creating a new log entry or editing an existing one. Set editing_entry_id to the existing entry ID when editing, or null when creating new food.",
-  strict: true,
-  input_schema: {
-    type: "object" as const,
-    additionalProperties: false as const,
-    properties: {
-      food_name: {
-        type: "string",
-        description: "Clear name of the food in Spanish or English",
-      },
-      amount: {
-        type: "number",
-        description: "Estimated quantity in the chosen unit (e.g., 150 for grams, 1 for cup, 2 for slices)",
-      },
-      unit_id: {
-        type: "number",
-        description: "Fitbit measurement unit ID. Use: 147=gram, 91=cup, 226=oz, 349=tbsp, 364=tsp, 209=ml, 311=slice, 304=serving. Choose the most natural unit for the food (e.g., cups for beverages, grams for solid food, slices for pizza/bread, serving for individual items).",
-      },
-      calories: { type: "number" },
-      protein_g: { type: "number" },
-      carbs_g: { type: "number" },
-      fat_g: { type: "number" },
-      fiber_g: { type: "number" },
-      sodium_mg: { type: "number" },
-      saturated_fat_g: {
-        type: "number",
-        description: "Estimated saturated fat in grams. Always provide your best estimate.",
-      },
-      trans_fat_g: {
-        type: "number",
-        description: "Estimated trans fat in grams. Always provide your best estimate (0 if likely none).",
-      },
-      sugars_g: {
-        type: "number",
-        description: "Estimated sugars in grams. Always provide your best estimate.",
-      },
-      calories_from_fat: {
-        type: "number",
-        description: "Estimated calories from fat. Always provide your best estimate (fat_g × 9).",
-      },
-      confidence: { type: "string", enum: ["high", "medium", "low"] },
-      notes: {
-        type: "string",
-        description: "Brief explanation of assumptions made",
-      },
-      keywords: {
-        type: "array",
-        items: { type: "string" },
-        description: "3 to 5 lowercase single-word tokens (no spaces) identifying this food for matching against previously logged foods. Priority order: (1) food type (e.g., cerveza, pizza, ensalada), (2) key modifiers that affect nutrition (e.g., integral, descremado, light), (3) main ingredients not implied by food type (e.g., jamon, queso), (4) preparation method if nutritionally relevant (e.g., frito, hervido). For compound concepts use hyphens: sin-alcohol, sin-tacc. Use singular form. Exclude: brand names, packaging (lata, botella), country of origin, marketing terms (original, clasico). Example: 'Clausthaler Original cerveza sin alcohol en lata' → ['cerveza', 'sin-alcohol']. Example: 'Pizza de jamón y muzzarella' → ['pizza', 'jamon', 'muzzarella'].",
-      },
-      description: {
-        type: "string",
-        description: "Describe the food only in 1-2 concise sentences to distinguish this food from similar items. Include: visible ingredients, preparation/cooking method, portion size, and distinguishing visual characteristics (colors, textures). Do not describe hands, containers, plates, backgrounds, table settings, or other non-food elements.",
-      },
-      source_custom_food_id: {
-        type: ["number", "null"],
-        description: "ID of an existing custom food from search_food_log results. Set to the [id:N] value when reusing a food exactly as-is (same portion, same nutrition). Set to null when creating new food or when modifying nutrition values (e.g. half portion, different ingredients).",
-      },
-      editing_entry_id: {
-        type: ["number", "null"],
-        description: "Set to the [entry:N] value from search_food_log results when the user asks to edit an existing entry (e.g. 'edit that', 'change the chicken to 200g', 'update my lunch'). Note: [entry:N] is the food log entry ID, different from [id:N] which is the food definition ID. Set to null when creating new food.",
-      },
-      date: {
-        type: "string",
-        description: "Date in YYYY-MM-DD format. Use today's date (provided in system prompt) for new entries unless the user explicitly mentions a different date. When editing an existing entry (editing_entry_id is set), use the original entry's date unless the user asks to change it.",
-      },
-      time: {
-        type: ["string", "null"],
-        description: "Meal time in HH:mm format (24h). Only set when the user explicitly mentions a time (e.g., 'I had this at 8:30', 'breakfast was at 7am'). Set to null otherwise — never guess the time.",
-      },
-      meal_type_id: {
-        type: "number",
-        description: "Fitbit meal type: 1=Breakfast, 2=Morning Snack, 3=Lunch, 4=Afternoon Snack, 5=Dinner, 7=Anytime. Always suggest based on current time, today's logged meals, and food type. When editing an existing entry, preserve the original value unless user asks to change it.",
-      },
-    },
-    required: [
-      "food_name",
-      "amount",
-      "unit_id",
-      "calories",
-      "protein_g",
-      "carbs_g",
-      "fat_g",
-      "fiber_g",
-      "sodium_mg",
-      "saturated_fat_g",
-      "trans_fat_g",
-      "sugars_g",
-      "calories_from_fat",
-      "confidence",
-      "notes",
-      "keywords",
-      "description",
-      "source_custom_food_id",
-      "editing_entry_id",
-      "date",
-      "time",
-      "meal_type_id",
-    ],
-  },
-  input_examples: [
-    {
-      food_name: "Milanesa de pollo con puré",
-      amount: 350, unit_id: 147, calories: 620, protein_g: 38, carbs_g: 45, fat_g: 30,
-      fiber_g: 3, sodium_mg: 680, saturated_fat_g: 8, trans_fat_g: 0.5, sugars_g: 2,
-      calories_from_fat: 270, confidence: "high", notes: "Breaded chicken cutlet with mashed potatoes, typical Argentine portion",
-      keywords: ["milanesa", "pollo", "pure"], description: "Breaded chicken cutlet with creamy mashed potatoes, golden brown coating",
-      source_custom_food_id: null, editing_entry_id: null, date: "2026-03-28", time: null, meal_type_id: 3,
-    },
-    {
-      food_name: "Café con leche",
-      amount: 1, unit_id: 91, calories: 60, protein_g: 3, carbs_g: 5, fat_g: 3,
-      fiber_g: 0, sodium_mg: 50, saturated_fat_g: 2, trans_fat_g: 0, sugars_g: 5,
-      calories_from_fat: 27, confidence: "medium", notes: "Standard café con leche, assumed whole milk",
-      keywords: ["cafe", "leche"], description: "Coffee with steamed whole milk in a standard cup",
-      source_custom_food_id: 42, editing_entry_id: null, date: "2026-03-28", time: null, meal_type_id: 1,
-    },
-    {
-      food_name: "Pizza de muzzarella (2 porciones)",
-      amount: 2, unit_id: 311, calories: 540, protein_g: 22, carbs_g: 60, fat_g: 24,
-      fiber_g: 3, sodium_mg: 1100, saturated_fat_g: 10, trans_fat_g: 0, sugars_g: 6,
-      calories_from_fat: 216, confidence: "medium", notes: "Editing to change from 1 to 2 slices",
-      keywords: ["pizza", "muzzarella"], description: "Two slices of classic Argentine muzzarella pizza",
-      source_custom_food_id: null, editing_entry_id: 157, date: "2026-03-27", time: "21:00", meal_type_id: 5,
-    },
-  ],
-};
+// ─── Tool schemas — re-exported from claude-tools-schema.ts (barrel) ──────────
+export {
+  WEB_SEARCH_TOOL,
+  REPORT_NUTRITION_TOOL,
+  REPORT_SESSION_ITEMS_TOOL,
+} from "@/lib/claude-tools-schema";
+import {
+  WEB_SEARCH_TOOL,
+  REPORT_NUTRITION_TOOL,
+  REPORT_SESSION_ITEMS_TOOL,
+} from "@/lib/claude-tools-schema";
 
 export interface ImageInput {
   base64: string;
@@ -299,7 +132,29 @@ function isAbortError(error: unknown): boolean {
 const RETRY_DELAYS_MS = [2000, 5000, 10000] as const;
 
 /**
+ * Context management config applied to all API calls via the beta channel.
+ * Clears tool-use history when the context grows large, keeping the conversation
+ * manageable without client-side truncation. web_search is excluded so cached
+ * search results survive the clear.
+ */
+const CONTEXT_MANAGEMENT = {
+  betas: ["context-management-2025-06-27"] as Anthropic.Beta.AnthropicBeta[],
+  context_management: {
+    edits: [
+      {
+        type: "clear_tool_uses_20250919" as const,
+        trigger: { type: "input_tokens" as const, value: 150000 },
+        keep: { type: "tool_uses" as const, value: 2 },
+        clear_at_least: { type: "input_tokens" as const, value: 10000 },
+        exclude_tools: ["web_search"],
+      },
+    ],
+  },
+};
+
+/**
  * Creates a Claude API stream with automatic retry on overloaded errors.
+ * Uses the beta channel for server-side context management (clear_tool_uses).
  * Yields a retry text_delta event before each retry so the UI can show feedback.
  * Throws ClaudeApiError if all retries are exhausted or if a non-overloaded error occurs.
  *
@@ -318,11 +173,17 @@ export async function* createStreamWithRetry(
 
   while (true) {
     try {
-      const stream = getClient().messages.stream(
-        streamParams,
+      const betaParams = {
+        ...streamParams,
+        ...CONTEXT_MANAGEMENT,
+      } as Parameters<Anthropic["beta"]["messages"]["stream"]>[0];
+      const stream = getClient().beta.messages.stream(
+        betaParams,
         requestOptions ?? {},
       );
-      const msg: Anthropic.Message = yield* streamTextDeltas(stream);
+      const msg: Anthropic.Message = yield* streamTextDeltas(
+        stream as unknown as { [Symbol.asyncIterator](): AsyncIterator<unknown>; finalMessage(): Promise<Anthropic.Message> }
+      );
       return msg;
     } catch (error) {
       if (isOverloadedError(error) && attempt < maxRetries) {
@@ -425,9 +286,20 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
   }
 
   const numericFields = [
-    "amount", "unit_id", "calories", "protein_g",
+    "amount", "calories", "protein_g",
     "carbs_g", "fat_g", "fiber_g", "sodium_mg",
   ] as const;
+
+  // Coerce serving_unit from model output — tolerant, defaults to 'serving' on unknown values.
+  // Also accepts unit_id (the field name used in FoodAnalysis objects from clients/DB).
+  const rawServingUnit = data.serving_unit ?? data.unit_id;
+  const unit_id = coerceServingUnit(rawServingUnit);
+  if (typeof rawServingUnit !== "string" || unit_id !== rawServingUnit) {
+    logger.warn(
+      { action: "validation_coerce_serving_unit", received: rawServingUnit },
+      "coerced invalid serving_unit to default"
+    );
+  }
 
   for (const field of numericFields) {
     if (typeof data[field] !== "number") {
@@ -559,7 +431,7 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
     throw new ClaudeApiError("Invalid food analysis: date must be a string in YYYY-MM-DD format or null");
   }
 
-  // Validate optional meal_type_id field: null/undefined or one of valid Fitbit meal types
+  // Validate optional meal_type_id field: null/undefined or one of valid meal type IDs
   const VALID_MEAL_TYPE_IDS = new Set([1, 2, 3, 4, 5, 7]);
   const rawMealTypeId = data.meal_type_id;
   let validatedMealTypeId: number | null | undefined;
@@ -579,7 +451,7 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
   const result: FoodAnalysis = {
     food_name: data.food_name as string,
     amount: data.amount as number,
-    unit_id: data.unit_id as number,
+    unit_id,
     calories: data.calories as number,
     protein_g: data.protein_g as number,
     carbs_g: data.carbs_g as number,
@@ -619,76 +491,6 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
   return result;
 }
 
-export const ANALYSIS_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
-
-You have access to the user's food log, nutrition summaries, and fasting data through the available tools.
-
-CRITICAL — single-entry constraint: Each analysis produces exactly ONE food log entry. Every report_nutrition call replaces the previous one — only the last one can be logged by the user. Therefore, ALWAYS combine all food items into a single report_nutrition call with combined nutritional totals and a descriptive composite name. Never call report_nutrition multiple times for separate components of the same meal.
-
-Follow these rules:
-- For clearly described or photographed foods (e.g., "grilled chicken with rice", a photo of a salad), call report_nutrition immediately with complete nutritional information — combining all items into ONE entry
-- When the user references past meals, history, or goals (e.g., "same as yesterday", "half of what I had Monday"), use the data tools (search_food_log, get_nutrition_summary, get_fasting_info) to look up their actual data
-- If the request is ambiguous and needs clarification, respond with text to ask the user
-- Base your answers on real data from the tools, not assumptions
-- Do not re-search for food data that is already present in the conversation from a previous tool call. If search_food_log already returned a food's nutritional data in an earlier turn, use that data directly instead of searching again.
-- CRITICAL: Food is ONLY registered/logged when you call report_nutrition. Never claim food is "registered", "logged", or "recorded" unless you have called report_nutrition in that same response.
-- ${REPORT_NUTRITION_UI_CARD_NOTE}
-- Never ask for confirmation before calling report_nutrition — the user confirms via the UI button.
-- When reporting food that came directly from search_food_log results without modification, set source_custom_food_id to the [id:N] value from the search result. When modifying nutrition values, set source_custom_food_id to null.
-- Always suggest a meal_type_id based on: (1) the current time, (2) what meals have already been logged today (from the user profile), and (3) the type of food being analyzed (snack-like foods → Morning Snack or Afternoon Snack, full meals → Lunch or Dinner). Exception: when editing an existing entry (editing_entry_id is set), always preserve the original meal_type_id from the search_food_log results unless the user explicitly asks to change it.
-- ${THINKING_INSTRUCTION}
-
-Web search guidelines:
-- You have access to web search. Use it to look up nutrition info for specific restaurants, branded products, packaged foods with known labels, and unfamiliar regional dishes.
-- Do NOT search for generic or common foods like "an apple", "grilled chicken with rice", or "scrambled eggs" — estimate those from your training data.
-- When you use web search results, cite the source — mention where the nutrition info came from (e.g., "Based on McDonald's nutrition page...").
-- If web search returns nothing useful, fall back to estimation from your training data and say so.
-
-Nutrition label library:
-- You have access to the user's personal nutrition label library via search_nutrition_labels, save_nutrition_label, and manage_nutrition_label.
-- BEFORE estimating nutrition for any branded, packaged, or commercial food product, ALWAYS call search_nutrition_labels with the brand and product name as keywords.
-- A nutrition label represents a SPECIFIC branded product. Only use a label when the user's description clearly refers to that exact product. "Cheese" does NOT match a "Dambo cheese" label. "La Serenisima whole milk" DOES match a "La Serenisima Entera" label.
-- Matching tiers: (1) Exact match (brand + product + variant align) → use silently, set confidence "high", include "Used label: [product]" in notes. (2) Probable match (brand + product match, variant ambiguous) → mention briefly "Using your label for X". (3) Category only (generic food, specific brand label exists) → do NOT use, estimate as usual.
-- When you detect a nutrition facts label in the user's photos, extract the data and call save_nutrition_label immediately. Do NOT ask for confirmation — auto-save is the default. Mention what you saved: "Saved label for [product]."
-- For portion estimation when using a label: use photo context, description, and common sense. Do NOT ask the user for exact grams unless truly ambiguous. If the portion looks close to the label's serving size, use it. If clearly different (half a package, double serving), scale proportionally.
-- Argentine labels: read the "por porcion" column (not per 100g). Watch for comma as decimal separator. Both kcal and kJ may be present — use kcal.
-- Users can manage labels via chat: "update my yogurt label", "delete the cheese label", "save a label for X". Use manage_nutrition_label for updates/deletes and save_nutrition_label for manual additions.`;
-
-export async function getSystemPrompt(userId: string, currentDate: string): Promise<string> {
-  try {
-    const profile = await buildUserProfile(userId, currentDate);
-    if (!profile) return SYSTEM_PROMPT;
-    return `${SYSTEM_PROMPT}\n\n${profile}`;
-  } catch (error) {
-    logger.warn(
-      { action: "build_user_profile_failed", error: error instanceof Error ? error.message : String(error), userId },
-      "failed to build user profile, using base prompt"
-    );
-    return SYSTEM_PROMPT;
-  }
-}
-
-export async function getAnalysisSystemPrompt(userId: string, currentDate: string): Promise<string> {
-  const base = await getSystemPrompt(userId, currentDate);
-  if (base === SYSTEM_PROMPT) return ANALYSIS_SYSTEM_PROMPT;
-  // Extract the role-specific part (everything after SYSTEM_PROMPT in ANALYSIS_SYSTEM_PROMPT)
-  const roleInstructions = ANALYSIS_SYSTEM_PROMPT.slice(SYSTEM_PROMPT.length);
-  return `${base}${roleInstructions}`;
-}
-
-export async function getChatSystemPrompt(userId: string, currentDate: string): Promise<string> {
-  const base = await getSystemPrompt(userId, currentDate);
-  if (base === SYSTEM_PROMPT) return CHAT_SYSTEM_PROMPT;
-  const roleInstructions = CHAT_SYSTEM_PROMPT.slice(SYSTEM_PROMPT.length);
-  return `${base}${roleInstructions}`;
-}
-
-export async function getEditSystemPrompt(userId: string, currentDate: string): Promise<string> {
-  const base = await getSystemPrompt(userId, currentDate);
-  if (base === SYSTEM_PROMPT) return EDIT_SYSTEM_PROMPT;
-  const roleInstructions = EDIT_SYSTEM_PROMPT.slice(SYSTEM_PROMPT.length);
-  return `${base}${roleInstructions}`;
-}
 
 const DATA_TOOLS = [
   SEARCH_FOOD_LOG_TOOL,
@@ -699,6 +501,21 @@ const DATA_TOOLS = [
   MANAGE_NUTRITION_LABEL_TOOL,
 ];
 
+/**
+ * Build a date/time context block to append as the trailing block of the leading
+ * user message. Keeping it out of the system prompt makes the system text stable
+ * and cache-friendly (system changes only when the user profile changes, not daily).
+ */
+function buildDateContextBlock(
+  currentDate: string,
+  currentTime?: string,
+): { type: "text"; text: string } {
+  const text = currentTime
+    ? `Today's date is: ${currentDate}. Current time: ${currentTime}`
+    : `Today's date is: ${currentDate}`;
+  return { type: "text" as const, text };
+}
+
 /** Build toolsWithCache: adds cache_control to the last tool (doesn't mutate originals) */
 function buildToolsWithCache(
   tools: Array<Anthropic.Messages.ToolUnion>,
@@ -708,106 +525,6 @@ function buildToolsWithCache(
       ? { ...tool, cache_control: { type: "ephemeral" as const } }
       : tool
   );
-}
-
-function estimateTokenCount(messages: Anthropic.MessageParam[]): number {
-  let tokens = 0;
-
-  for (const message of messages) {
-    if (Array.isArray(message.content)) {
-      for (const block of message.content) {
-        if (block.type === "text") {
-          // ~4 characters per token
-          tokens += Math.ceil(block.text.length / 4);
-        } else if (block.type === "image") {
-          // ~1000 tokens per image
-          tokens += 1000;
-        } else if (block.type === "tool_use") {
-          const toolBlock = block as Anthropic.ToolUseBlock;
-          const inputStr = JSON.stringify(toolBlock.input);
-          tokens += Math.ceil((toolBlock.name.length + inputStr.length) / 4);
-        } else if (block.type === "tool_result") {
-          const resultBlock = block as Anthropic.ToolResultBlockParam;
-          if (typeof resultBlock.content === "string") {
-            tokens += Math.ceil(resultBlock.content.length / 4);
-          } else if (Array.isArray(resultBlock.content)) {
-            for (const part of resultBlock.content) {
-              if (part.type === "text") {
-                tokens += Math.ceil(part.text.length / 4);
-              }
-            }
-          }
-        } else if (block.type === "server_tool_use") {
-          // Server-side tools (web_search, bash_code_execution, etc.)
-          const serverBlock = block as { type: string; name: string; input?: unknown };
-          const inputStr = serverBlock.input ? JSON.stringify(serverBlock.input) : "";
-          tokens += Math.ceil((serverBlock.name.length + inputStr.length) / 4);
-        } else if (
-          block.type === "web_search_tool_result" ||
-          block.type === "bash_code_execution_tool_result" ||
-          block.type === "text_editor_code_execution_tool_result"
-        ) {
-          // Server-side tool results — estimate ~500 tokens each
-          tokens += 500;
-        }
-      }
-    } else if (typeof message.content === "string") {
-      tokens += Math.ceil(message.content.length / 4);
-    }
-  }
-
-  return tokens;
-}
-
-export function truncateConversation(
-  messages: Anthropic.MessageParam[],
-  maxTokens: number,
-  log?: Logger,
-): Anthropic.MessageParam[] {
-  const l = log ?? logger;
-  const estimatedTokens = estimateTokenCount(messages);
-
-  if (estimatedTokens <= maxTokens) {
-    return messages;
-  }
-
-  // Keep first user message + last 4 messages
-  if (messages.length <= 5) {
-    l.warn(
-      { action: "truncate_skip_short", estimatedTokens, maxTokens, messageCount: messages.length },
-      "conversation over token limit but too short to truncate"
-    );
-    return messages;
-  }
-
-  const firstMessage = messages[0];
-  const lastFour = messages.slice(-4);
-
-  // Deduplicate consecutive same-role within last-4 only (keep the later one)
-  const dedupedLast: Anthropic.MessageParam[] = [lastFour[0]];
-  for (let i = 1; i < lastFour.length; i++) {
-    if (lastFour[i].role === dedupedLast[dedupedLast.length - 1].role) {
-      dedupedLast[dedupedLast.length - 1] = lastFour[i];
-    } else {
-      dedupedLast.push(lastFour[i]);
-    }
-  }
-
-  // Handle junction: if first message shares role with start of deduped last-4,
-  // drop the first of deduped last-4 to preserve the original context.
-  // Only shift if there are at least 2 messages, to avoid total context erasure.
-  if (dedupedLast.length > 1 && dedupedLast[0].role === firstMessage.role) {
-    dedupedLast.shift();
-  }
-
-  const filtered = [firstMessage, ...dedupedLast];
-
-  l.debug(
-    { action: "truncate_conversation", estimatedTokens, maxTokens, messagesBefore: messages.length, messagesAfter: filtered.length },
-    "conversation truncated"
-  );
-
-  return filtered;
 }
 
 /**
@@ -928,10 +645,7 @@ export async function* runToolLoop(
 ): AsyncGenerator<StreamEvent> {
   const l = options?.log ?? logger;
   const loopElapsed = startTimer();
-  let systemPrompt = options?.systemPrompt ?? await getChatSystemPrompt(userId, currentDate);
-  if (!options?.systemPrompt && currentDate) {
-    systemPrompt += `\n\nToday's date is: ${currentDate}`;
-  }
+  const systemPrompt = options?.systemPrompt ?? await getChatSystemPrompt(userId, currentDate);
   const tools = options?.tools ?? [WEB_SEARCH_TOOL, ...DATA_TOOLS];
   const operation = options?.operation ?? "food-chat";
   const maxTokens = options?.maxTokens ?? 2048;
@@ -1265,10 +979,8 @@ export async function* analyzeFood(
 
     const allTools = [WEB_SEARCH_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
     const toolsWithCache = buildToolsWithCache(allTools);
-    const dateTimeLine = currentTime
-      ? `Today's date is: ${currentDate}. Current time: ${currentTime}`
-      : `Today's date is: ${currentDate}`;
-    const systemPrompt = `${await getAnalysisSystemPrompt(userId, currentDate)}\n\n${dateTimeLine}`;
+    const systemPrompt = await getAnalysisSystemPrompt(userId, currentDate);
+    const hasImages = images.length > 0;
 
     const userMessage: Anthropic.MessageParam = {
       role: "user",
@@ -1284,7 +996,11 @@ export async function* analyzeFood(
         {
           type: "text" as const,
           text: description || "Analyze this food.",
+          // Add cache_control breakpoint on the stable description block (post-image, pre-date)
+          // so the image prefix is cached. Skip for text-only requests (no images to cache).
+          ...(hasImages && { cache_control: { type: "ephemeral" as const } }),
         },
+        buildDateContextBlock(currentDate, currentTime),
       ],
     };
 
@@ -1626,11 +1342,8 @@ export async function* conversationalRefine(
     // Convert ConversationMessage[] to Anthropic SDK message format
     let anthropicMessages: Anthropic.MessageParam[] = convertMessages(messages);
 
-    // Truncate conversation if needed (150K tokens threshold)
-    const preCount = anthropicMessages.length;
-    anthropicMessages = truncateConversation(anthropicMessages, 150000, l);
     l.debug(
-      { action: "conversational_refine_messages", messageCount: anthropicMessages.length, truncated: anthropicMessages.length < preCount, hasImages: totalImages > 0, hasInitialAnalysis: !!initialAnalysis },
+      { action: "conversational_refine_messages", messageCount: anthropicMessages.length, hasImages: totalImages > 0, hasInitialAnalysis: !!initialAnalysis },
       "conversation prepared for Claude API"
     );
     l.debug(
@@ -1638,16 +1351,26 @@ export async function* conversationalRefine(
       "full conversation messages for Claude API"
     );
 
-    // Build system prompt with date and initial analysis context
+    // Inject date block into the leading user message (keeps system prompt stable for caching)
+    if (currentDate && anthropicMessages.length > 0 && anthropicMessages[0].role === "user") {
+      const firstMsg = anthropicMessages[0];
+      const content = Array.isArray(firstMsg.content)
+        ? [...(firstMsg.content as Anthropic.ContentBlockParam[])]
+        : [];
+      // Add cache_control to last stable block when first user message contains images
+      const hasImagesInFirst = content.some((b) => b.type === "image");
+      if (hasImagesInFirst && content.length > 0) {
+        const lastIdx = content.length - 1;
+        content[lastIdx] = { ...content[lastIdx], cache_control: { type: "ephemeral" as const } } as Anthropic.ContentBlockParam;
+      }
+      content.push(buildDateContextBlock(currentDate, currentTime));
+      anthropicMessages = [{ ...firstMsg, content }, ...anthropicMessages.slice(1)];
+    }
+
+    // Build system prompt (date-free — date goes in the leading user message for cache stability)
     let systemPrompt = (userId && currentDate)
       ? await getChatSystemPrompt(userId, currentDate)
       : CHAT_SYSTEM_PROMPT;
-    if (currentDate) {
-      const dateTimeLine = currentTime
-        ? `Today's date is: ${currentDate}. Current time: ${currentTime}`
-        : `Today's date is: ${currentDate}`;
-      systemPrompt += `\n\n${dateTimeLine}`;
-    }
     if (initialAnalysis) {
       const amountLabel = getUnitLabel(initialAnalysis.unit_id, initialAnalysis.amount);
       const mealTypeLabel = initialAnalysis.mealTypeId != null ? `${initialAnalysis.mealTypeId}` : "null (not set)";
@@ -1850,7 +1573,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     }
 
     l.warn(
-      { error: error instanceof Error ? error.message : String(error) },
+      { action: "conversational_refine_error", error: error instanceof Error ? error.message : String(error) },
       "Claude API conversational refinement error"
     );
     throw new ClaudeApiError(
@@ -1860,26 +1583,6 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
   }
 }
 
-export const EDIT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
-
-You are reviewing an existing food log entry and helping the user make corrections or adjustments.
-
-Follow these rules:
-- Review the existing entry details provided in the context below
-- When the user describes a correction (different portion, wrong food, different ingredients), call report_nutrition with the corrected values
-- Combine all changes into a SINGLE report_nutrition call
-- Be concise and focused — this is an edit session, not a new analysis
-- CRITICAL: Changes are ONLY applied when you call report_nutrition. Never say the entry "is updated" without calling report_nutrition.
-- ${REPORT_NUTRITION_EDIT_UI_CARD_NOTE}
-- You have access to data tools (search_food_log, get_nutrition_summary, get_fasting_info) to look up food history and context when needed.
-- ${THINKING_INSTRUCTION}
-
-Web search guidelines:
-- Use web search to look up accurate nutrition info for specific restaurants or branded products when the user wants to change to a different specific food.
-- For general corrections (different portion size, simple adjustments), use your training data.
-
-Nutrition label library:
-- You can search the user's saved label library via search_nutrition_labels. Use it when the user corrects a branded food and wants to use the exact label data.`;
 
 /**
  * Edit an existing food log entry via conversational AI. Returns a streaming generator of StreamEvent.
@@ -1910,8 +1613,8 @@ export async function* editAnalysis(
 
     // Build system prompt with EDIT_SYSTEM_PROMPT + entry context + date
     const amountLabel = getUnitLabel(entry.unitId, entry.amount);
+    // Build system prompt (date-free — date goes in the leading user message for cache stability)
     let systemPrompt = await getEditSystemPrompt(userId, currentDate);
-    systemPrompt += `\n\nToday's date is: ${currentDate}`;
     const tier1Lines: string[] = [];
     if (entry.saturatedFatG != null) tier1Lines.push(`- Saturated Fat: ${entry.saturatedFatG}g`);
     if (entry.transFatG != null) tier1Lines.push(`- Trans Fat: ${entry.transFatG}g`);
@@ -1946,8 +1649,21 @@ Help the user make corrections. Call report_nutrition with the corrected values.
 Use this as the baseline. When the user makes corrections, call report_nutrition with the updated values.`;
     }
 
-    // Truncate conversation if needed
-    anthropicMessages = truncateConversation(anthropicMessages, 150000, l);
+    // Inject date block into the leading user message (keeps system prompt stable for caching)
+    if (anthropicMessages.length > 0 && anthropicMessages[0].role === "user") {
+      const firstMsg = anthropicMessages[0];
+      const content = Array.isArray(firstMsg.content)
+        ? [...(firstMsg.content as Anthropic.ContentBlockParam[])]
+        : [];
+      // Add cache_control to last stable block when first user message contains images
+      const hasImagesInFirst = content.some((b) => b.type === "image");
+      if (hasImagesInFirst && content.length > 0) {
+        const lastIdx = content.length - 1;
+        content[lastIdx] = { ...content[lastIdx], cache_control: { type: "ephemeral" as const } } as Anthropic.ContentBlockParam;
+      }
+      content.push(buildDateContextBlock(currentDate));
+      anthropicMessages = [{ ...firstMsg, content }, ...anthropicMessages.slice(1)];
+    }
 
     const allTools = [WEB_SEARCH_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
 
@@ -1982,143 +1698,6 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
 
 // ─── Triage: Multi-capture session analysis ────────────────────────────────
 
-export const REPORT_SESSION_ITEMS_TOOL: Anthropic.Tool = {
-  name: "report_session_items",
-  description:
-    "Report all distinct food items identified across all captures in this session. Call this with the complete list of items found. When the user asks to modify the list (combine, split, remove, add, adjust), call this again with the updated list.",
-  strict: true,
-  input_schema: {
-    type: "object" as const,
-    additionalProperties: false as const,
-    properties: {
-      items: {
-        type: "array",
-        description: "All distinct food items identified across all captures in this session",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            food_name: {
-              type: "string",
-              description: "Clear name of the food in Spanish or English",
-            },
-            amount: {
-              type: "number",
-              description: "Estimated quantity in the chosen unit",
-            },
-            unit_id: {
-              type: "number",
-              description: "Fitbit measurement unit ID. Use: 147=gram, 91=cup, 226=oz, 349=tbsp, 364=tsp, 209=ml, 311=slice, 304=serving.",
-            },
-            calories: { type: "number" },
-            protein_g: { type: "number" },
-            carbs_g: { type: "number" },
-            fat_g: { type: "number" },
-            fiber_g: { type: "number" },
-            sodium_mg: { type: "number" },
-            saturated_fat_g: {
-              type: "number",
-              description: "Estimated saturated fat in grams. Always provide your best estimate.",
-            },
-            trans_fat_g: {
-              type: "number",
-              description: "Estimated trans fat in grams. Always provide your best estimate (0 if likely none).",
-            },
-            sugars_g: {
-              type: "number",
-              description: "Estimated sugars in grams. Always provide your best estimate.",
-            },
-            calories_from_fat: {
-              type: "number",
-              description: "Estimated calories from fat (fat_g × 9). Always provide your best estimate.",
-            },
-            confidence: { type: "string", enum: ["high", "medium", "low"] },
-            notes: {
-              type: "string",
-              description: "Brief explanation of assumptions made, including portion/sharing context from notes",
-            },
-            keywords: {
-              type: "array",
-              items: { type: "string" },
-              description: "3 to 5 lowercase single-word tokens identifying this food for matching.",
-            },
-            description: {
-              type: "string",
-              description: "Describe the food in 1-2 concise sentences with visible ingredients, preparation method, and portion size.",
-            },
-            time: {
-              type: "string",
-              description: "Meal time in HH:mm format (24h) from the capture timestamp of the most relevant photo for this item.",
-            },
-            date: {
-              type: "string",
-              description: "Date in YYYY-MM-DD format from the capture date of the most relevant photo for this item.",
-            },
-            meal_type_id: {
-              type: "number",
-              description: "Fitbit meal type: 1=Breakfast, 2=Morning Snack, 3=Lunch, 4=Afternoon Snack, 5=Dinner, 7=Anytime. Assign based on capture time.",
-            },
-            capture_indices: {
-              type: "array",
-              items: { type: "number" },
-              description: "Which capture indices (0-based) this item came from, for UI display purposes.",
-            },
-          },
-          required: [
-            "food_name",
-            "amount",
-            "unit_id",
-            "calories",
-            "protein_g",
-            "carbs_g",
-            "fat_g",
-            "fiber_g",
-            "sodium_mg",
-            "saturated_fat_g",
-            "trans_fat_g",
-            "sugars_g",
-            "calories_from_fat",
-            "confidence",
-            "notes",
-            "keywords",
-            "description",
-            "time",
-            "date",
-            "meal_type_id",
-            "capture_indices",
-          ],
-        },
-      },
-    },
-    required: ["items"],
-  },
-};
-
-export const TRIAGE_SYSTEM_PROMPT = `You are a nutrition analyst specializing in Argentine and Latin American cuisine.
-You are analyzing a collection of food captures from a meal session.
-
-Session analysis rules:
-- Captures are organized chronologically with timestamps and optional notes
-- Identify each distinct food item across all captures in the session
-- A menu photo provides context (dish names, prices) — use it to identify dishes in plate photos
-- Notes provide context: portion/sharing info (e.g., "shared appetizer, had about half"), or food descriptions for text-only captures (e.g., "I had a black coffee") — incorporate these into your estimates
-- Text-only captures (no photos) describe food the user consumed — treat the note as the food description and estimate nutrition from it
-- Group by logical food item, not by capture — one capture may contain multiple items, and multiple captures may show the same item from different angles
-- Assign the time field from the capture timestamp (HH:mm format) of the most relevant photo for each item
-- Assign the date field from the capture date (YYYY-MM-DD format) of the most relevant photo for each item
-- Assign meal_type_id based on capture times: 1=Breakfast (6-10h), 2=Morning Snack (10-12h), 3=Lunch (12-15h), 4=Afternoon Snack (15-18h), 5=Dinner (18-23h), 7=Anytime (otherwise)
-- Set capture_indices to the 0-based indices of captures that show this item
-- Always call report_session_items with the complete list of identified food items
-- When the user asks to modify the list (combine, split, remove, add items, or adjust quantities), call report_session_items again with the updated complete list
-- Be thorough — identify every distinct food and drink visible in the captures
-
-IMPORTANT: Do NOT use search_food_log, get_nutrition_summary, get_fasting_info, or any other data tools.
-Triage analysis is purely from visual evidence, capture timestamps, and user notes.
-
-Nutrition estimation rules:
-- Consider typical Argentine portions and preparation methods
-- Choose the most natural measurement unit for each food
-- Always estimate Tier 1 nutrients (saturated_fat_g, trans_fat_g, sugars_g, calories_from_fat) — provide your best numeric estimate (use 0 when negligible)`;
 
 /**
  * Validate an array of items from report_session_items tool output.
@@ -2203,9 +1782,16 @@ export async function* triageCaptures(
       "calling Claude API for session triage"
     );
 
-    const systemPrompt = `${TRIAGE_SYSTEM_PROMPT}\n\nToday's date is: ${currentDate}`;
+    // System prompt is date-free for cache stability; date block goes in user message
+    const systemPrompt = TRIAGE_SYSTEM_PROMPT;
     const toolsWithCache = buildToolsWithCache([REPORT_SESSION_ITEMS_TOOL]);
-    const userMessage = buildTriageUserMessage(images, captureMetadata);
+    const baseUserMessage = buildTriageUserMessage(images, captureMetadata);
+    // Append date as trailing block (after all capture content)
+    const userMessageContent = [
+      ...(baseUserMessage.content as Anthropic.ContentBlockParam[]),
+      buildDateContextBlock(currentDate),
+    ];
+    const userMessage: Anthropic.MessageParam = { role: "user", content: userMessageContent };
 
     l.debug(
       { action: "triage_captures_request", captureCount: captureMetadata.length, imageCount: images.length },
@@ -2338,8 +1924,8 @@ function convertTriageMessages(messages: ConversationMessage[]): Anthropic.Messa
     // For assistant messages with sessionItems, inject structured item summary
     if (msg.role === "assistant" && msg.sessionItems && msg.sessionItems.length > 0) {
       const itemLines = msg.sessionItems.map((item, i) => {
-        const mealLabel = item.mealTypeId != null ? (FITBIT_MEAL_TYPE_LABELS[item.mealTypeId] ?? `type ${item.mealTypeId}`) : "unset";
-        return `  ${i + 1}. ${item.food_name} — ${item.calories} cal, ${item.amount} units (unit_id: ${item.unit_id}), meal: ${mealLabel}, time: ${item.time ?? "unset"}`;
+        const mealLabel = item.mealTypeId != null ? (MEAL_TYPE_LABELS[item.mealTypeId] ?? `type ${item.mealTypeId}`) : "unset";
+        return `  ${i + 1}. ${item.food_name} — ${item.calories} cal, ${item.amount} ${item.unit_id}, meal: ${mealLabel}, time: ${item.time ?? "unset"}`;
       });
       const summary = `[Current session items:\n${itemLines.join("\n")}\n]`;
       content.push({ type: "text" as const, text: summary });
@@ -2368,15 +1954,14 @@ export async function* triageRefine(
       "calling Claude API for triage refinement"
     );
 
-    let anthropicMessages = convertTriageMessages(messages);
-    anthropicMessages = truncateConversation(anthropicMessages, 150000, l);
+    const anthropicMessages = convertTriageMessages(messages);
 
     let systemPrompt = TRIAGE_SYSTEM_PROMPT;
 
     // Inject initial items as baseline context in the system prompt
     if (initialItems && initialItems.length > 0) {
       const itemLines = initialItems.map((item, i) => {
-        const mealLabel = item.mealTypeId != null ? (FITBIT_MEAL_TYPE_LABELS[item.mealTypeId] ?? `type ${item.mealTypeId}`) : "unset";
+        const mealLabel = item.mealTypeId != null ? (MEAL_TYPE_LABELS[item.mealTypeId] ?? `type ${item.mealTypeId}`) : "unset";
         return `  ${i + 1}. ${item.food_name} — ${item.calories} cal, time: ${item.time ?? "unset"}, meal: ${mealLabel}`;
       });
       systemPrompt += `\n\nCurrent session items baseline:\n${itemLines.join("\n")}\n\nWhen the user requests changes, call report_session_items with the updated complete list.`;

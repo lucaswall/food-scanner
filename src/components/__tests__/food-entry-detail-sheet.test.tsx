@@ -42,11 +42,11 @@ const baseEntry: FoodLogHistoryEntry = {
   fiberG: 5,
   sodiumMg: 200,
   amount: 1,
-  unitId: 304,
+  unitId: "serving",
   mealTypeId: 1,
   date: "2026-03-01",
   time: "08:00:00",
-  fitbitLogId: null,
+  healthLogId: null,
   isFavorite: false,
 };
 

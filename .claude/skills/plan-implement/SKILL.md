@@ -1,7 +1,8 @@
 ---
 name: plan-implement
 description: Execute the pending plan in PLANS.md using an agent team for parallel implementation. Use when user says "implement the plan", "execute the plan", "team implement", or after any plan-* skill creates a plan. Spawns worker agents in isolated git worktrees for full code isolation. Updates Linear issues in real-time. Falls back to single-agent mode if agent teams unavailable.
-allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__update_issue, mcp__linear__list_issue_statuses
+allowed-tools: Read, Edit, Write, Glob, Grep, Agent, Bash, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__update_issue, mcp__linear__list_issue_statuses
+disallowed-tools: AskUserQuestion, EnterPlanMode, ExitPlanMode
 disable-model-invocation: true
 ---
 
@@ -10,6 +11,15 @@ Execute the current pending work in PLANS.md using an agent team for parallel im
 Each worker operates in its own **git worktree** — a fully isolated working directory with its own branch, staging area, and `node_modules`. Workers cannot corrupt each other's files. Task assignment is **domain-based** — overlapping file edits are acceptable and resolved by the lead during the merge phase.
 
 **If agent teams are unavailable** (TeamCreate fails), fall back to single-agent mode — see "Fallback: Single-Agent Mode" section.
+
+## Autonomous Execution — never stop to ask
+
+This is a **workflow skill**. It runs to completion (or to its budget limit) **without consulting the user mid-run**. Every decision is resolved by the deterministic rules in this file — never by asking. `AskUserQuestion` and plan mode are disabled while this skill is active.
+
+- **NEVER** ask the user a question, request a choice/confirmation, propose options, or enter plan mode — not about scope, not about run structure, not about ambiguity, not about whether to continue. All requirements were settled during planning (the `plan-*` skills wrote PLANS.md and the Linear issues).
+- **Ambiguity in the plan** → pick the most reasonable interpretation from PLANS.md / the Linear issue and proceed. Document the interpretation in the Iteration block. Do NOT ask.
+- **A large or multi-phase plan is NEVER a reason to ask how to proceed.** Run size is handled by deterministic rules already in this skill: per-phase scope assessment, phase-gated execution (below), and the single-agent point budget. "Too big for one run" resolves to *checkpoint via "Tasks Remaining"*, not *ask the user*.
+- The **ONLY** permitted stops are the terminal STOP conditions in **Error Handling** (e.g., Linear MCP down, empty/complete plan). Those emit a fixed message and end the run — they are not questions.
 
 ## Pre-flight Check
 
@@ -21,6 +31,16 @@ Each worker operates in its own **git worktree** — a fully isolated working di
    - Look for `## Fix Plan` (h2 level) with no iteration after it
    - Original Plan with no "Iteration 1" → Execute from Task 1
    - Nothing pending → Inform user "No pending work in PLANS.md"
+
+## Multi-Phase Plans (phase-gated execution)
+
+Some plans group tasks into explicit phases (`<!-- ===== Phase N ===== -->` markers, "Phase N" labels, or "Depends on: Task X" chains where later tasks cannot compile until earlier ones merge). When the pending work spans multiple phases, the unit of execution is the **phase**, not the whole plan — this is the deterministic answer to "the plan is huge," so you never ask the user how to structure the run.
+
+1. **Execute one phase at a time, in dependency order.** Treat each phase as its own complete cycle: Scope Assessment → partition → spawn/implement → merge → typecheck.
+2. **Merge each phase into the feature branch before starting the next.** Later-phase workers branch off the updated feature branch so they see earlier phases' type/schema renames. Run `npm run typecheck` after each phase's merge before starting the next phase.
+3. **Apply Scope Assessment per phase.** A phase dominated by one shared file (e.g. every task edits `schema.ts`/`claude.ts`) collapses to ~1 work unit → single-agent. A phase with 2+ genuinely independent domains and high effort → workers. Phases mix freely across one run.
+4. **Lead-reserved generator tasks** (drizzle-kit, etc.) still run only after ALL their prerequisite schema edits across ALL phases have landed — keep them for the final phase per the plan's own ordering.
+5. **Budget the run, don't ask.** Continue phase-by-phase until the budget limit is hit (single-agent point budget, or — in workers mode — lead judgment that context is heavily consumed: stop at the next clean phase boundary). Then STOP and write the Iteration block documenting completed phases/tasks and a **"Tasks Remaining"** list naming the first unfinished phase. The next invocation resumes there automatically (Pre-flight "Identify pending work"). Checkpointing between phases is silent and rule-driven — **never a question to the user.**
 
 ## Scope Assessment
 
@@ -109,6 +129,8 @@ Before proceeding, verify:
 
 ## Worktree Setup
 
+> **Why hand-rolled worktrees and not native `isolation: worktree`?** Claude-managed worktrees (`isolation: worktree`, `--worktree`, the repo-root `.worktreeinclude` file) do NOT provision `node_modules` — they would force a slow `npm install` per worktree or a copy that breaks `.bin` symlinks on macOS. The `ln -s node_modules` approach below is the correct, fast solution for this JS project and is retained deliberately. (`.worktreeinclude` still covers `.env`/`.env.local` for any *other* native-worktree use; it does not affect the manual `git worktree add` flow here.)
+
 ### Determine Feature Branch
 
 If on `main`, create a feature branch:
@@ -184,9 +206,9 @@ Use `TaskCreate` for each work unit:
 
 ### Spawn workers
 
-Use `Task` tool with `team_name: "plan-implement"`, `subagent_type: "general-purpose"`, `model: "sonnet"`, and `mode: "bypassPermissions"` for each worker. Name them `worker-1`, `worker-2`, etc.
+Use the `Agent` tool with `team_name: "plan-implement"`, `subagent_type: "general-purpose"`, `model: "sonnet"`, and `mode: "bypassPermissions"` for each worker. Name them `worker-1`, `worker-2`, etc.
 
-Spawn all workers in parallel (concurrent Task calls in one message).
+Spawn all workers in parallel (concurrent Agent calls in one message).
 
 ### Worker Prompt Template
 
@@ -364,7 +386,7 @@ docker ps --filter name=postgres-e2e --format '{{.Status}}' | grep -q Up || \
 
 Run the `verifier` agent in E2E mode:
 ```
-Task tool with subagent_type "verifier" and prompt "e2e"
+Agent tool with subagent_type "verifier" and prompt "e2e"
 ```
 If E2E tests fail → fix the specs directly, then re-run.
 
@@ -372,14 +394,14 @@ If E2E tests fail → fix the specs directly, then re-run.
 
 **Bug hunter:**
 ```
-Task tool with subagent_type "bug-hunter"
+Agent tool with subagent_type "bug-hunter"
 ```
 
 Fix ALL real bugs — pre-existing or new. Only skip verifiable false positives.
 
 **Verifier (tests + lint + build):**
 ```
-Task tool with subagent_type "verifier"
+Agent tool with subagent_type "verifier"
 ```
 
 If failures → fix directly (workers are shut down by this point).
@@ -454,6 +476,8 @@ If `TeamCreate` fails or worktree setup fails, implement the plan sequentially a
 | Worker reports workspace missing | Worktree was deleted prematurely. Shut down the worker. Implement its tasks in single-agent mode. |
 | Worker's Bash environment breaks | Known bug (#17321) — worker used Bash for file ops. Shut down the worker. Implement its tasks in single-agent mode. |
 | Small batch (low effort score) | Skip workers entirely — use single-agent mode from the start (see Scope Assessment) |
+| Plan is very large / spans multiple phases | NOT a stop and NOT a question — use phase-gated execution (see Multi-Phase Plans); checkpoint via "Tasks Remaining" when the budget is hit |
+| Tempted to ask the user a question | Don't — resolve it via the deterministic rules; pick the reasonable default and document it. The asking tools are disabled (see Autonomous Execution) |
 | Merge conflict | Resolve in feature branch, run typecheck, continue merging |
 | Type errors after merge | Fix before merging next worker |
 | Integration failures after all merges | Fix directly in verification phase |
@@ -467,10 +491,12 @@ If `TeamCreate` fails or worktree setup fails, implement the plan sequentially a
 2. **NEVER skip failing tests** — Fix them
 3. **NEVER modify PLANS.md sections above current iteration** — Append only
 4. **NEVER proceed with warnings** — Fix all warnings first
-5. **NEVER ask "should I continue?"** — Use context estimation to decide automatically (single-agent mode)
+5. **NEVER ask the user anything mid-run** — no "should I continue?", no scope/run-structure choices, no plan mode, in EITHER mode. Resolve every decision via this skill's deterministic rules (see "Autonomous Execution" and "Multi-Phase Plans"). The only stops are the terminal STOP conditions in Error Handling.
 
 ## Rules
 
+- **Run autonomously, never ask** — No user questions, options, confirmations, or plan mode mid-run (see "Autonomous Execution"). Resolve every decision via these rules; checkpoint via "Tasks Remaining" instead of asking.
+- **Phase-gated for multi-phase plans** — Execute phase-by-phase, merging + typechecking each phase before the next (see "Multi-Phase Plans"). Apply Scope Assessment per phase.
 - **Domain-based partitioning** — Group tasks by functional domain. Overlapping files are acceptable; the lead resolves conflicts at merge time.
 - **Follow TDD strictly** — Test before implementation, always
 - **Fix ALL real bugs** — Every bug found by bug-hunter must be fixed, whether pre-existing or new. Only skip verifiable false positives.

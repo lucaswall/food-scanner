@@ -29,7 +29,7 @@ vi.mock("swr", () => ({
 
 vi.mock("@/lib/swr", () => ({
   apiFetcher: vi.fn(),
-  FITBIT_BACKED_SWR_CONFIG: {
+  HEALTH_BACKED_SWR_CONFIG: {
     revalidateOnFocus: false,
     revalidateOnReconnect: true,
     dedupingInterval: 30 * 60 * 1000,
@@ -59,6 +59,8 @@ const sampleSettings = {
   activityLevel: "light",
   goalWeightKg: 75.0,
   goalRateKgPerWeek: 0.5,
+  sex: "MALE",
+  weightGoalType: "LOSE",
 };
 
 const sampleProfile = {
@@ -93,7 +95,7 @@ beforeEach(() => {
     if (key === "/api/daily-goals-settings") {
       return { data: sampleSettings, error: null, isLoading: false, mutate: vi.fn() };
     }
-    if (key === "/api/fitbit/profile") {
+    if (key === "/api/health-profile") {
       return { data: sampleProfile, error: null, isLoading: false, mutate: vi.fn() };
     }
     return { data: null, error: null, isLoading: true, mutate: vi.fn() };
@@ -124,7 +126,7 @@ describe("DailyGoalsCard", () => {
 
     it("renders Skeletons while profile SWR is loading", () => {
       mockUseSWR.mockImplementation((key: string) => {
-        if (key === "/api/fitbit/profile") {
+        if (key === "/api/health-profile") {
           return { data: undefined, error: null, isLoading: true, mutate: vi.fn() };
         }
         return { data: sampleSettings, error: null, isLoading: false, mutate: vi.fn() };
@@ -248,17 +250,18 @@ describe("DailyGoalsCard", () => {
       expect(warning.textContent).toMatch(/safe minimum/i);
     });
 
-    it("shows safety warning below female floor (1200) for FEMALE profile", () => {
+    it("shows safety warning below female floor (1200) for FEMALE sex setting", () => {
+      // Floor now keys off the local sex SETTING (the form value), not the Health profile.
       mockUseSWR.mockImplementation((key: string) => {
-        if (key === "/api/fitbit/profile") {
-          return {
-            data: { ...sampleProfile, sex: "FEMALE" },
-            error: null,
-            isLoading: false,
-            mutate: vi.fn(),
-          };
+        if (key === "/api/health-profile") {
+          return { data: sampleProfile, error: null, isLoading: false, mutate: vi.fn() };
         }
-        return { data: sampleSettings, error: null, isLoading: false, mutate: vi.fn() };
+        return {
+          data: { ...sampleSettings, sex: "FEMALE" },
+          error: null,
+          isLoading: false,
+          mutate: vi.fn(),
+        };
       });
       mockComputeMacroTargets.mockReturnValue({
         ...sampleEngineOutput,

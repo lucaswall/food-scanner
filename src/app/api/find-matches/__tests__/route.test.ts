@@ -43,15 +43,14 @@ const validSession: FullSession = {
   sessionId: "test-session",
   userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
-  fitbitConnected: true,
-  hasFitbitCredentials: true,
+  healthConnected: true,
   destroy: vi.fn(),
 };
 
 const validBody = {
   food_name: "Tea with milk",
   amount: 1,
-  unit_id: 91,
+  unit_id: "cup",
   calories: 50,
   protein_g: 2,
   carbs_g: 5,
@@ -137,11 +136,10 @@ describe("POST /api/find-matches", () => {
         proteinG: 2,
         carbsG: 5,
         fatG: 2,
-        fitbitFoodId: 100,
         matchRatio: 1.0,
         lastLoggedAt: new Date("2026-01-15"),
         amount: 1,
-        unitId: 91,
+        unitId: "cup",
       },
       {
         customFoodId: 2,
@@ -150,11 +148,10 @@ describe("POST /api/find-matches", () => {
         proteinG: 2,
         carbsG: 6,
         fatG: 2,
-        fitbitFoodId: 101,
         matchRatio: 1.0,
         lastLoggedAt: new Date("2026-01-20"),
         amount: 1,
-        unitId: 91,
+        unitId: "cup",
       },
       {
         customFoodId: 3,
@@ -163,11 +160,10 @@ describe("POST /api/find-matches", () => {
         proteinG: 1,
         carbsG: 4,
         fatG: 1,
-        fitbitFoodId: 102,
         matchRatio: 0.5,
         lastLoggedAt: new Date("2026-01-25"),
         amount: 1,
-        unitId: 91,
+        unitId: "cup",
       },
     ];
     mockFindMatchingFoods.mockResolvedValue(mockMatches);

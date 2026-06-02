@@ -44,7 +44,7 @@ For detailed information beyond this file:
 
 **Default to skill** - simpler, runs in main context.
 
-**When a skill needs parallel workers**, it can orchestrate an **agent team** internally. See "Agent Teams in Skills" under Best Practices and [references/agent-teams-reference.md](references/agent-teams-reference.md) for the full guide.
+**When a skill needs parallel workers**, it has two options: orchestrate an **agent team** internally (when teammates must message each other or you need a known role decomposition — see "Agent Teams in Skills" below and [references/agent-teams-reference.md](references/agent-teams-reference.md)), or use a **Dynamic Workflow** (CC v2.1.154+) — a deterministic JS orchestration script (fan-out → verify → synthesize, loop-until-dry) that keeps intermediate results out of the main context and can be saved as a reusable `/<name>` command. Prefer workflows for deterministic, large-scale, or convergence-driven fan-out; prefer teams for collaborative, role-decomposed work.
 
 ## Templates
 
@@ -92,26 +92,32 @@ You are a specialist in [domain]. When invoked:
 ### Skill Fields (SKILL.md)
 | Field | Description |
 |-------|-------------|
-| `name` | Slash command name (defaults to directory). Lowercase, numbers, hyphens only, max 64 chars |
-| `description` | **Critical** - triggers auto-discovery. Falls back to first paragraph if omitted |
-| `argument-hint` | Autocomplete hint: `[issue-number]` |
-| `disable-model-invocation` | `true` = only user can invoke |
-| `user-invocable` | `false` = hidden from `/` menu |
-| `allowed-tools` | Tools without permission prompts |
-| `model` | Model override: sonnet, opus, haiku |
-| `context` | `fork` = run in isolated subagent |
-| `agent` | Subagent type when forked |
-| `hooks` | Lifecycle hooks (PreToolUse, PostToolUse) |
+| `name` | Display label. **The slash command comes from the directory name**, not this field. Lowercase, numbers, hyphens, max 64 chars; no "anthropic"/"claude" |
+| `description` | **Critical** - triggers auto-discovery. Falls back to first paragraph if omitted. **Put the trigger phrase FIRST**: combined `description` + `when_to_use` is truncated at **1,536 chars** in the listing, and the listing budget is ~1% of context (least-invoked skills drop first on overflow — run `/doctor`) |
+| `argument-hint` / `arguments` | Autocomplete hint `[issue-number]`; `arguments` declares named positional args → `$name` substitution |
+| `disable-model-invocation` | `true` = only user can invoke; description removed from Claude's context |
+| `user-invocable` | `false` = hidden from `/` menu (background knowledge) |
+| `allowed-tools` | Pre-approves tools (no prompt) while active — does NOT restrict the pool |
+| `disallowed-tools` | **(new)** Removes tools from the pool while active (clears on next user message) — e.g. drop `AskUserQuestion` from autonomous loops |
+| `model` | Model override for the **current turn only** (sonnet/opus/haiku/full-id/inherit); resumes session model next prompt |
+| `effort` | **(new)** Effort while active: `low`/`medium`/`high`/`xhigh`/`max` (model-dependent) |
+| `context` | `fork` = run in isolated subagent (SKILL.md body becomes the task) |
+| `agent` | Subagent type when forked (`Explore`, `Plan`, `general-purpose`, or a custom agent) |
+| `paths` | **(new)** Glob patterns; auto-activate the skill only when working on matching files |
+| `hooks` | Lifecycle hooks (PreToolUse, PostToolUse, Stop…); supports `once: true` |
+| `shell` | `bash` (default) or `powershell` for `!`-injected commands |
 
 ### Subagent Fields (.md)
 | Field | Description |
 |-------|-------------|
 | `name` | Unique identifier (lowercase, hyphens). Required |
 | `description` | **Critical** - when Claude delegates. Required |
-| `tools` | Allowlist (inherits all including MCP if omitted). Use `Task(type1, type2)` to restrict spawnable agents |
-| `disallowedTools` | Denylist from inherited tools |
-| `model` | sonnet, opus, haiku, inherit (default: inherit) |
-| `permissionMode` | default, acceptEdits, delegate, dontAsk, bypassPermissions, plan |
+| `tools` | Allowlist (inherits all including MCP if omitted). Use `Agent(type1, type2)` (renamed from `Task(...)` in CC v2.1.63) to restrict spawnable agent types |
+| `disallowedTools` | Denylist (applied before `tools`; a tool listed in both is removed) |
+| `model` | sonnet, opus, haiku, full-id, inherit (default: inherit) |
+| `permissionMode` | default, acceptEdits, **`auto`** (new — background classifier, cuts prompts), delegate, dontAsk, bypassPermissions, plan |
+| `effort` | **(new)** Per-subagent effort override (`low`/`medium`/`high`/`xhigh`/`max`) |
+| `color` / `initialPrompt` | Display color; `initialPrompt` auto-submits as the first turn when the agent is the main session (`--agent`) |
 | `maxTurns` | Max agentic turns before stopping |
 | `skills` | Preload full skill content at startup |
 | `mcpServers` | MCP servers available (name reference or inline config) |
@@ -126,6 +132,8 @@ You are a specialist in [domain]. When invoked:
 | `$ARGUMENTS` | All arguments passed |
 | `$ARGUMENTS[N]` or `$N` | Positional argument (0-indexed) |
 | `${CLAUDE_SESSION_ID}` | Current session ID |
+| `${CLAUDE_SKILL_DIR}` | Absolute path to the skill's own directory — resolve bundled script paths regardless of cwd |
+| `${CLAUDE_EFFORT}` | Current effort level (`low`…`max`) |
 | `!{backtick}command{backtick}` | Dynamic command output (runs before Claude sees content). Syntax: exclamation + backtick-wrapped shell command |
 
 ## Patterns
@@ -176,16 +184,16 @@ Key files: src/payments/legacy-adapter.ts
 ---
 name: parallel-review
 description: Parallel code review with specialized reviewers
-allowed-tools: Read, Glob, Grep, Task, Bash, TeamCreate, TeamDelete,
+allowed-tools: Read, Glob, Grep, Agent, Bash, TeamCreate, TeamDelete,
   SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet
 disable-model-invocation: true
 ---
 
-1. TeamCreate → TaskCreate (one per reviewer) → spawn teammates
+1. TeamCreate → TaskCreate (one per reviewer) → spawn teammates (Agent tool, team_name)
 2. Wait for findings messages (auto-delivered)
 3. Merge, deduplicate, act on results
 4. Shutdown teammates → TeamDelete
-Fallback: if TeamCreate fails, use sequential Task subagents
+Fallback: if TeamCreate fails, use sequential Agent subagents
 ```
 
 ### Hook Validation (Subagent)
@@ -277,14 +285,17 @@ Design skills with this in mind: keep SKILL.md focused; put large docs in suppor
 - `dontAsk` - Auto-deny prompts (use for read-only agents)
 - `acceptEdits` - Auto-accept file edits
 - `delegate` - Coordination-only (for agent team leads, restricts to team management tools)
+- `auto` - **(new)** Background classifier auto-approves/denies — cuts worker permission prompts
 - `bypassPermissions` - Skip all checks (dangerous)
 
 ### Model Selection
 
-Match model to task complexity:
+Match model to task complexity. Current lineup (May 2026): **Opus 4.8** (`claude-opus-4-8`, $5/$25), **Sonnet 4.6** (`claude-sonnet-4-6`, $3/$15), **Haiku 4.5** (`claude-haiku-4-5`, $1/$5). No Sonnet 4.7 / Haiku 4.6 exist.
 - `haiku` - Fast, cheap (exploration, simple validation, tests)
 - `sonnet` - Balanced (code review, git operations, implementation)
 - `opus` - Complex reasoning, bug detection, critical decisions
+
+**Effort is a separate lever from model** (`low`/`medium`/`high`/`xhigh`/`max`; `xhigh` is Opus 4.8/4.7 only; default `high`). For multi-agent work, the Anthropic-validated split is Opus-lead + Sonnet-workers + Haiku-validators — and raising the **orchestrator's effort** usually beats upgrading worker models. Aliases (`opus`/`sonnet`/`haiku`) auto-track the latest snapshot — prefer them in skills/agents over pinned IDs so they don't go stale.
 
 ### Subagent Limits
 
@@ -297,8 +308,10 @@ When a skill needs parallel workers (code review, parallel implementation, compe
 **When to use teams inside a skill:**
 - Workers need to communicate with each other (not just report back to lead)
 - Work benefits from domain specialization (security vs reliability vs quality)
-- Parallel implementation across non-overlapping file sets
+- Parallel implementation across non-overlapping file sets that benefits from worktree isolation
 - Higher token cost is justified by speed or depth
+
+> **For read-only review fan-out** (reviewers report back to the lead, don't talk to each other — e.g. code-audit, frontend-review, the plan-review review phase), **prefer a Dynamic Workflow** over an agent team: cleaner main context, validated structured findings, no ~7× team token cost, none of the team task-status-lag / no-resume gaps, and saveable as a reusable command. In this project those skills now use Workflow mode as the preferred path with the agent team as fallback. Reserve teams for collaborative or write-heavy work.
 
 **Key rules for team-orchestrating skills:**
 1. **Isolate workers that write files** — Implementation workers get git worktrees (`_workers/worker-N/`) with own branch; domain-based assignment allowed. Review-only workers (code-audit, frontend-review) share the main directory safely. **Fallback:** partition by file ownership if worktrees unavailable
@@ -311,12 +324,13 @@ When a skill needs parallel workers (code review, parallel implementation, compe
 
 **Required `allowed-tools` for team skills:**
 ```
-TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, Task
+TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, Agent
 ```
+(`Agent` is the subagent-spawning tool — renamed from `Task` in CC v2.1.63; `Task` still aliases.)
 
 **Skill lifecycle with teams:**
 1. Pre-flight (verify dependencies)
-2. `TeamCreate` → `TaskCreate` (one per work unit) → spawn teammates via `Task` with `team_name`
+2. `TeamCreate` → `TaskCreate` (one per work unit) → spawn teammates via the `Agent` tool with `team_name`
 3. Assign tasks via `TaskUpdate`
 4. Wait for teammate messages (auto-delivered, don't poll)
 5. Merge/synthesize findings

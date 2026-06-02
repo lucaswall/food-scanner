@@ -2,7 +2,8 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse, conditionalResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getFoodLogEntry, deleteFoodLogEntry, getFoodLogEntryDetail } from "@/lib/food-log";
-import { ensureFreshToken, deleteFoodLog } from "@/lib/fitbit";
+import { ensureFreshToken, deleteNutritionLogs } from "@/lib/google-health";
+import { mapHealthError, isExpectedHealthError } from "@/lib/health-error-response";
 
 export async function GET(
   request: Request,
@@ -43,7 +44,7 @@ export async function DELETE(
   const log = createRequestLogger("DELETE", "/api/food-history/[id]");
   const session = await getSession();
 
-  const validationError = validateSession(session, { requireFitbit: true });
+  const validationError = validateSession(session, { requireHealth: true });
   if (validationError) return validationError;
 
   const { id: idParam } = await params;
@@ -67,12 +68,12 @@ export async function DELETE(
   }
 
   try {
-    const isDryRun = process.env.FITBIT_DRY_RUN === "true";
+    const isDryRun = process.env.HEALTH_DRY_RUN === "true";
 
-    // Delete from Fitbit first (if applicable), then local DB
-    if (entry.fitbitLogId && !isDryRun) {
+    // Delete from Google Health first (if applicable), then local DB
+    if (entry.healthLogId && !isDryRun) {
       const accessToken = await ensureFreshToken(session!.userId, log);
-      await deleteFoodLog(accessToken, entry.fitbitLogId, log, session!.userId);
+      await deleteNutritionLogs(accessToken, [entry.healthLogId], log, session!.userId);
     }
 
     try {
@@ -80,43 +81,33 @@ export async function DELETE(
     } catch (dbErr) {
       log.error(
         { action: "delete_food_log_db_error", entryId: id, error: dbErr instanceof Error ? dbErr.message : String(dbErr) },
-        "Fitbit delete succeeded but local DB delete failed",
+        "Health delete succeeded but local DB delete failed",
       );
-      return errorResponse("INTERNAL_ERROR", "Fitbit log deleted but local delete failed. Entry may be orphaned.", 500);
+      return errorResponse("INTERNAL_ERROR", "Health log deleted but local delete failed. Entry may be orphaned.", 500);
     }
 
     if (isDryRun) {
       log.info(
-        { action: "delete_food_log", entryId: id, fitbitLogId: entry.fitbitLogId },
-        "food log entry deleted in dry-run mode (Fitbit API skipped)",
+        { action: "delete_food_log", entryId: id, healthLogId: entry.healthLogId },
+        "food log entry deleted in dry-run mode (Health API skipped)",
       );
     } else {
       log.info(
-        { action: "delete_food_log", entryId: id, fitbitLogId: entry.fitbitLogId },
+        { action: "delete_food_log", entryId: id, healthLogId: entry.healthLogId },
         "food log entry deleted",
       );
     }
 
     return successResponse({ deleted: true });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-
-    if (errorMessage === "FITBIT_TOKEN_INVALID") {
-      log.warn(
-        { action: "delete_food_log_token_invalid" },
-        "Fitbit token invalid, reconnect required",
-      );
-      return errorResponse(
-        "FITBIT_TOKEN_INVALID",
-        "Fitbit session expired. Please reconnect your Fitbit account.",
-        401,
-      );
+    const errMsg = error instanceof Error ? error.message : String(error);
+    // Expected operational conditions (token expiry, rate limit, timeout) log at warn to
+    // avoid Sentry noise; genuine faults stay at error.
+    if (isExpectedHealthError(error)) {
+      log.warn({ action: "delete_food_log_error", error: errMsg }, "Google Health transient error deleting food log");
+    } else {
+      log.error({ action: "delete_food_log_error", error: errMsg }, "failed to delete food log entry");
     }
-
-    log.error(
-      { action: "delete_food_log_error", error: errorMessage },
-      "failed to delete food log entry",
-    );
-    return errorResponse("FITBIT_API_ERROR", "Failed to delete food log entry", 502);
+    return mapHealthError(error);
   }
 }

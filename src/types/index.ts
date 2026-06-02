@@ -16,46 +16,87 @@ export interface FullSession {
   sessionId: string;
   userId: string;
   expiresAt: number;
-  fitbitConnected: boolean;
-  hasFitbitCredentials: boolean;
+  healthConnected: boolean;
   /** Call to destroy both cookie and DB session */
   destroy: () => Promise<void>;
 }
 
-export const FITBIT_UNITS = {
-  g:       { id: 147, name: "g",       plural: "g" },
-  oz:      { id: 226, name: "oz",      plural: "oz" },
-  cup:     { id: 91,  name: "cup",     plural: "cups" },
-  tbsp:    { id: 349, name: "tbsp",    plural: "tbsp" },
-  tsp:     { id: 364, name: "tsp",     plural: "tsp" },
-  ml:      { id: 209, name: "ml",      plural: "ml" },
-  slice:   { id: 311, name: "slice",   plural: "slices" },
-  serving: { id: 304, name: "serving", plural: "servings" },
-} as const;
+/**
+ * Internal serving-unit representation. Replaces the legacy Fitbit numeric
+ * unit_id registry — Google Health logs anonymous foods with a free-text
+ * serving unit, so we keep our own stable string enum.
+ */
+export type ServingUnit =
+  | "g"
+  | "oz"
+  | "cup"
+  | "tbsp"
+  | "tsp"
+  | "ml"
+  | "slice"
+  | "serving";
 
-export type FitbitUnitKey = keyof typeof FITBIT_UNITS;
+export const SERVING_UNITS: Record<ServingUnit, { name: string; plural: string }> = {
+  g:       { name: "g",       plural: "g" },
+  oz:      { name: "oz",      plural: "oz" },
+  cup:     { name: "cup",     plural: "cups" },
+  tbsp:    { name: "tbsp",    plural: "tbsp" },
+  tsp:     { name: "tsp",     plural: "tsp" },
+  ml:      { name: "ml",      plural: "ml" },
+  slice:   { name: "slice",   plural: "slices" },
+  serving: { name: "serving", plural: "servings" },
+};
 
 const UNITS_WITHOUT_SPACE: Set<string> = new Set(["g", "oz", "ml", "tbsp", "tsp"]);
 
-export function getUnitById(id: number): (typeof FITBIT_UNITS)[FitbitUnitKey] | undefined {
-  for (const key of Object.keys(FITBIT_UNITS) as FitbitUnitKey[]) {
-    if (FITBIT_UNITS[key].id === id) return FITBIT_UNITS[key];
+/**
+ * Maps the legacy Fitbit numeric unit ids to the internal ServingUnit string.
+ * Exported for the one-time DB backfill that converts unit_id integer -> text.
+ */
+export const LEGACY_FITBIT_UNIT_ID_TO_SERVING_UNIT: Record<number, ServingUnit> = {
+  147: "g",
+  226: "oz",
+  91:  "cup",
+  349: "tbsp",
+  364: "tsp",
+  209: "ml",
+  311: "slice",
+  304: "serving",
+};
+
+const SERVING_UNIT_KEYS: Set<string> = new Set(Object.keys(SERVING_UNITS));
+
+/**
+ * Coerce an arbitrary value (model output, legacy numeric id, numeric string)
+ * into a valid ServingUnit. Defaults to "serving" so a bad value never throws.
+ */
+export function coerceServingUnit(value: unknown): ServingUnit {
+  if (typeof value === "string" && SERVING_UNIT_KEYS.has(value)) {
+    return value as ServingUnit;
   }
-  return undefined;
+  if (typeof value === "number" && value in LEGACY_FITBIT_UNIT_ID_TO_SERVING_UNIT) {
+    return LEGACY_FITBIT_UNIT_ID_TO_SERVING_UNIT[value];
+  }
+  if (typeof value === "string") {
+    const asNum = Number(value);
+    if (Number.isInteger(asNum) && asNum in LEGACY_FITBIT_UNIT_ID_TO_SERVING_UNIT) {
+      return LEGACY_FITBIT_UNIT_ID_TO_SERVING_UNIT[asNum];
+    }
+  }
+  return "serving";
 }
 
-export function getUnitLabel(unitId: number, amount: number): string {
-  const unit = getUnitById(unitId);
-  if (!unit) return `${amount} units`;
-  const label = amount === 1 ? unit.name : unit.plural;
-  if (UNITS_WITHOUT_SPACE.has(unit.name)) return `${amount}${label}`;
+export function getUnitLabel(unit: ServingUnit | string, amount: number): string {
+  const entry = SERVING_UNITS[coerceServingUnit(unit)];
+  const label = amount === 1 ? entry.name : entry.plural;
+  if (UNITS_WITHOUT_SPACE.has(entry.name)) return `${amount}${label}`;
   return `${amount} ${label}`;
 }
 
 export interface FoodAnalysis {
   food_name: string;
   amount: number;
-  unit_id: number;
+  unit_id: ServingUnit;
   calories: number;
   protein_g: number;
   carbs_g: number;
@@ -77,7 +118,7 @@ export interface FoodAnalysis {
   date?: string | null;
   /** Meal time suggested by Claude in HH:mm format. Only set when user explicitly mentions time. */
   time?: string | null;
-  /** Fitbit meal type ID (1-7, no 6) suggested by Claude. Only set when user mentions meal context. */
+  /** Meal type ID (1-7, no 6) suggested by Claude. Only set when user mentions meal context. */
   mealTypeId?: number | null;
 }
 
@@ -98,6 +139,7 @@ export interface FoodLogRequest extends FoodAnalysis {
   date: string; // YYYY-MM-DD (client wall-clock)
   time: string; // HH:mm:ss (client wall-clock)
   zoneOffset?: string; // ±HH:MM (client UTC offset)
+  clientToken?: string; // optional idempotency key for retried log requests
   reuseCustomFoodId?: number;
   // Optional metadata updates when reusing a custom food
   newDescription?: string;
@@ -108,15 +150,14 @@ export interface FoodLogRequest extends FoodAnalysis {
 
 export interface FoodLogResponse {
   success: boolean;
-  fitbitFoodId?: number;
-  fitbitLogId?: number;
+  healthLogId?: string;
   reusedFood: boolean;
   foodLogId?: number;
   dryRun?: boolean;
   error?: string;
 }
 
-export enum FitbitMealType {
+export enum MealType {
   Breakfast = 1,
   MorningSnack = 2,
   Lunch = 3,
@@ -125,8 +166,7 @@ export enum FitbitMealType {
   Anytime = 7,
 }
 
-export type FitbitHealthStatus =
-  | { status: "needs_setup" }
+export type HealthConnectionStatus =
   | { status: "needs_reconnect" }
   | { status: "scope_mismatch"; missingScopes: string[] }
   | { status: "healthy" };
@@ -135,19 +175,18 @@ export type ErrorCode =
   | "AUTH_INVALID_EMAIL"
   | "AUTH_SESSION_EXPIRED"
   | "AUTH_MISSING_SESSION"
-  | "FITBIT_NOT_CONNECTED"
-  | "FITBIT_TOKEN_INVALID"
-  | "FITBIT_SCOPE_MISSING"
-  | "FITBIT_CREDENTIALS_MISSING"
-  | "FITBIT_RATE_LIMIT"
-  | "FITBIT_RATE_LIMIT_LOW"
-  | "FITBIT_TIMEOUT"
-  | "FITBIT_REFRESH_TRANSIENT"
-  | "FITBIT_TOKEN_SAVE_FAILED"
+  | "HEALTH_NOT_CONNECTED"
+  | "HEALTH_TOKEN_INVALID"
+  | "HEALTH_SCOPE_MISSING"
+  | "HEALTH_RATE_LIMIT"
+  | "HEALTH_RATE_LIMIT_LOW"
+  | "HEALTH_TIMEOUT"
+  | "HEALTH_REFRESH_TRANSIENT"
+  | "HEALTH_TOKEN_SAVE_FAILED"
+  | "HEALTH_API_ERROR"
   | "NOT_FOUND"
   | "PARTIAL_ERROR"
   | "CLAUDE_API_ERROR"
-  | "FITBIT_API_ERROR"
   | "VALIDATION_ERROR"
   | "RATE_LIMIT_EXCEEDED"
   | "INTERNAL_ERROR";
@@ -170,7 +209,7 @@ export interface ApiErrorResponse {
 
 export type ApiResponse<T> = ApiSuccessResponse<T> | ApiErrorResponse;
 
-export const FITBIT_MEAL_TYPE_LABELS: Record<number, string> = {
+export const MEAL_TYPE_LABELS: Record<number, string> = {
   1: "Breakfast",
   2: "Morning Snack",
   3: "Lunch",
@@ -183,7 +222,7 @@ export interface CommonFood {
   customFoodId: number;
   foodName: string;
   amount: number;
-  unitId: number;
+  unitId: ServingUnit;
   calories: number;
   proteinG: number;
   carbsG: number;
@@ -194,7 +233,6 @@ export interface CommonFood {
   transFatG?: number | null;
   sugarsG?: number | null;
   caloriesFromFat?: number | null;
-  fitbitFoodId: number | null;
   mealTypeId: number;
   isFavorite: boolean;
 }
@@ -235,11 +273,11 @@ export interface FoodLogHistoryEntry {
   sugarsG?: number | null;
   caloriesFromFat?: number | null;
   amount: number;
-  unitId: number;
+  unitId: ServingUnit;
   mealTypeId: number;
   date: string;
   time: string | null;
-  fitbitLogId: number | null;
+  healthLogId: string | null;
   isFavorite: boolean;
 }
 
@@ -254,11 +292,10 @@ export interface FoodMatch {
   transFatG?: number | null;
   sugarsG?: number | null;
   caloriesFromFat?: number | null;
-  fitbitFoodId: number | null;
   matchRatio: number;
   lastLoggedAt: Date;
   amount: number;
-  unitId: number;
+  unitId: ServingUnit;
 }
 
 export interface FoodLogEntryDetail {
@@ -278,12 +315,11 @@ export interface FoodLogEntryDetail {
   sugarsG?: number | null;
   caloriesFromFat?: number | null;
   amount: number;
-  unitId: number;
+  unitId: ServingUnit;
   mealTypeId: number;
   date: string;
   time: string | null;
-  fitbitLogId: number | null;
-  fitbitFoodId: number | null;
+  healthLogId: string | null;
   confidence: string;
   isFavorite: boolean;
   keywords: string[];
@@ -306,9 +342,9 @@ export interface MealEntry {
   sugarsG: number | null;
   caloriesFromFat: number | null;
   amount: number;
-  unitId: number;
+  unitId: ServingUnit;
   isFavorite: boolean;
-  fitbitLogId: number | null;
+  healthLogId: string | null;
 }
 
 export interface MealGroup {
@@ -347,10 +383,6 @@ export interface NutritionSummary {
 
 export interface ActivitySummary {
   caloriesOut: number | null;
-}
-
-export interface FitbitWeightGoal {
-  goalType: "LOSE" | "MAINTAIN" | "GAIN";
 }
 
 export interface ClaudeUsageRecord {
@@ -556,7 +588,7 @@ export interface SavedAnalysisDetail extends SavedAnalysisListItem {
   foodAnalysis: FoodAnalysis;
 }
 
-export interface FitbitProfileData {
+export interface HealthProfileData {
   ageYears: number;
   sex: "MALE" | "FEMALE" | "NA";
   heightCm: number;
@@ -566,13 +598,13 @@ export interface FitbitProfileData {
   lastSyncedAt: number;
 }
 
-export interface FitbitProfile {
+export interface HealthProfile {
   ageYears: number;
   sex: "MALE" | "FEMALE" | "NA";
   heightCm: number;
 }
 
-export interface FitbitWeightLog {
+export interface HealthWeightLog {
   weightKg: number;
   loggedDate: string;
 }
@@ -632,6 +664,6 @@ export interface NutritionGoals {
     | "invalid_profile"
     | "goals_not_set";
   audit?: NutritionGoalsAudit;
-  /** True when the Fitbit weight log used was logged > 7 days before the target date (FOO-1010). */
+  /** True when the health weight log used was logged > 7 days before the target date (FOO-1010). */
   weightStale?: boolean;
 }

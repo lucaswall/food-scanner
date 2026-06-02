@@ -32,28 +32,28 @@ describe("GoalsSetupBanner", () => {
   it("maps no_weight → correct message", () => {
     render(<GoalsSetupBanner reason="no_weight" />);
     expect(
-      screen.getByText(/Log your weight in Fitbit to enable targets\./i)
+      screen.getByText(/Log your weight in Google Health to enable targets\./i)
     ).toBeInTheDocument();
   });
 
   it("maps sex_unset → correct message", () => {
     render(<GoalsSetupBanner reason="sex_unset" />);
     expect(
-      screen.getByText(/Set your biological sex in Fitbit profile to enable targets\./i)
+      screen.getByText(/Set your biological sex in Settings to enable targets\./i)
     ).toBeInTheDocument();
   });
 
   it("maps scope_mismatch → correct message", () => {
     render(<GoalsSetupBanner reason="scope_mismatch" />);
     expect(
-      screen.getByText(/Reconnect Fitbit to enable targets\./i)
+      screen.getByText(/Reconnect Google Health to enable targets\./i)
     ).toBeInTheDocument();
   });
 
   it("maps invalid_profile → correct message", () => {
     render(<GoalsSetupBanner reason="invalid_profile" />);
     expect(
-      screen.getByText(/Your Fitbit profile has invalid values — update it in the Fitbit app\./i)
+      screen.getByText(/Your Google Health profile has invalid values — update your profile in Google Health\./i)
     ).toBeInTheDocument();
   });
 

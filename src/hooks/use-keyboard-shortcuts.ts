@@ -2,7 +2,7 @@ import { useEffect, useCallback } from "react";
 
 interface UseKeyboardShortcutsOptions {
   onAnalyze?: () => void;
-  onLogToFitbit?: () => void;
+  onLogFood?: () => void;
   canAnalyze: boolean;
   canLog: boolean;
 }
@@ -12,11 +12,11 @@ interface UseKeyboardShortcutsOptions {
  *
  * Shortcuts:
  * - Ctrl/Cmd + Enter: Trigger analysis (when photos are present)
- * - Ctrl/Cmd + Shift + Enter: Log to Fitbit (when analysis is present)
+ * - Ctrl/Cmd + Shift + Enter: Log to Google Health (when analysis is present)
  */
 export function useKeyboardShortcuts({
   onAnalyze,
-  onLogToFitbit,
+  onLogFood,
   canAnalyze,
   canLog,
 }: UseKeyboardShortcutsOptions): void {
@@ -24,11 +24,11 @@ export function useKeyboardShortcuts({
     (event: KeyboardEvent) => {
       const isCtrlOrCmd = event.ctrlKey || event.metaKey;
 
-      // Ctrl/Cmd + Shift + Enter: Log to Fitbit
+      // Ctrl/Cmd + Shift + Enter: Log to Google Health
       if (isCtrlOrCmd && event.shiftKey && event.key === "Enter") {
-        if (canLog && onLogToFitbit) {
+        if (canLog && onLogFood) {
           event.preventDefault();
-          onLogToFitbit();
+          onLogFood();
         }
         return;
       }
@@ -42,7 +42,7 @@ export function useKeyboardShortcuts({
         return;
       }
     },
-    [canAnalyze, canLog, onAnalyze, onLogToFitbit]
+    [canAnalyze, canLog, onAnalyze, onLogFood]
   );
 
   useEffect(() => {

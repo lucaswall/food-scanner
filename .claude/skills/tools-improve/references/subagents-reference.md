@@ -23,7 +23,7 @@
 
 **Subagents cannot spawn other subagents.** If your workflow requires nested delegation, use skills or chain subagents from the main conversation.
 
-**Restrict spawnable agents** -- Use `Task(type1, type2)` in the `tools` field to allowlist which agent types can be spawned (only applies to agents running as main thread with `claude --agent`).
+**Restrict spawnable agents** -- Use `Agent(type1, type2)` in the `tools` field to allowlist which agent types can be spawned (the spawn tool was renamed from `Task` to `Agent` in CC v2.1.63; `Task` still aliases). Only applies to agents running as main thread with `claude --agent`. Disable a type globally with `permissions.deny: ["Agent(Explore)"]`.
 
 ## New Subagent Fields
 
@@ -31,7 +31,13 @@
 Always runs the subagent as a background task. Background subagents run concurrently, permissions are pre-approved at launch, and MCP tools are NOT available.
 
 ### `isolation: worktree`
-Runs the subagent in a temporary git worktree. The worktree is automatically cleaned up if the subagent makes no changes. If changes are made, the worktree path and branch are returned in the result. Useful for isolated experiments or risky operations.
+Runs the subagent in a temporary git worktree. The worktree is automatically cleaned up if the subagent makes no changes. If changes are made, the worktree path and branch are returned in the result. Useful for isolated experiments or risky operations. Pairs with the repo-root `.worktreeinclude` file (gitignore-syntax list of gitignored files like `.env` to auto-copy into each worktree) and the `worktree.baseRef: fresh|head` setting.
+
+### `effort: low|medium|high|xhigh|max`
+Per-subagent effort override, separate from `model`. `xhigh` is Opus 4.8/4.7 only; default is `high`. Lower effort (e.g. `low`) is the documented efficiency lever for scoped worker subagents.
+
+### `permissionMode: auto`
+New background-classifier mode that auto-approves/denies tool calls — reduces worker permission prompts without resorting to `bypassPermissions`.
 
 ## Where Subagents Live
 
@@ -48,6 +54,7 @@ Runs the subagent in a temporary git worktree. The worktree is automatically cle
 |------|----------|----------|
 | `default` | Standard prompts | General purpose |
 | `acceptEdits` | Auto-accept Write/Edit | Trusted code writers |
+| `auto` | Background classifier auto-allows/denies prompts | Cutting worker permission prompts |
 | `delegate` | Coordination-only (team management tools only) | Agent team leads |
 | `dontAsk` | Auto-deny prompts (allowed tools still work) | **Read-only agents** |
 | `bypassPermissions` | Skip ALL checks (dangerous) | Rarely - high trust only |

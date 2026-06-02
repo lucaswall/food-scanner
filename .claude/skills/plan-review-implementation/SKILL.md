@@ -1,13 +1,22 @@
 ---
 name: plan-review-implementation
 description: QA review of completed implementation using an agent team with 3 domain-specialized reviewers (security, reliability, quality). Use after plan-implement finishes, or when user says "review the implementation". Moves Linear issues Review→Merge. Creates new issues in Todo for bugs found. After PR creation, launches a 3-min Codex monitor that auto-fixes findings, watches CI, and squash-merges + cleans up when both are clean. Falls back to single-agent mode if agent teams unavailable.
-allowed-tools: Read, Edit, Write, Glob, Grep, Bash, Task, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, CronCreate, CronList, CronDelete, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses, mcp__sentry__update_issue, mcp__sentry__find_organizations, mcp__sentry__find_projects, mcp__sentry__search_issues
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash, Agent, Workflow, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, CronCreate, CronList, CronDelete, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses, mcp__sentry__update_issue, mcp__sentry__find_organizations, mcp__sentry__find_projects, mcp__sentry__search_issues
+disallowed-tools: AskUserQuestion, EnterPlanMode, ExitPlanMode
 disable-model-invocation: true
 ---
 
 Review **ALL** implementation iterations that need review using an agent team with domain-specialized reviewers. You are the **team lead/coordinator**. You orchestrate 3 reviewer teammates who review changed files in parallel through different lenses, then you merge findings, document them, and handle Linear/git.
 
 **If agent teams are unavailable** (TeamCreate fails), fall back to single-agent mode — see "Fallback: Single-Agent Mode" section.
+
+## Autonomous Execution — never stop to ask
+
+This is a **workflow skill**: it runs to completion without consulting the user mid-run. `AskUserQuestion` and plan mode are disabled while it is active.
+
+- **NEVER** ask the user a question, request a choice/confirmation, propose options, or enter plan mode — about scope, approach, the Codex-monitor loop, or whether to continue. Resolve every decision with the most reasonable default and document it in your output.
+- **Ambiguity** (which iterations to review, how to handle a finding) → resolve via this skill's rules and the Codex-calibration matrix; pick the reasonable default and proceed.
+- The **ONLY** permitted stops are the terminal STOP conditions in this skill (e.g. Linear MCP down) — they emit a fixed message and end the run; they are not questions.
 
 **Reference:** See [references/code-review-checklist.md](references/code-review-checklist.md) for comprehensive checklist.
 
@@ -81,14 +90,25 @@ Count the unique files from "Collect Changed Files" above.
 
 | Changed files | Decision |
 |---|---|
-| ≤4 files | **Single-agent** — skip Team Setup, jump to Fallback: Single-Agent Mode |
-| 5+ files | **3 reviewers** — proceed to Team Setup |
+| ≤4 files | **Single-agent** — skip parallel review, jump to Fallback: Single-Agent Mode |
+| 5+ files | **Parallel review** (3 domain reviewers) — see Review Orchestration |
 
 Announce: "N changed files — [single-agent/team] review mode."
 
-**Override:** If the iteration includes security-sensitive changes (auth, session, tokens, API keys, crypto), always use the team regardless of file count — security review benefits from a dedicated specialist lens.
+**Override:** If the iteration includes security-sensitive changes (auth, session, tokens, API keys, crypto), always use parallel review regardless of file count — security benefits from a dedicated specialist lens.
+
+## Review Orchestration
+
+When the scope assessment selects parallel review (5+ files, or security-sensitive), the 3 domain reviewers (security, reliability, quality) can run two ways — both converge on the same **Merge & Evaluate Findings** steps:
+
+1. **Workflow mode (preferred).** Use the `Workflow` tool to fan the 3 reviewers out as a background script. Each `agent()` receives the common preamble + its domain checklist from [references/reviewer-prompts.md](references/reviewer-prompts.md) and the exact changed-file list, and returns validated structured findings via a `schema` (`{domain, findings: [{tag, severity, file, line, description}]}`). The workflow keeps reviewer output out of the main context; when it returns, proceed to **Merge & Evaluate Findings**. Reviewers are READ-ONLY — give workflow agents NO write/MCP tools; the lead does ALL Linear/git writes. Avoids the agent-team ~7× token cost and task-status-lag.
+2. **Agent-team fallback.** If the `Workflow` tool is unavailable, use the agent team in **Team Setup** below.
+
+(≤4 files → single-agent, unchanged — jump to Fallback: Single-Agent Mode.)
 
 ## Team Setup
+
+*(Agent-team fallback — used when the `Workflow` tool is unavailable; see **Review Orchestration**.)*
 
 **Skip this section if scope assessment chose single-agent mode** — jump to Fallback: Single-Agent Mode.
 
@@ -110,7 +130,7 @@ Use `TaskCreate` to create 3 review tasks:
 
 ### Spawn 3 reviewer teammates
 
-Use the `Task` tool with `team_name: "plan-review"`, `subagent_type: "general-purpose"`, and `model: "sonnet"` to spawn each reviewer. Spawn all 3 in parallel (3 concurrent Task calls in one message).
+Use the `Agent` tool with `team_name: "plan-review"`, `subagent_type: "general-purpose"`, and `model: "sonnet"` to spawn each reviewer. Spawn all 3 in parallel (3 concurrent Agent calls in one message).
 
 Each reviewer prompt MUST include:
 - The common preamble and their domain checklist from [references/reviewer-prompts.md](references/reviewer-prompts.md)
@@ -529,7 +549,7 @@ If the scope assessment chose single-agent mode (≤4 changed files) OR `TeamCre
 - **Always report findings to user** — PLANS.md is overwritten by the next plan. The user must see all findings (fixed and discarded) directly in the conversation output before the skill terminates.
 - **Inline fix threshold: ≤3 S-size fixes** — When all FIX findings are S-size (surgical, single-line or few-line) and count ≤3, fix them inline with TDD instead of creating a Fix Plan. Abandon inline approach if tests fail or bug-hunter finds new issues.
 - **Inline fixes still get Linear issues** — Create issues in "Merge" state for traceability. Never skip the audit trail.
-- **Review scope assessment** — ≤4 changed files → single-agent review. 5+ files → 3 reviewers. Always use team for security-sensitive changes regardless of file count.
+- **Review scope assessment** — ≤4 changed files → single-agent review. 5+ files → parallel review (Workflow mode preferred, agent-team fallback; see Review Orchestration). Always use parallel review for security-sensitive changes regardless of file count.
 - **Only reviewers are teammates** — Bug-hunter, verifier, and pr-creator are standalone subagents spawned via `Agent` tool WITHOUT `team_name`. Only the 3 domain reviewers are team members.
 - **Shut down reviewers immediately** — Send shutdown request to each reviewer as soon as they report findings. Call `TeamDelete` as soon as the last reviewer is shut down. Do NOT keep teammates alive during merge/evaluate/document phases.
 - **Launch Codex monitor only after a successful PR** — When `pr-creator` reports success in the For-Complete-Plans flow, create the 3-min cron with the prompt template above. The cron is intentionally session-only (do NOT pass `durable: true`) — if the user closes the session they are not supervising the auto-merge, so the cron should die with the session. The cron self-terminates when its merge phase completes (CI green, all threads resolved, squash-merge succeeded, on `main`). See [references/codex-loop.md](references/codex-loop.md) for the per-tick logic.

@@ -28,15 +28,14 @@ vi.mock("@/lib/haptics", () => ({
 
 const mockResponse: FoodLogResponse = {
   success: true,
-  fitbitFoodId: 12345,
-  fitbitLogId: 67890,
+  healthLogId: "test-health-log-id",
   reusedFood: false,
 };
 
 const mockAnalysis: FoodAnalysis = {
   food_name: "Grilled Chicken Breast",
   amount: 200,
-  unit_id: 147,
+  unit_id: "g",
   calories: 330,
   protein_g: 42,
   carbs_g: 0,
@@ -89,7 +88,7 @@ describe("FoodLogConfirmation", () => {
     expect(screen.getByText(/reused existing food/i)).toBeInTheDocument();
   });
 
-  it("does not display fitbitLogId", () => {
+  it("does not display healthLogId as text", () => {
     render(
       <FoodLogConfirmation
         response={mockResponse}
@@ -201,7 +200,7 @@ describe("FoodLogConfirmation", () => {
         />
       );
 
-      // 200g (unit_id 147 = g, no space)
+      // 200g (unit_id "g", no space)
       expect(screen.getByText("200g")).toBeInTheDocument();
     });
 
@@ -366,7 +365,7 @@ describe("FoodLogConfirmation", () => {
       expect(screen.getByText(/empanada de carne updated successfully/i)).toBeInTheDocument();
     });
 
-    it("shows 'Updated in your Fitbit library' subtitle when isEdit and not dryRun", () => {
+    it("shows 'Updated in Google Health' subtitle when isEdit and not dryRun", () => {
       render(
         <FoodLogConfirmation
           response={mockResponse}
@@ -375,7 +374,7 @@ describe("FoodLogConfirmation", () => {
         />
       );
 
-      expect(screen.getByText(/updated in your fitbit library/i)).toBeInTheDocument();
+      expect(screen.getByText(/updated in google health/i)).toBeInTheDocument();
     });
 
     it("shows dryRun message even when isEdit is true", () => {
@@ -388,13 +387,13 @@ describe("FoodLogConfirmation", () => {
         />
       );
 
-      expect(screen.getByText(/saved locally \(fitbit api skipped\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/saved locally \(google health api skipped\)/i)).toBeInTheDocument();
     });
   });
 
   // FOO-665: dryRun mode
   describe("dryRun mode", () => {
-    it("shows 'Saved locally (Fitbit API skipped)' when dryRun is true", () => {
+    it("shows 'Saved locally (Google Health API skipped)' when dryRun is true", () => {
       const dryRunResponse = { ...mockResponse, dryRun: true };
       render(
         <FoodLogConfirmation
@@ -403,7 +402,7 @@ describe("FoodLogConfirmation", () => {
         />
       );
 
-      expect(screen.getByText(/saved locally \(fitbit api skipped\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/saved locally \(google health api skipped\)/i)).toBeInTheDocument();
     });
 
     it("still triggers success vibration when dryRun is true", () => {

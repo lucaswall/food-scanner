@@ -3,7 +3,7 @@ import { getSession } from "@/lib/session";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { DashboardPrefetch } from "@/components/dashboard-prefetch";
 import { SkipLink } from "@/components/skip-link";
-import { FitbitStatusBanner } from "@/components/fitbit-status-banner";
+import { HealthStatusBanner } from "@/components/health-status-banner";
 export default async function AppPage() {
   const session = await getSession();
 
@@ -15,7 +15,7 @@ export default async function AppPage() {
     <div className="min-h-screen px-4 py-6">
       <SkipLink />
       <main id="main-content" className="mx-auto w-full max-w-md flex flex-col gap-6">
-        <FitbitStatusBanner />
+        <HealthStatusBanner />
 
         <DashboardShell />
 

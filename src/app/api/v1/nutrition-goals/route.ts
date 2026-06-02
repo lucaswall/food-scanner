@@ -28,36 +28,39 @@ type RangeEntry = Pick<
   "calories" | "proteinG" | "carbsG" | "fatG" | "status"
 > & { date: string; reason?: RangeReason };
 
-function mapFitbitError(error: unknown): Response | null {
+function mapHealthError(error: unknown): Response | null {
   if (!(error instanceof Error)) return null;
-  if (error.message === "FITBIT_CREDENTIALS_MISSING") {
-    return errorResponse("FITBIT_CREDENTIALS_MISSING", "Fitbit credentials not found", 424);
+  if (error.message === "HEALTH_TOKEN_INVALID") {
+    return errorResponse("HEALTH_TOKEN_INVALID", "Google Health token is invalid or expired", 401);
   }
-  if (error.message === "FITBIT_TOKEN_INVALID") {
-    return errorResponse("FITBIT_TOKEN_INVALID", "Fitbit token is invalid or expired", 401);
-  }
-  if (error.message === "FITBIT_SCOPE_MISSING") {
+  if (error.message === "HEALTH_SCOPE_MISSING") {
     return errorResponse(
-      "FITBIT_SCOPE_MISSING",
-      "Fitbit permissions need updating. Please reconnect your Fitbit account in Settings.",
+      "HEALTH_SCOPE_MISSING",
+      "Google Health permissions need updating. Please reconnect Google Health in Settings.",
       403,
     );
   }
-  if (error.message === "FITBIT_RATE_LIMIT") {
-    return errorResponse("FITBIT_RATE_LIMIT", "Fitbit API rate limited. Please try again later.", 429);
+  if (error.message === "HEALTH_RATE_LIMIT") {
+    return errorResponse("HEALTH_RATE_LIMIT", "Google Health API rate limited. Please try again later.", 429);
   }
-  if (error.message === "FITBIT_RATE_LIMIT_LOW") {
+  if (error.message === "HEALTH_RATE_LIMIT_LOW") {
     return errorResponse(
-      "FITBIT_RATE_LIMIT_LOW",
-      "Fitbit rate-limit headroom is low. Please try again in a few minutes.",
+      "HEALTH_RATE_LIMIT_LOW",
+      "Google Health rate-limit headroom is low. Please try again in a few minutes.",
       503,
     );
   }
-  if (error.message === "FITBIT_TIMEOUT") {
-    return errorResponse("FITBIT_TIMEOUT", "Request to Fitbit timed out. Please try again.", 504);
+  if (error.message === "HEALTH_TIMEOUT") {
+    return errorResponse("HEALTH_TIMEOUT", "Request to Google Health timed out. Please try again.", 504);
   }
-  if (error.message === "FITBIT_API_ERROR") {
-    return errorResponse("FITBIT_API_ERROR", "Fitbit API error", 502);
+  if (error.message === "HEALTH_REFRESH_TRANSIENT") {
+    return errorResponse("HEALTH_REFRESH_TRANSIENT", "Temporary Google Health error. Please try again.", 502);
+  }
+  if (error.message === "HEALTH_TOKEN_SAVE_FAILED") {
+    return errorResponse("HEALTH_TOKEN_SAVE_FAILED", "Failed to save Google Health tokens. Please try again.", 500);
+  }
+  if (error.message === "HEALTH_API_ERROR") {
+    return errorResponse("HEALTH_API_ERROR", "Google Health API error", 502);
   }
   return null;
 }
@@ -188,14 +191,14 @@ export async function GET(request: Request) {
     const date = dateParam ?? getTodayDate();
     const result = await getOrComputeDailyGoals(authResult.userId, date, log);
 
-    // FOO-1031 (PR review): getOrComputeDailyGoals catches FITBIT_SCOPE_MISSING
+    // FOO-1031 (PR review): getOrComputeDailyGoals catches HEALTH_SCOPE_MISSING
     // and returns a resolved blocked/scope_mismatch result rather than throwing.
     // The external API contract requires 403 here so clients can trigger their
-    // re-auth flow — `mapFitbitError` would never run otherwise.
+    // re-auth flow — `mapHealthError` would never run otherwise.
     if (result.status === "blocked" && result.reason === "scope_mismatch") {
       return errorResponse(
-        "FITBIT_SCOPE_MISSING",
-        "Fitbit permissions need updating. Please reconnect your Fitbit account in Settings.",
+        "HEALTH_SCOPE_MISSING",
+        "Google Health permissions need updating. Please reconnect Google Health in Settings.",
         403,
       );
     }
@@ -213,7 +216,7 @@ export async function GET(request: Request) {
       { action: "v1_nutrition_goals_error", error: error instanceof Error ? error.message : String(error) },
       "v1 nutrition goals fetch failed",
     );
-    const mapped = mapFitbitError(error);
+    const mapped = mapHealthError(error);
     if (mapped) return mapped;
     return errorResponse("INTERNAL_ERROR", "Failed to fetch nutrition goals", 500);
   }

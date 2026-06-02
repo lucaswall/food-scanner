@@ -56,8 +56,7 @@ const validSession: FullSession = {
   sessionId: "test-session",
   userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
-  fitbitConnected: true,
-  hasFitbitCredentials: true,
+  healthConnected: true,
   destroy: vi.fn(),
 };
 
@@ -155,7 +154,7 @@ describe("POST /api/chat-captures", () => {
     const initialItems = [{
       food_name: "Empanada",
       amount: 150,
-      unit_id: 147,
+      unit_id: "g",
       calories: 320,
       protein_g: 12,
       carbs_g: 28,

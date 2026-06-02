@@ -56,12 +56,12 @@ export function FoodLogConfirmation({
         </h3>
         <p className="text-sm text-muted-foreground">
           {response.dryRun
-            ? "Saved locally (Fitbit API skipped)"
+            ? "Saved locally (Google Health API skipped)"
             : isEdit
-              ? "Updated in your Fitbit library"
+              ? "Updated in Google Health"
               : response.reusedFood
-                ? "Reused existing food from your Fitbit library"
-                : "Created new food in your Fitbit library"}
+                ? "Reused existing food from Google Health"
+                : "Created new food in Google Health"}
         </p>
       </div>
 

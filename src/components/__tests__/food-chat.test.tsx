@@ -164,7 +164,7 @@ vi.mock("@/lib/swr", () => ({
 const mockAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
   amount: 150,
-  unit_id: 147,
+  unit_id: "g",
   calories: 320,
   protein_g: 12,
   carbs_g: 28,
@@ -183,8 +183,7 @@ const mockAnalysis: FoodAnalysis = {
 
 const mockLogResponse: FoodLogResponse = {
   success: true,
-  fitbitFoodId: 12345,
-  fitbitLogId: 67890,
+  healthLogId: "test-health-log-id",
   reusedFood: false,
 };
 
@@ -250,7 +249,7 @@ describe("FoodChat", () => {
   it("renders Log to Fitbit button always visible", () => {
     render(<FoodChat {...defaultProps} />);
 
-    expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
   });
 
   it("renders floating back button", () => {
@@ -530,7 +529,7 @@ describe("FoodChat", () => {
       expect(screen.getByText(/updated to 2 empanadas/i)).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
@@ -571,7 +570,7 @@ describe("FoodChat", () => {
 
     render(<FoodChat {...defaultProps} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
@@ -615,7 +614,7 @@ describe("FoodChat", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       const logFoodCall = mockFetch.mock.calls.find(
@@ -634,7 +633,7 @@ describe("FoodChat", () => {
 
     render(<FoodChat {...defaultProps} />);
 
-    const logButton = screen.getByRole("button", { name: /log to fitbit/i });
+    const logButton = screen.getByRole("button", { name: /log to google health/i });
     fireEvent.click(logButton);
 
     await waitFor(() => {
@@ -836,7 +835,7 @@ describe("FoodChat", () => {
       ...mockAnalysis,
       food_name: "Orange juice",
       amount: 2,
-      unit_id: 91, // cups
+      unit_id: "cup",
       calories: 220,
     };
 
@@ -1243,15 +1242,15 @@ describe("FoodChat", () => {
 
     render(<FoodChat {...defaultProps} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
     });
   });
 
-  // FOO-413: FoodChat missing FITBIT_TOKEN_INVALID handling
-  it("saves pending and redirects on FITBIT_TOKEN_INVALID", async () => {
+  // FOO-413: FoodChat missing HEALTH_TOKEN_INVALID handling
+  it("saves pending and redirects on HEALTH_TOKEN_INVALID", async () => {
     // Override window.location for this test
     const originalLocation = window.location;
     Object.defineProperty(window, "location", {
@@ -1265,17 +1264,17 @@ describe("FoodChat", () => {
       ok: false,
       text: () => Promise.resolve(JSON.stringify({
         success: false,
-        error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+        error: { code: "HEALTH_TOKEN_INVALID", message: "Token expired" },
       })),
     });
 
     render(<FoodChat {...defaultProps} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       expect(savePendingSubmission).toHaveBeenCalled();
-      expect(window.location.href).toBe("/api/auth/fitbit");
+      expect(window.location.href).toBe("/api/auth/google-health");
     });
 
     // Restore
@@ -1285,21 +1284,21 @@ describe("FoodChat", () => {
     });
   });
 
-  it("shows specific error for FITBIT_CREDENTIALS_MISSING", async () => {
+  it("shows specific error for HEALTH_NOT_CONNECTED", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       text: () => Promise.resolve(JSON.stringify({
         success: false,
-        error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Credentials not found" },
+        error: { code: "HEALTH_NOT_CONNECTED", message: "Not connected" },
       })),
     });
 
     render(<FoodChat {...defaultProps} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/credentials in Settings/i)).toBeInTheDocument();
+      expect(screen.getByText(/connect in Settings/i)).toBeInTheDocument();
     });
   });
 
@@ -1307,7 +1306,7 @@ describe("FoodChat", () => {
     render(<FoodChat {...defaultProps} />);
 
     const backButton = screen.getByRole("button", { name: /back/i });
-    const logButton = screen.getByRole("button", { name: /log to fitbit/i });
+    const logButton = screen.getByRole("button", { name: /log to google health/i });
     const mealTypeSelector = screen.getByTestId("meal-type-selector");
 
     // Back and Log button share the same header row
@@ -1352,7 +1351,7 @@ describe("FoodChat", () => {
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Chat");
 
       // Should NOT show Log to Fitbit button or MealTypeSelector
-      expect(screen.queryByRole("button", { name: /log to fitbit/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /log to google health/i })).not.toBeInTheDocument();
       expect(screen.queryByTestId("meal-type-selector")).not.toBeInTheDocument();
     });
 
@@ -1360,7 +1359,7 @@ describe("FoodChat", () => {
       const analysisFromAPI: FoodAnalysis = {
         food_name: "Salad",
         amount: 200,
-        unit_id: 147,
+        unit_id: "g",
         calories: 150,
         protein_g: 5,
         carbs_g: 20,
@@ -1400,7 +1399,7 @@ describe("FoodChat", () => {
       );
 
       // Initially no Log button or MealTypeSelector
-      expect(screen.queryByRole("button", { name: /log to fitbit/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /log to google health/i })).not.toBeInTheDocument();
       expect(screen.queryByTestId("meal-type-selector")).not.toBeInTheDocument();
 
       // Send a message
@@ -1410,7 +1409,7 @@ describe("FoodChat", () => {
 
       // After response with analysis, header should update
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
       });
 
       expect(screen.getByTestId("meal-type-selector")).toBeInTheDocument();
@@ -1420,7 +1419,7 @@ describe("FoodChat", () => {
       const analysisFromAPI: FoodAnalysis = {
         food_name: "Pizza slice",
         amount: 150,
-        unit_id: 311,
+        unit_id: "slice",
         calories: 285,
         protein_g: 12,
         carbs_g: 36,
@@ -1829,7 +1828,7 @@ describe("FoodChat", () => {
 
       // Log button should use the updated analysis from SSE
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+        fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
       });
 
       const logCall = mockFetch.mock.calls.find(
@@ -2096,7 +2095,7 @@ describe("FoodChat", () => {
     const warningEl = screen.getByText(/couldn't be processed/i);
     expect(warningEl).not.toHaveClass("text-amber-600");
     expect(warningEl).not.toHaveClass("text-amber-400");
-    expect(warningEl).toHaveClass("text-warning-foreground");
+    expect(warningEl).toHaveClass("text-warning");
   });
 
   it("camera and gallery buttons have 44px touch target (FOO-620)", () => {
@@ -2328,7 +2327,7 @@ describe("FoodChat", () => {
       fireEvent.change(timeInput, { target: { value: "09:00" } });
 
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+        fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
       });
 
       const logCall = mockFetch.mock.calls.find(
@@ -2368,7 +2367,7 @@ describe("FoodChat", () => {
 
       const timeInput = screen.getByLabelText(/meal time/i);
       fireEvent.change(timeInput, { target: { value: "12:30" } });
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         expect(mockFetch).toHaveBeenCalledWith("/api/log-food", expect.any(Object));
@@ -2390,7 +2389,7 @@ describe("FoodChat", () => {
 
       render(<FoodChat {...defaultProps} />);
       // Don't set a time — leave it as null (Now mode)
-      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
         expect(mockFetch).toHaveBeenCalledWith("/api/log-food", expect.any(Object));
@@ -2425,12 +2424,11 @@ const mockEditEntry: FoodLogEntryDetail = {
   sugarsG: null,
   caloriesFromFat: null,
   amount: 150,
-  unitId: 147,
+  unitId: "g",
   mealTypeId: 5,
   date: "2026-02-15",
   time: "20:00:00",
-  fitbitLogId: 12345,
-  fitbitFoodId: null,
+  healthLogId: "test-health-log-id",
   confidence: "high",
   isFavorite: false,
   keywords: ["empanada", "carne"],
@@ -2545,7 +2543,7 @@ describe("FoodChat edit mode", () => {
       ok: true,
       text: () => Promise.resolve(JSON.stringify({
         success: true,
-        data: { entryId: 42, fitbitLogId: 99999, newCustomFoodId: 200 },
+        data: { entryId: 42, healthLogId: "test-99999", newCustomFoodId: 200 },
       })),
     });
 
@@ -2583,7 +2581,7 @@ describe("FoodChat edit mode", () => {
       expect(screen.getByRole("button", { name: /save changes/i })).not.toBeDisabled();
     });
 
-    const saveResponse = { fitbitFoodId: 9000, fitbitLogId: 99999, foodLogId: 42, reusedFood: false };
+    const saveResponse = { healthLogId: "test-99999", foodLogId: 42, reusedFood: false };
     mockFetch.mockResolvedValueOnce({
       ok: true,
       text: () => Promise.resolve(JSON.stringify({
@@ -2604,7 +2602,7 @@ describe("FoodChat edit mode", () => {
   });
 
   // FOO-733: handleSave Fitbit error handling
-  it("handleSave: saves pending and redirects on FITBIT_TOKEN_INVALID", async () => {
+  it("handleSave: saves pending and redirects on HEALTH_TOKEN_INVALID", async () => {
     const originalLocation = window.location;
     Object.defineProperty(window, "location", {
       writable: true,
@@ -2617,7 +2615,7 @@ describe("FoodChat edit mode", () => {
       ok: false,
       text: () => Promise.resolve(JSON.stringify({
         success: false,
-        error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+        error: { code: "HEALTH_TOKEN_INVALID", message: "Token expired" },
       })),
     });
 
@@ -2627,7 +2625,7 @@ describe("FoodChat edit mode", () => {
 
     await waitFor(() => {
       expect(savePendingSubmission).toHaveBeenCalled();
-      expect(window.location.href).toBe("/api/auth/fitbit");
+      expect(window.location.href).toBe("/api/auth/google-health");
     });
 
     Object.defineProperty(window, "location", {
@@ -2636,12 +2634,12 @@ describe("FoodChat edit mode", () => {
     });
   });
 
-  it("handleSave: shows specific error for FITBIT_CREDENTIALS_MISSING", async () => {
+  it("handleSave: shows specific error for HEALTH_NOT_CONNECTED", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       text: () => Promise.resolve(JSON.stringify({
         success: false,
-        error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Credentials not found" },
+        error: { code: "HEALTH_NOT_CONNECTED", message: "Not connected" },
       })),
     });
 
@@ -2650,25 +2648,7 @@ describe("FoodChat edit mode", () => {
     fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/credentials in Settings/i)).toBeInTheDocument();
-    });
-  });
-
-  it("handleSave: shows specific error for FITBIT_NOT_CONNECTED", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      text: () => Promise.resolve(JSON.stringify({
-        success: false,
-        error: { code: "FITBIT_NOT_CONNECTED", message: "Not connected" },
-      })),
-    });
-
-    render(<FoodChat {...editModeProps} />);
-
-    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/credentials in Settings/i)).toBeInTheDocument();
+      expect(screen.getByText(/connect in Settings/i)).toBeInTheDocument();
     });
   });
 });
@@ -2699,7 +2679,7 @@ describe("FOO-750: editingEntryId in analyze mode", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /save changes/i })).toBeInTheDocument();
     });
-    expect(screen.queryByRole("button", { name: /log to fitbit/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /log to google health/i })).not.toBeInTheDocument();
   });
 
   it("shows 'Log to Fitbit' button when analysis has no editingEntryId", async () => {
@@ -2719,7 +2699,7 @@ describe("FOO-750: editingEntryId in analyze mode", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /log to google health/i })).toBeInTheDocument();
     });
     expect(screen.queryByRole("button", { name: /save changes/i })).not.toBeInTheDocument();
   });
@@ -2900,7 +2880,7 @@ describe("FOO-769: date/time preservation from analysis", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       const logFoodCall = mockFetch.mock.calls.find(
@@ -2956,7 +2936,7 @@ describe("FOO-769: date/time preservation from analysis", () => {
     });
 
     render(<FoodChat {...defaultProps} />);
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       const logFoodCall = mockFetch.mock.calls.find(
@@ -3015,7 +2995,7 @@ describe("FOO-743: Sentry.captureException in FoodChat", () => {
     mockFetch.mockRejectedValueOnce(new Error("Log network error"));
 
     render(<FoodChat {...defaultProps} />);
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/log network error/i)).toBeInTheDocument();
@@ -3032,7 +3012,7 @@ describe("FOO-743: Sentry.captureException in FoodChat", () => {
     );
 
     render(<FoodChat {...defaultProps} />);
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
@@ -3059,7 +3039,7 @@ describe("FOO-743: Sentry.captureException in FoodChat", () => {
         fiberG: 2,
         sodiumMg: 450,
         amount: 150,
-        unitId: 147,
+        unitId: "g",
         mealTypeId: 3,
         date: "2026-04-08",
         time: "12:00",
@@ -3072,8 +3052,7 @@ describe("FOO-743: Sentry.captureException in FoodChat", () => {
         description: "",
         keywords: [],
         isFavorite: false,
-        fitbitLogId: null,
-        fitbitFoodId: null,
+        healthLogId: null,
       };
       render(
         <FoodChat

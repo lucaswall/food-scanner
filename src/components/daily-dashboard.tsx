@@ -335,15 +335,15 @@ export function DailyDashboard() {
       {deleteError && (
         <div role="alert" className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
           <p className="text-sm text-destructive">{deleteError}</p>
-          {deleteErrorCode === "FITBIT_TOKEN_INVALID" && (
+          {deleteErrorCode === "HEALTH_TOKEN_INVALID" && (
             <a
-              href="/api/auth/fitbit"
+              href="/app/connect-health"
               className="text-sm text-destructive underline mt-2 inline-block font-medium"
             >
-              Reconnect Fitbit
+              Reconnect Google Health
             </a>
           )}
-          {(deleteErrorCode === "FITBIT_CREDENTIALS_MISSING" || deleteErrorCode === "FITBIT_NOT_CONNECTED") && (
+          {deleteErrorCode === "HEALTH_NOT_CONNECTED" && (
             <a
               href="/settings"
               className="text-sm text-destructive underline mt-2 inline-block font-medium"

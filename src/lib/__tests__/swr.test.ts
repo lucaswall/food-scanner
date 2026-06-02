@@ -3,7 +3,7 @@ import {
   apiFetcher,
   ApiError,
   invalidateFoodCaches,
-  FITBIT_BACKED_SWR_CONFIG,
+  HEALTH_BACKED_SWR_CONFIG,
 } from "@/lib/swr";
 
 // Mock SWR at the top level using vi.hoisted()
@@ -99,7 +99,7 @@ describe("apiFetcher", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
-          error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Credentials not found" },
+          error: { code: "HEALTH_NOT_CONNECTED", message: "Credentials not found" },
         }),
         {
           status: 424,
@@ -114,7 +114,7 @@ describe("apiFetcher", () => {
       expect(true).toBe(false);
     } catch (error) {
       expect(error).toBeInstanceOf(ApiError);
-      expect((error as ApiError).code).toBe("FITBIT_CREDENTIALS_MISSING");
+      expect((error as ApiError).code).toBe("HEALTH_NOT_CONNECTED");
       expect((error as ApiError).message).toBe("Credentials not found");
     }
   });
@@ -200,10 +200,10 @@ describe("invalidateFoodCaches", () => {
   });
 });
 
-describe("FITBIT_BACKED_SWR_CONFIG (FOO-1003)", () => {
+describe("HEALTH_BACKED_SWR_CONFIG (FOO-1003)", () => {
   it("disables revalidateOnFocus and sets dedupe to 30 minutes", () => {
-    expect(FITBIT_BACKED_SWR_CONFIG.revalidateOnFocus).toBe(false);
-    expect(FITBIT_BACKED_SWR_CONFIG.revalidateOnReconnect).toBe(true);
-    expect(FITBIT_BACKED_SWR_CONFIG.dedupingInterval).toBe(30 * 60 * 1000);
+    expect(HEALTH_BACKED_SWR_CONFIG.revalidateOnFocus).toBe(false);
+    expect(HEALTH_BACKED_SWR_CONFIG.revalidateOnReconnect).toBe(true);
+    expect(HEALTH_BACKED_SWR_CONFIG.dedupingInterval).toBe(30 * 60 * 1000);
   });
 });

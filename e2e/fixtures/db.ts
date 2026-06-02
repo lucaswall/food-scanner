@@ -2,8 +2,7 @@ import { getDb } from '@/db/index';
 import {
   users,
   sessions,
-  fitbitTokens,
-  fitbitCredentials,
+  healthTokens,
   customFoods,
   foodLogEntries,
   apiKeys,
@@ -21,8 +20,7 @@ const TABLES_IN_TRUNCATION_ORDER = [
   foodLogEntries,
   customFoods,
   sessions,
-  fitbitTokens,
-  fitbitCredentials,
+  healthTokens,
   apiKeys,
   claudeUsage,
   dailyCalorieGoals,
@@ -71,7 +69,7 @@ export async function seedTestData() {
       userId: testUser.id,
       foodName: 'Grilled Chicken Breast',
       amount: '100',
-      unitId: 226, // Fitbit unit ID for grams
+      unitId: 'g',
       calories: 165,
       proteinG: '31',
       carbsG: '0',
@@ -94,7 +92,7 @@ export async function seedTestData() {
       userId: testUser.id,
       foodName: 'Brown Rice',
       amount: '100',
-      unitId: 226,
+      unitId: 'g',
       calories: 112,
       proteinG: '2.6',
       carbsG: '23.5',
@@ -116,7 +114,7 @@ export async function seedTestData() {
       userId: testUser.id,
       foodName: 'Steamed Broccoli',
       amount: '100',
-      unitId: 226,
+      unitId: 'g',
       calories: 35,
       proteinG: '2.4',
       carbsG: '7',
@@ -142,7 +140,7 @@ export async function seedTestData() {
       customFoodId: customFood1!.id,
       mealTypeId: 3, // Lunch
       amount: '150',
-      unitId: 226,
+      unitId: 'g',
       date: today,
       time: '12:30:00',
     },
@@ -151,7 +149,7 @@ export async function seedTestData() {
       customFoodId: customFood2!.id,
       mealTypeId: 3, // Lunch
       amount: '200',
-      unitId: 226,
+      unitId: 'g',
       date: today,
       time: '12:30:00',
     },
@@ -160,24 +158,23 @@ export async function seedTestData() {
       customFoodId: customFood3!.id,
       mealTypeId: 5, // Dinner
       amount: '100',
-      unitId: 226,
+      unitId: 'g',
       date: today,
       time: '19:00:00',
     },
   ]);
 
-  // Seed Fitbit tokens for guard bypass
-  // Note: Fitbit credentials are seeded via POST /api/fitbit-credentials in global-setup.ts
-  // to avoid SESSION_SECRET mismatch between seed process and Next.js server
+  // Seed Google Health tokens for guard bypass (HEALTH_DRY_RUN mode)
   const oneYearFromNow = new Date();
   oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
 
-  await db.insert(fitbitTokens).values({
+  await db.insert(healthTokens).values({
     userId: testUser.id,
-    fitbitUserId: 'TEST_FITBIT_USER',
+    healthUserId: 'TEST_HEALTH_USER',
     accessToken: encryptToken('TEST_ACCESS_TOKEN'),
     refreshToken: encryptToken('TEST_REFRESH_TOKEN'),
     expiresAt: oneYearFromNow,
+    scope: 'https://www.googleapis.com/auth/fitness.nutrition.write',
   });
 
   // Seed Claude usage data for settings page display

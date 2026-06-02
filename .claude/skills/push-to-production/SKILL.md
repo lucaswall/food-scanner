@@ -1,7 +1,7 @@
 ---
 name: push-to-production
 description: Promote main to release with production DB backup and migration handling. Use when user says "push to production", "release", "deploy to production", or "promote to release". Backs up production DB, assesses MIGRATIONS.md, writes migration code if needed, and merges main to release.
-allowed-tools: Read, Edit, Write, Glob, Grep, Bash, Task, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__update_issue, mcp__linear__list_issue_statuses, mcp__Railway__get-logs, mcp__Railway__list-deployments
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash, Agent, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__update_issue, mcp__linear__list_issue_statuses, mcp__Railway__get_logs, mcp__Railway__list_deployments, mcp__Railway__environment_status
 argument-hint: [version]
 disable-model-invocation: true
 ---
@@ -83,7 +83,7 @@ If PLANS.md doesn't exist or has no incomplete tasks, continue.
 Run the `verifier` agent (full mode) to confirm unit tests, lint, and build pass:
 
 ```
-Use Task tool with subagent_type "verifier"
+Use the Agent tool with subagent_type "verifier"
 ```
 
 If verifier reports failures, **STOP**. Do not proceed with a broken build.
@@ -93,7 +93,7 @@ If verifier reports failures, **STOP**. Do not proceed with a broken build.
 Run the `verifier` agent in E2E mode to confirm end-to-end tests pass:
 
 ```
-Use Task tool with subagent_type "verifier" with prompt "e2e"
+Use the Agent tool with subagent_type "verifier" with prompt "e2e"
 ```
 
 Docker is already verified in Phase 1.3, so prerequisites are met.
@@ -148,6 +148,16 @@ For each entry in MIGRATIONS.md:
    git diff origin/release..HEAD -- <relevant-files>
    ```
 3. **Determine the net migration** — what SQL or data transformation is needed to go from production's current state to the new state
+
+### 2.2b Capture Environment Variable Changes
+
+`MIGRATIONS.md` is **cleared in Phase 5.2**, so extract any declared env-var changes NOW and carry them forward in working context. For each declared change, record the target environment (`production` / `staging`), the action (`set KEY=VALUE` or `unset KEY`), and any ordering note (e.g. "only after migrated code is live"). The agent **applies these via the Railway CLI** in Phase 5.9 — they are NOT a manual user step.
+
+**Railway CLI auth fail-fast:** if any **production** env-var change is declared, verify the CLI is authenticated NOW (before any irreversible step):
+```bash
+railway whoami
+```
+If it fails, **STOP**: "Railway CLI is not authenticated — run `railway login` (or set `RAILWAY_TOKEN`), then re-run. Required to apply production env-var changes." (Only `production`-targeted changes block here; `staging` env changes are applied on the staging deploy, outside this skill.)
 
 ### 2.3 Classify Migration Complexity
 
@@ -513,7 +523,7 @@ The git tag and deploy already succeeded — the GitHub Release is cosmetic and 
 
 ### 5.8 Verify Railway Deployment (if Railway MCP is available)
 
-If the Railway MCP is available (`mcp__Railway__list-deployments` and `mcp__Railway__get-logs`), check deployment logs to confirm the release deployed successfully to production.
+If the Railway MCP is available (`mcp__Railway__list_deployments` and `mcp__Railway__get_logs`), check deployment logs to confirm the release deployed successfully to production.
 
 If the Railway MCP tools are not accessible, skip this step silently and note "Railway MCP not available — verify deployment manually at https://railway.app" in the Phase 6 report.
 
@@ -521,14 +531,14 @@ If available:
 1. Wait briefly (30 seconds) for the deploy to initialize
 2. List recent production deployments to find the one triggered by the push to `release`:
    ```
-   Use mcp__Railway__list-deployments with environment: "production"
+   Use mcp__Railway__list_deployments with environment_id: "production"
    ```
 3. Fetch production logs and look for:
    - Successful build completion
    - Next.js server startup confirmation
    - No crash loops or error patterns
    ```
-   Use mcp__Railway__get-logs with environment: "production"
+   Use mcp__Railway__get_logs with environment_id: "production" and log_type: "deploy"
    ```
 
 If the deployment appears to have failed:
@@ -536,7 +546,33 @@ If the deployment appears to have failed:
 - **Do NOT stop** — the git tag and GitHub Release already succeeded. The deployment issue needs separate investigation.
 - Note the failure in the Phase 6 report
 
-**Always specify `environment: "production"`** — the Railway MCP defaults to staging.
+**Always specify `environment_id: "production"`** — the Railway MCP defaults to the currently linked environment.
+
+### 5.9 Apply Production Environment Variables (Railway CLI)
+
+If env-var changes were captured in Phase 2.2b, **the agent applies the `production`-targeted ones now** (after the new code is live — avoids restarting the old/stopped service mid-migration). This is automated; it is NOT a user reminder. (`staging`-targeted changes are out of scope — they belong to the staging deploy.)
+
+The Railway **MCP** tools are read-only, but the **CLI writes variables** via Bash. Steps:
+
+1. **Confirm context and target production explicitly** (the CLI acts on the linked environment):
+   ```bash
+   railway status                      # confirm the linked project
+   railway environment production      # target the production environment
+   ```
+2. **Discover the exact set/unset syntax for the installed CLI version** (flags differ across versions — do not assume):
+   ```bash
+   railway variables --help
+   ```
+3. **Apply each captured production change**, respecting any ordering note from Phase 2.2b:
+   - Set: `railway variables --set "KEY=VALUE"` (one `--set` per variable; add `--service <name>` if the project has multiple services).
+   - Unset/remove: use the delete form the `--help` output documents for this version. If the installed CLI has no unset command, note it in the report and remove those vars via the Railway dashboard (only block the release for this if the removal is safety-critical; orphaned/unused vars are not).
+4. **Verify** by reading back:
+   ```bash
+   railway variables
+   ```
+   Confirm each set var shows the expected value and each unset var is gone.
+
+If `railway` is unauthenticated here (should have been caught in 2.2b), do NOT silently skip — surface it and list the exact commands in the Phase 6 report so they can be applied. Record every applied change for the report.
 
 ## Phase 6: Post-Release
 
@@ -586,7 +622,7 @@ If the Linear MCP is unavailable (tools fail), **STOP** and tell the user to rec
 [List of FOO-xxx: title moved from Done/Merge → Released, or "None"]
 
 ### Environment Variable Changes
-[List any env var renames/additions from MIGRATIONS.md, or "None"]
+[Production env vars APPLIED by the agent in 5.9 (list each set/unset + verified), or "None". Note any that still need manual follow-up — e.g. a staging-targeted change (applied on the staging deploy, not here) or an unset the installed CLI couldn't perform (do via dashboard).]
 
 ### Next Steps
 - Monitor Railway deployment at production
@@ -594,14 +630,15 @@ If the Linear MCP is unavailable (tools fail), **STOP** and tell the user to rec
 - Check Railway deploy logs if issues arise
 ```
 
-### 6.3 Remind About Env Vars
+### 6.3 Confirm Applied Env Vars
 
-If MIGRATIONS.md mentioned any environment variable changes, remind the user:
+Env-var changes are applied by the agent in **5.9** (Railway CLI), not left to the user. In the report, confirm what was applied + verified. Only surface a manual ACTION REQUIRED for the residual cases:
+- **staging**-targeted changes (out of this skill's scope — applied on the staging deploy), and
+- an `unset` the installed CLI version can't perform (do it via the Railway dashboard).
 
 ```
-**ACTION REQUIRED:** Update these environment variables in Railway production before the deploy completes:
-- [OLD_VAR → NEW_VAR]
-- [NEW_VAR=value to add]
+**Env vars applied to production (verified):** [KEY=VALUE set; KEY removed]
+**Manual follow-up (if any):** [staging: ...; dashboard unset: ...]
 ```
 
 ## Error Handling
@@ -644,5 +681,6 @@ If MIGRATIONS.md mentioned any environment variable changes, remind the user:
 - **Never hardcode user data in SQL** — Derive from existing DB content (SELECT DISTINCT, JOINs), never hardcode emails, names, or personal data
 - **Semantic Versioning 2.0.0** — Version bumps follow semver rules: MAJOR for breaking changes, MINOR for new features, PATCH for bug fixes. Every release gets a CHANGELOG.md entry and matching package.json version
 - **Never defer SQL to the user** — All data operations from MIGRATIONS.md must be executed by this skill as part of the release. Never tell the user to run SQL manually post-deploy.
+- **Never defer env-var changes to the user** — Production env-var changes declared in MIGRATIONS.md are applied by this skill via the Railway CLI in 5.9 (`railway variables`), never left as an "ACTION REQUIRED" reminder. The only residual manual cases are staging-targeted changes (out of scope) and an `unset` the installed CLI can't perform.
 - **Linear is required** — Issue state transitions are part of the release workflow. STOP and ask user to reconnect Linear MCP if unavailable.
 - **Stop on any failure** — Better to abort than corrupt production

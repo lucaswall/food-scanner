@@ -203,7 +203,7 @@ This project uses Claude's tool_use API for food analysis and conversational cha
 ### Prompt Caching
 
 - Static content (tools, system prompt) marked with `cache_control: {type: "ephemeral"}` for up to 90% input cost reduction and 85% latency reduction
-- Minimum cacheable length met: 1,024 tokens for Sonnet 4/4.5/4.6, 4,096 tokens for Opus 4.6/Haiku 4.5
+- Minimum cacheable length met: 1,024 tokens for Opus 4.8 and Sonnet 4/4.5/4.6, 4,096 tokens for Opus 4.6/4.7 and Haiku 4.5
 - In multi-turn conversations, final block of final message marked with `cache_control` each turn
 - Cache invalidation triggers understood: changing tool definitions invalidates entire cache; changing tool_choice/images/thinking invalidates message cache
 - `cache_creation_input_tokens` and `cache_read_input_tokens` monitored in responses
@@ -276,7 +276,8 @@ Follow data through the full AI pipeline:
 ### Model Configuration
 
 - `temperature` and `top_p` NOT used simultaneously (breaking change in Claude 4+)
-- For Opus 4.6 and Sonnet 4.6: use `thinking: {type: "adaptive"}` with `output_config: {effort: "..."}` — manual `budget_tokens` deprecated. `effort` levels: `max` (Opus 4.6 only), `high` (default), `medium`, `low`
+- For Opus 4.8/4.7/4.6 and Sonnet 4.6: use `thinking: {type: "adaptive"}` with a top-level `output_config: {effort: "..."}` object (effort goes in `output_config`, NOT inside `thinking`). `effort` levels: `xhigh` (Opus 4.8/4.7 only), `max` (Opus 4.8/4.7/4.6 + Sonnet 4.6), `high` (default), `medium`, `low`. On Opus 4.8/4.7 manual `budget_tokens` is a hard 400; on Opus 4.6 / Sonnet 4.6 it is deprecated
+- On Opus 4.8/4.7, non-default `temperature`/`top_p`/`top_k` returns a 400, and `thinking.display` defaults to `"omitted"`
 - For older models (Sonnet 4, Sonnet 4.5, Opus 4.5): use `thinking: {type: "enabled", budget_tokens: N}` when thinking desired
 
 ### AI-Specific Security

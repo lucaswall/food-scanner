@@ -4,7 +4,7 @@ import { captureScreenshots } from '../fixtures/screenshots';
 const MOCK_SHARED_FOOD = {
   food_name: 'Grilled Salmon with Vegetables',
   amount: 350,
-  unit_id: 147,
+  unit_id: "g",
   calories: 420,
   protein_g: 38,
   carbs_g: 22,
@@ -51,8 +51,8 @@ test.describe('Log Shared Food Page', () => {
     // Verify calorie display
     await expect(page.getByText('Calories', { exact: true })).toBeVisible();
 
-    // Verify "Log to Fitbit" button is present
-    await expect(page.getByRole('button', { name: /Log to Fitbit/i })).toBeVisible();
+    // Verify "Log to Google Health" button is present
+    await expect(page.getByRole('button', { name: /Log to Google Health/i })).toBeVisible();
 
     // Screenshot: shared food loaded with nutrition card
     await captureScreenshots(page, 'log-shared');
@@ -112,8 +112,8 @@ test.describe('Log Shared Food Page', () => {
       timeout: 10000,
     });
 
-    // Click Log to Fitbit
-    await page.getByRole('button', { name: /Log to Fitbit/i }).click();
+    // Click Log to Google Health
+    await page.getByRole('button', { name: /Log to Google Health/i }).click();
 
     // Wait for confirmation
     await expect(page.getByText(/logged successfully/i)).toBeVisible({ timeout: 10000 });

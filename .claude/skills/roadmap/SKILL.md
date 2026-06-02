@@ -2,7 +2,7 @@
 name: roadmap
 description: Deep research and discussion of a roadmap feature or new idea. Gathers extensive context from codebase, web, APIs, MCPs, and project history, then presents a concise analysis report for interactive discussion. After discussion, handles the outcome — write a feature spec to the roadmap, move to backlog, create an inline plan, modify, or drop. Use when user says "roadmap", "pull from roadmap", "push to roadmap", "add to roadmap", "analyze this feature", "research this idea", or wants to evaluate a feature.
 argument-hint: <roadmap item name or new feature description>
-allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, WebSearch, WebFetch, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+allowed-tools: Read, Edit, Write, Glob, Grep, Agent, Bash, WebSearch, WebFetch, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
 
@@ -30,11 +30,11 @@ ultrathink
 
 ## Phase 2: Deep Research
 
-Launch parallel research to build comprehensive context. Use Task agents for independent research streams. Launch all independent streams simultaneously.
+Launch parallel research to build comprehensive context. Use Agent subagents for independent research streams. Launch all independent streams simultaneously.
 
 ### Research Stream 1: Codebase Analysis
 
-Use Task with `subagent_type=Explore` (thoroughness: "very thorough"). Explore the codebase for everything related to this feature:
+Use the Agent tool with `subagent_type=Explore` (thoroughness: "very thorough"). Explore the codebase for everything related to this feature:
 - **Current implementation** — What exists today that's relevant? What would this feature touch?
 - **Architecture** — How does the current system work in the affected areas?
 - **Patterns** — What conventions and patterns are established? (App Router conventions, Drizzle schema patterns, iron-session auth, SWR data fetching, shadcn/ui components)
@@ -43,7 +43,7 @@ Use Task with `subagent_type=Explore` (thoroughness: "very thorough"). Explore t
 
 ### Research Stream 2: External Research
 
-Use Task with `subagent_type=general-purpose` and `model=opus`. Search the web for technical context:
+Use the Agent tool with `subagent_type=general-purpose` and `model: opus`. Search the web for technical context:
 - **API feasibility** — If the feature involves external APIs (Fitbit, Anthropic, nutrition databases), research actual capabilities, pricing, limitations, regional coverage
 - **Technical approaches** — How have others solved this? What are the trade-offs?
 - **Gotchas** — Known issues, limitations, or surprises others have encountered
@@ -53,7 +53,7 @@ Use Task with `subagent_type=general-purpose` and `model=opus`. Search the web f
 
 ### Research Stream 3: Project Context
 
-Use Task with `subagent_type=Explore` or direct tool calls. Check project state:
+Use the Agent tool with `subagent_type=Explore` or direct tool calls. Check project state:
 - **Linear issues** — Query existing Backlog/Todo/In Progress issues for related or overlapping work (if Linear MCP available)
 - **Roadmap dependencies** — Does this feature depend on or block other roadmap items?
 - **Recent changes** — Any recent commits or PRs that affect this area?

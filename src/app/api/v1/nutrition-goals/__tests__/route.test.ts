@@ -172,8 +172,8 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
       expect(response.status).toBe(400);
     });
 
-    it("maps Fitbit errors to HTTP codes", async () => {
-      mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_RATE_LIMIT_LOW"));
+    it("maps Google Health errors to HTTP codes", async () => {
+      mockGetOrComputeDailyGoals.mockRejectedValue(new Error("HEALTH_RATE_LIMIT_LOW"));
 
       const request = createRequest(
         "http://localhost:3000/api/v1/nutrition-goals?date=2026-05-04",
@@ -440,16 +440,16 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
   });
 
   // ─── FOO-1026: Fitbit error-code mapping ────────────────────────────────
-  // Note: FITBIT_SCOPE_MISSING is intentionally NOT in this list — getOrComputeDailyGoals
-  // catches it upstream and converts it to a resolved blocked/scope_mismatch result
-  // (see "blocked-status mapping" describe block below for the realistic test).
-  describe("Fitbit error mapping", () => {
+  // Note: HEALTH_SCOPE_MISSING when thrown maps to 403; getOrComputeDailyGoals
+  // also catches it upstream and converts it to a resolved blocked/scope_mismatch
+  // result (see "blocked-status mapping" describe block below for that path).
+  describe("Google Health error mapping", () => {
     const cases: { error: string; status: number; code: string }[] = [
-      { error: "FITBIT_CREDENTIALS_MISSING", status: 424, code: "FITBIT_CREDENTIALS_MISSING" },
-      { error: "FITBIT_TOKEN_INVALID", status: 401, code: "FITBIT_TOKEN_INVALID" },
-      { error: "FITBIT_RATE_LIMIT", status: 429, code: "FITBIT_RATE_LIMIT" },
-      { error: "FITBIT_TIMEOUT", status: 504, code: "FITBIT_TIMEOUT" },
-      { error: "FITBIT_API_ERROR", status: 502, code: "FITBIT_API_ERROR" },
+      { error: "HEALTH_TOKEN_INVALID", status: 401, code: "HEALTH_TOKEN_INVALID" },
+      { error: "HEALTH_SCOPE_MISSING", status: 403, code: "HEALTH_SCOPE_MISSING" },
+      { error: "HEALTH_RATE_LIMIT", status: 429, code: "HEALTH_RATE_LIMIT" },
+      { error: "HEALTH_TIMEOUT", status: 504, code: "HEALTH_TIMEOUT" },
+      { error: "HEALTH_API_ERROR", status: 502, code: "HEALTH_API_ERROR" },
     ];
 
     for (const { error, status, code } of cases) {
@@ -470,12 +470,12 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
   });
 
   // ─── FOO-1031: blocked-status → HTTP error mapping (PR review P1) ────────
-  // getOrComputeDailyGoals catches FITBIT_SCOPE_MISSING from underlying Fitbit
-  // calls and returns a *resolved* `blocked/scope_mismatch` ComputeResult — not
-  // a thrown error. The external API contract requires 403 (re-auth signal) for
+  // getOrComputeDailyGoals catches HEALTH_SCOPE_MISSING from underlying Google
+  // Health calls and returns a *resolved* `blocked/scope_mismatch` ComputeResult —
+  // not a thrown error. The external API contract requires 403 (re-auth signal) for
   // this case, so the route maps the blocked reason to an HTTP error.
   describe("blocked-status mapping", () => {
-    it("maps blocked/scope_mismatch → 403 FITBIT_SCOPE_MISSING", async () => {
+    it("maps blocked/scope_mismatch → 403 HEALTH_SCOPE_MISSING", async () => {
       mockGetOrComputeDailyGoals.mockResolvedValue({
         status: "blocked",
         reason: "scope_mismatch",
@@ -489,7 +489,7 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
       const body = await response.json();
 
       expect(response.status).toBe(403);
-      expect(body.error.code).toBe("FITBIT_SCOPE_MISSING");
+      expect(body.error.code).toBe("HEALTH_SCOPE_MISSING");
     });
 
     it("returns 200 blocked/goals_not_set when user has not set up daily goals", async () => {

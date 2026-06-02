@@ -8,11 +8,11 @@ export type GoalBlockedReason = NonNullable<NutritionGoals["reason"]>;
 
 const REASON_MESSAGES: Record<GoalBlockedReason, string> = {
   goals_not_set: "Set up your daily goals in Settings to see your targets.",
-  no_weight: "Log your weight in Fitbit to enable targets.",
-  sex_unset: "Set your biological sex in Fitbit profile to enable targets.",
-  scope_mismatch: "Reconnect Fitbit to enable targets.",
+  no_weight: "Log your weight in Google Health to enable targets.",
+  sex_unset: "Set your biological sex in Settings to enable targets.",
+  scope_mismatch: "Reconnect Google Health to enable targets.",
   invalid_profile:
-    "Your Fitbit profile has invalid values — update it in the Fitbit app.",
+    "Your Google Health profile has invalid values — update your profile in Google Health.",
 };
 
 interface GoalsSetupBannerProps {
@@ -23,7 +23,7 @@ interface GoalsSetupBannerProps {
 /**
  * Dumb banner shown on the dashboard whenever goals.status === "blocked".
  * Receives the blocked reason as a prop; performs no own data fetching.
- * Matches the amber/warning palette from FitbitStatusBanner (FOO-1046).
+ * Matches the amber/warning palette from HealthStatusBanner (FOO-1046).
  */
 export function GoalsSetupBanner({ reason }: GoalsSetupBannerProps) {
   const message =

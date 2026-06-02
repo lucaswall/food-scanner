@@ -12,7 +12,7 @@ const mockHealthData = {
   status: "ok",
   version: "1.11.0",
   environment: "Production",
-  fitbitMode: "Live",
+  healthMode: "Live",
   claudeModel: "claude-sonnet-4-6",
   commitHash: "",
 };
@@ -58,7 +58,7 @@ describe("AboutSection", () => {
     expect(screen.getByText("Production")).toBeInTheDocument();
   });
 
-  it("renders Fitbit mode in successful state", () => {
+  it("renders health mode in successful state", () => {
     mockUseSWR.mockReturnValue({
       data: mockHealthData,
       error: null,

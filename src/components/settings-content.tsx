@@ -3,27 +3,20 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useTheme } from "@/hooks/use-theme";
 import { Sun, Moon, Monitor } from "lucide-react";
 import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
 import type { NutritionLabel } from "@/types";
-import { FitbitProfileCard } from "@/components/fitbit-profile-card";
+import { HealthProfileCard } from "@/components/health-profile-card";
 import { DailyGoalsCard } from "@/components/daily-goals-card";
 import { TargetsCard } from "@/components/targets-card";
 import { getTodayDate } from "@/lib/date-utils";
 
 interface SessionInfo {
   email: string | null;
-  fitbitConnected: boolean;
-  hasFitbitCredentials: boolean;
+  healthConnected: boolean;
   expiresAt: number;
-}
-
-interface CredentialsInfo {
-  hasCredentials: boolean;
-  clientId?: string;
 }
 
 export function SettingsContent() {
@@ -36,23 +29,7 @@ export function SettingsContent() {
       dedupingInterval: 5000,
     }
   );
-  const { data: credentials, mutate: mutateCredentials, error: credentialsLoadError } = useSWR<CredentialsInfo, Error>(
-    "/api/fitbit-credentials",
-    apiFetcher,
-    {
-      revalidateOnFocus: true,
-      dedupingInterval: 5000,
-    }
-  );
   const { theme, setTheme } = useTheme();
-
-  const [editingClientId, setEditingClientId] = useState(false);
-  const [clientIdValue, setClientIdValue] = useState("");
-  const [replacingSecret, setReplacingSecret] = useState(false);
-  const [secretValue, setSecretValue] = useState("");
-  const [credentialsSaving, setCredentialsSaving] = useState(false);
-  const [credentialsError, setCredentialsError] = useState<string | null>(null);
-  const [showReauth, setShowReauth] = useState(false);
 
   async function handleLogout() {
     try {
@@ -61,65 +38,6 @@ export function SettingsContent() {
       // Best-effort logout — redirect anyway to clear client state
     }
     window.location.href = "/";
-  }
-
-  async function handleSaveClientId() {
-    if (!clientIdValue.trim()) return;
-    setCredentialsSaving(true);
-    setCredentialsError(null);
-    try {
-      const res = await fetch("/api/fitbit-credentials", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId: clientIdValue.trim() }),
-        signal: AbortSignal.timeout(15000),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error?.message || "Failed to update");
-      }
-      setEditingClientId(false);
-      setShowReauth(true);
-      await mutateCredentials();
-    } catch (err) {
-      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
-        setCredentialsError("Request timed out. Please try again.");
-      } else {
-        setCredentialsError(err instanceof Error ? err.message : "Failed to update");
-      }
-    } finally {
-      setCredentialsSaving(false);
-    }
-  }
-
-  async function handleReplaceSecret() {
-    if (!secretValue.trim()) return;
-    setCredentialsSaving(true);
-    setCredentialsError(null);
-    try {
-      const res = await fetch("/api/fitbit-credentials", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientSecret: secretValue.trim() }),
-        signal: AbortSignal.timeout(15000),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error?.message || "Failed to update");
-      }
-      setReplacingSecret(false);
-      setSecretValue("");
-      setShowReauth(true);
-      await mutateCredentials();
-    } catch (err) {
-      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
-        setCredentialsError("Request timed out. Please try again.");
-      } else {
-        setCredentialsError(err instanceof Error ? err.message : "Failed to update");
-      }
-    } finally {
-      setCredentialsSaving(false);
-    }
   }
 
   return (
@@ -134,31 +52,25 @@ export function SettingsContent() {
           <div className="flex flex-col gap-1 text-sm">
             {session.email && <p className="text-muted-foreground">{session.email}</p>}
             <p>
-              Fitbit:{" "}
-              {session.fitbitConnected && !session.hasFitbitCredentials ? (
-                <span className="text-warning">
-                  Connected (credentials missing)
-                </span>
-              ) : (
-                <span
-                  className={
-                    session.fitbitConnected
-                      ? "text-success"
-                      : "text-destructive"
-                  }
-                >
-                  {session.fitbitConnected ? "Connected" : "Not connected"}
-                </span>
-              )}
+              Google Health:{" "}
+              <span
+                className={
+                  session.healthConnected
+                    ? "text-success"
+                    : "text-destructive"
+                }
+              >
+                {session.healthConnected ? "Connected" : "Not connected"}
+              </span>
             </p>
           </div>
         )}
 
-        <form action="/api/auth/fitbit" method="POST">
-          <Button type="submit" variant="outline" className="w-full">
-            Reconnect Fitbit
-          </Button>
-        </form>
+        <Button asChild variant="outline" className="w-full min-h-[44px]">
+          <Link href="/app/connect-health">
+            {session?.healthConnected ? "Reconnect Google Health" : "Connect Google Health"}
+          </Link>
+        </Button>
 
         <Button
           variant="destructive"
@@ -169,140 +81,7 @@ export function SettingsContent() {
         </Button>
       </div>
 
-      <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
-        <h2 className="text-lg font-semibold">Fitbit App Credentials</h2>
-
-        {credentialsError && (
-          <p className="text-sm text-destructive">{credentialsError}</p>
-        )}
-
-        {credentialsLoadError && (
-          <div role="alert" className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
-            <p className="text-sm text-destructive">{credentialsLoadError.message || "Failed to load credentials"}</p>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mt-2 min-h-[44px]"
-              onClick={() => mutateCredentials()}
-            >
-              Retry
-            </Button>
-          </div>
-        )}
-
-        {credentials && !credentials.hasCredentials && (
-          <div className="flex flex-col gap-2">
-            <p className="text-sm text-muted-foreground">No Fitbit credentials configured.</p>
-            <Button asChild variant="outline" className="min-h-[44px]">
-              <Link href="/app/setup-fitbit">Set up Fitbit credentials</Link>
-            </Button>
-          </div>
-        )}
-
-        {credentials?.hasCredentials && (
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <label htmlFor="fitbit-client-id" className="text-sm font-medium">Client ID</label>
-              {editingClientId ? (
-                <div className="flex gap-2">
-                  <Input
-                    id="fitbit-client-id"
-                    value={clientIdValue}
-                    onChange={(e) => setClientIdValue(e.target.value)}
-                    className="min-h-[44px]"
-                    placeholder="Enter Client ID"
-                  />
-                  <Button
-                    onClick={handleSaveClientId}
-                    disabled={credentialsSaving || !clientIdValue.trim()}
-                    className="min-h-[44px] shrink-0"
-                  >
-                    Save
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setEditingClientId(false)}
-                    className="min-h-[44px] shrink-0"
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 rounded bg-muted px-2 py-1 text-sm">
-                    {credentials.clientId}
-                  </code>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="min-h-[44px] shrink-0"
-                    onClick={() => {
-                      setClientIdValue(credentials.clientId || "");
-                      setEditingClientId(true);
-                    }}
-                  >
-                    Edit
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label htmlFor="fitbit-client-secret" className="text-sm font-medium">Client Secret</label>
-              {replacingSecret ? (
-                <div className="flex gap-2">
-                  <Input
-                    id="fitbit-client-secret"
-                    type="password"
-                    value={secretValue}
-                    onChange={(e) => setSecretValue(e.target.value)}
-                    className="min-h-[44px]"
-                    placeholder="Enter new Client Secret"
-                  />
-                  <Button
-                    onClick={handleReplaceSecret}
-                    disabled={credentialsSaving || !secretValue.trim()}
-                    className="min-h-[44px] shrink-0"
-                  >
-                    Save
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => { setReplacingSecret(false); setSecretValue(""); }}
-                    className="min-h-[44px] shrink-0"
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 rounded bg-muted px-2 py-1 text-sm">
-                    ••••••••
-                  </code>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="min-h-[44px] shrink-0"
-                    onClick={() => setReplacingSecret(true)}
-                  >
-                    Replace Secret
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            {showReauth && (
-              <form action="/api/auth/fitbit" method="POST">
-                <Button type="submit" variant="default" className="w-full min-h-[44px]">
-                  Re-authorize Fitbit
-                </Button>
-              </form>
-            )}
-          </div>
-        )}
-      </div>
-
-      <FitbitProfileCard />
+      <HealthProfileCard />
 
       <DailyGoalsCard />
 
@@ -348,9 +127,6 @@ export function SettingsContent() {
 
 function DailyTargetsSection() {
   const [date, setDate] = useState(() => getTodayDate());
-  // Mirror daily-dashboard.tsx:79-114 — reset to today when (a) date changed
-  // since hide, or (b) >1h elapsed since the tab became hidden (FOO-1007).
-  // Init the ref lazily inside useEffect to keep render pure (React 19).
   const lastActiveRef = useRef<{ date: string; timestamp: number } | null>(null);
   useEffect(() => {
     lastActiveRef.current = { date: getTodayDate(), timestamp: Date.now() };

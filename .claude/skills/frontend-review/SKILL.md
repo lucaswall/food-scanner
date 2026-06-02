@@ -2,13 +2,22 @@
 name: frontend-review
 description: Reviews all frontend elements (UI, UX, accessibility, visual design, responsiveness, performance, visual QA from screenshots) using an agent team with 4 domain-specialized reviewers. Creates Linear issues in Backlog state for findings. Use when user says "review frontend", "check UI", "review UX", "audit accessibility", "check responsive", or "review screens". Falls back to single-agent mode if agent teams unavailable.
 argument-hint: [optional: specific area like "settings page" or "photo capture"]
-allowed-tools: Read, Glob, Grep, Task, Bash, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+allowed-tools: Read, Glob, Grep, Agent, Bash, Workflow, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+disallowed-tools: AskUserQuestion, EnterPlanMode, ExitPlanMode
 disable-model-invocation: true
 ---
 
 Review all frontend elements using an agent team with domain-specialized reviewers. You are the **team lead/coordinator**. You orchestrate 4 reviewer teammates who examine the frontend through different lenses in parallel, then you merge findings, create Linear issues, and output a summary report.
 
 **If agent teams are unavailable** (TeamCreate fails), fall back to single-agent mode — see "Fallback: Single-Agent Mode" section.
+
+## Autonomous Execution — never stop to ask
+
+This is a **workflow skill**: it runs to completion without consulting the user mid-run. `AskUserQuestion` and plan mode are disabled while it is active.
+
+- **NEVER** ask the user a question, request a choice/confirmation, propose options, or enter plan mode — about scope, approach, or whether to continue. Resolve every decision with the most reasonable default from the request/arguments and document it in your output.
+- **Ambiguous scope** (e.g. no area argument) → review the full default frontend scope; don't ask which screen to review.
+- The **ONLY** permitted stops are the terminal STOP conditions in this skill (e.g. Linear MCP down) — they emit a fixed message and end the run; they are not questions.
 
 **Reference:** See [references/frontend-checklist.md](references/frontend-checklist.md) for the comprehensive checklist and [references/reviewer-prompts.md](references/reviewer-prompts.md) for domain-specific reviewer instructions.
 
@@ -29,7 +38,7 @@ Review all frontend elements using an agent team with domain-specialized reviewe
    ```
    Then run E2E:
    ```
-   Use Task tool with subagent_type "verifier" with prompt "e2e"
+   Use the Agent tool with subagent_type "verifier" with prompt "e2e"
    ```
    - If E2E tests pass: screenshots are now available at `e2e/screenshots/*.png`
    - If E2E tests fail: warn the user, skip the visual-qa-reviewer (spawn only 3 code reviewers), note in the report that visual QA was skipped
@@ -49,7 +58,17 @@ Review all frontend elements using an agent team with domain-specialized reviewe
    - If no arguments → review all frontend files and all screenshots
 9. **Build the file list** — Create the exact list of files each code reviewer will examine, and the screenshot list for the visual-qa-reviewer
 
+## Review Orchestration
+
+The reviewers (4, or 3 if screenshots are unavailable) can run three ways — all converge on the same **Merge & Evaluate Findings** → **Create Linear Issues** steps. Pick the first available:
+
+1. **Workflow mode (preferred).** Use the `Workflow` tool to fan the reviewers out as a background script. Each `agent()` receives the Common Preamble + its domain checklist from [references/reviewer-prompts.md](references/reviewer-prompts.md), plus its exact file list (code reviewers) or screenshot paths to Read (visual-qa reviewer), and returns validated structured findings via a `schema` (`{domain, findings: [{severity, file, line, description, fix, screenshot?}]}`). The workflow keeps reviewer output out of the main context; when it returns, proceed to **Merge & Evaluate Findings**. Reviewers are READ-ONLY; the lead does ALL Linear writes.
+2. **Agent-team fallback.** If the `Workflow` tool is unavailable, use the agent team in **Team Setup** below.
+3. **Single-agent fallback.** If neither is available, use **Fallback: Single-Agent Mode**.
+
 ## Team Setup
+
+*(Agent-team fallback — used when the `Workflow` tool is unavailable; see **Review Orchestration**.)*
 
 ### Create the team
 
@@ -70,7 +89,7 @@ Use `TaskCreate` to create 4 review tasks (or 3 if screenshots unavailable):
 
 ### Spawn reviewer teammates
 
-Use the `Task` tool with `team_name: "frontend-review"`, `subagent_type: "general-purpose"`, and `model: "sonnet"` to spawn each reviewer. Spawn all reviewers in parallel (concurrent Task calls in one message).
+Use the `Agent` tool with `team_name: "frontend-review"`, `subagent_type: "general-purpose"`, and `model: "sonnet"` to spawn each reviewer. Spawn all reviewers in parallel (concurrent Agent calls in one message).
 
 Each reviewer prompt MUST include:
 - The common preamble and their domain checklist from [references/reviewer-prompts.md](references/reviewer-prompts.md)

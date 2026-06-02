@@ -1,11 +1,12 @@
 import { validateApiRequest, hashForRateLimit } from "@/lib/api-auth";
 import { conditionalResponse, errorResponse } from "@/lib/api-response";
+import { mapHealthError } from "@/lib/health-error-response";
 import { createRequestLogger } from "@/lib/logger";
-import { getCachedActivitySummary } from "@/lib/fitbit-cache";
+import { getCachedHealthActivitySummary } from "@/lib/health-cache";
 import { isValidDateFormat } from "@/lib/date-utils";
 import { checkRateLimit } from "@/lib/rate-limit";
 
-const RATE_LIMIT_MAX = 30; // Fitbit API route
+const RATE_LIMIT_MAX = 30;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 
 export async function GET(request: Request) {
@@ -42,7 +43,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const activitySummary = await getCachedActivitySummary(
+    const activitySummary = await getCachedHealthActivitySummary(
       authResult.userId,
       date,
       log,
@@ -65,37 +66,6 @@ export async function GET(request: Request) {
       "v1 activity summary fetch failed"
     );
 
-    if (error instanceof Error) {
-      if (error.message === "FITBIT_CREDENTIALS_MISSING") {
-        return errorResponse("FITBIT_CREDENTIALS_MISSING", "Fitbit credentials not found", 424);
-      }
-      if (error.message === "FITBIT_TOKEN_INVALID") {
-        return errorResponse("FITBIT_TOKEN_INVALID", "Fitbit token is invalid or expired", 401);
-      }
-      if (error.message === "FITBIT_SCOPE_MISSING") {
-        return errorResponse("FITBIT_SCOPE_MISSING", "Fitbit permissions need updating. Please reconnect your Fitbit account in Settings.", 403);
-      }
-      if (error.message === "FITBIT_RATE_LIMIT") {
-        return errorResponse("FITBIT_RATE_LIMIT", "Fitbit API rate limited. Please try again later.", 429);
-      }
-      if (error.message === "FITBIT_RATE_LIMIT_LOW") {
-        return errorResponse(
-          "FITBIT_RATE_LIMIT_LOW",
-          "Fitbit rate-limit headroom is low. Please try again in a few minutes.",
-          503,
-        );
-      }
-      if (error.message === "FITBIT_TIMEOUT") {
-        return errorResponse("FITBIT_TIMEOUT", "Request to Fitbit timed out. Please try again.", 504);
-      }
-      if (error.message === "FITBIT_REFRESH_TRANSIENT") {
-        return errorResponse("FITBIT_REFRESH_TRANSIENT", "Temporary Fitbit error. Please try again.", 502);
-      }
-      if (error.message === "FITBIT_API_ERROR") {
-        return errorResponse("FITBIT_API_ERROR", "Fitbit API error", 502);
-      }
-    }
-
-    return errorResponse("INTERNAL_ERROR", "Failed to fetch activity summary", 500);
+    return mapHealthError(error);
   }
 }

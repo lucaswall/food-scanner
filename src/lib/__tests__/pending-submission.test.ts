@@ -10,7 +10,7 @@ import type { FoodAnalysis } from "@/types";
 const mockAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
   amount: 150,
-  unit_id: 147,
+  unit_id: "g",
   calories: 320,
   protein_g: 12,
   carbs_g: 28,

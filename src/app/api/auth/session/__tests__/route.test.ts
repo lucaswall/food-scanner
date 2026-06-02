@@ -8,7 +8,7 @@ vi.mock("@/lib/session", () => ({
   getSession: () => mockGetSession(),
   validateSession: (
     session: FullSession | null,
-    options?: { requireFitbit?: boolean },
+    options?: { requireHealth?: boolean },
   ): Response | null => {
     if (!session) {
       return Response.json(
@@ -16,15 +16,9 @@ vi.mock("@/lib/session", () => ({
         { status: 401 },
       );
     }
-    if (options?.requireFitbit && !session.fitbitConnected) {
+    if (options?.requireHealth && !session.healthConnected) {
       return Response.json(
-        { success: false, error: { code: "FITBIT_NOT_CONNECTED", message: "Fitbit account not connected" }, timestamp: Date.now() },
-        { status: 400 },
-      );
-    }
-    if (options?.requireFitbit && !session.hasFitbitCredentials) {
-      return Response.json(
-        { success: false, error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Fitbit credentials not configured" }, timestamp: Date.now() },
+        { success: false, error: { code: "HEALTH_NOT_CONNECTED", message: "Google Health not connected" }, timestamp: Date.now() },
         { status: 400 },
       );
     }
@@ -65,8 +59,7 @@ describe("GET /api/auth/session", () => {
       sessionId: "test-session",
       userId: "user-uuid-123",
       expiresAt: Date.now() + 86400000,
-      fitbitConnected: true,
-      hasFitbitCredentials: true,
+      healthConnected: true,
       destroy: vi.fn(),
     });
 
@@ -75,8 +68,7 @@ describe("GET /api/auth/session", () => {
     const body = await response.json();
     expect(body.success).toBe(true);
     expect(body.data.email).toBe("test@example.com");
-    expect(body.data.fitbitConnected).toBe(true);
-    expect(body.data.hasFitbitCredentials).toBe(true);
+    expect(body.data.healthConnected).toBe(true);
   });
 
   it("sets Cache-Control header to private no-cache", async () => {
@@ -84,8 +76,7 @@ describe("GET /api/auth/session", () => {
       sessionId: "test-session",
       userId: "user-uuid-123",
       expiresAt: Date.now() + 86400000,
-      fitbitConnected: true,
-      hasFitbitCredentials: true,
+      healthConnected: true,
       destroy: vi.fn(),
     });
 
@@ -107,8 +98,7 @@ describe("GET /api/auth/session", () => {
       sessionId: "test-session",
       userId: "user-uuid-123",
       expiresAt: Date.now() + 86400000,
-      fitbitConnected: false,
-      hasFitbitCredentials: false,
+      healthConnected: false,
       destroy: vi.fn(),
     });
 
@@ -135,8 +125,7 @@ describe("GET /api/auth/session", () => {
       sessionId: "test-session",
       userId: "user-uuid-123",
       expiresAt: Date.now() + 86400000,
-      fitbitConnected: false,
-      hasFitbitCredentials: false,
+      healthConnected: false,
       destroy: vi.fn(),
     });
 

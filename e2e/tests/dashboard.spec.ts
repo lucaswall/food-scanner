@@ -41,7 +41,7 @@ test.describe('Dashboard', () => {
     await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
   });
 
-  test('shows Fitbit connected status', async ({ page }) => {
+  test('shows Google Health connected status', async ({ page }) => {
     await page.goto('/app');
 
     // Wait for page to load

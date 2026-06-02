@@ -7,7 +7,7 @@ import { apiFetcher } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
 import { ArrowLeft, AlertCircle, Star, Share2 } from "lucide-react";
-import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
+import { getUnitLabel, MEAL_TYPE_LABELS } from "@/types";
 import type { FoodLogEntryDetail } from "@/types";
 import { formatTime } from "@/lib/date-utils";
 
@@ -59,13 +59,18 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customFoodId: data.customFoodId }),
+        signal: AbortSignal.timeout(10000),
       });
       if (!response.ok) {
         setShareError("Failed to share. Please try again.");
         return;
       }
       const result = await response.json();
-      const shareUrl: string = result.data.shareUrl;
+      const shareUrl: string | undefined = result?.data?.shareUrl;
+      if (typeof shareUrl !== "string") {
+        setShareError("Failed to share. Please try again.");
+        return;
+      }
       const foodName: string = data.foodName;
 
       if (navigator.share) {
@@ -83,6 +88,12 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
         } catch {
           setShareError("Failed to copy link. Please try again.");
         }
+      }
+    } catch (err) {
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setShareError("Request timed out. Please try again.");
+      } else {
+        setShareError("Failed to share. Please try again.");
       }
     } finally {
       setIsSharing(false);
@@ -171,14 +182,14 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
           </Button>
         </div>
         {shareCopied && (
-          <p className="text-xs text-green-600 mt-1">Link copied to clipboard!</p>
+          <p className="text-xs text-success mt-1">Link copied to clipboard!</p>
         )}
         {shareError && (
           <p className="text-xs text-destructive mt-1">{shareError}</p>
         )}
         <p className="text-sm text-muted-foreground mt-1">
           {formatDate(data.date)} · {formatTime(data.time) || "Not specified"} ·{" "}
-          {FITBIT_MEAL_TYPE_LABELS[data.mealTypeId] ?? "Unknown"}
+          {MEAL_TYPE_LABELS[data.mealTypeId] ?? "Unknown"}
         </p>
         <p className="text-sm text-muted-foreground">
           {getUnitLabel(data.unitId, data.amount)}

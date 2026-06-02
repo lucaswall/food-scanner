@@ -1,7 +1,7 @@
 "use client";
 
 import useSWR from "swr";
-import { apiFetcher, FITBIT_BACKED_SWR_CONFIG } from "@/lib/swr";
+import { apiFetcher, HEALTH_BACKED_SWR_CONFIG } from "@/lib/swr";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
@@ -22,11 +22,11 @@ function formatSignedDeficit(kcal: number): string {
 
 const BLOCKED_MESSAGES: Record<GoalBlockedReason, string> = {
   goals_not_set: "Set up your daily goals in Settings to enable targets.",
-  no_weight: "Log your weight in Fitbit to enable macro targets.",
-  sex_unset: "Set your biological sex in Fitbit profile to enable macro targets.",
-  scope_mismatch: "Reconnect Fitbit to enable macro targets.",
+  no_weight: "Log your weight in Google Health to enable macro targets.",
+  sex_unset: "Set your biological sex in Settings to enable macro targets.",
+  scope_mismatch: "Reconnect Google Health to enable macro targets.",
   invalid_profile:
-    "Your Fitbit profile has invalid values (height, weight, or age). Update it in the Fitbit app.",
+    "Your Google Health profile has invalid values (height, weight, or age). Update your profile in Google Health.",
 };
 
 function getBlockedMessage(reason?: GoalBlockedReason): string {
@@ -43,7 +43,7 @@ export function TargetsCard({ date }: TargetsCardProps) {
   } = useSWR<NutritionGoals>(
     `/api/nutrition-goals?clientDate=${date}`,
     apiFetcher,
-    FITBIT_BACKED_SWR_CONFIG,
+    HEALTH_BACKED_SWR_CONFIG,
   );
 
   if (isLoading) {
@@ -96,7 +96,7 @@ export function TargetsCard({ date }: TargetsCardProps) {
     <div className="rounded-lg border p-3 space-y-2">
       {goals.weightStale && weightAgeDays != null && (
         <p className="text-xs text-amber-600 dark:text-amber-500">
-          ⚠ Weight log is {weightAgeDays} days old — log a recent weight in Fitbit.
+          ⚠ Weight log is {weightAgeDays} days old — log a recent weight in Google Health.
         </p>
       )}
       {/* Top-line target summary — unchanged */}

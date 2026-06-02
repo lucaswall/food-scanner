@@ -14,7 +14,7 @@ describe('PWA Manifest', () => {
 
     expect(manifest.name).toBe('Food Logger')
     expect(manifest.short_name).toBe('FoodLog')
-    expect(manifest.description).toBe('AI-powered food logging for Fitbit')
+    expect(manifest.description).toBe('AI-powered food logging for Google Health')
     expect(manifest.start_url).toBe('/app')
     expect(manifest.display).toBe('standalone')
     expect(manifest.background_color).toBe('#ffffff')

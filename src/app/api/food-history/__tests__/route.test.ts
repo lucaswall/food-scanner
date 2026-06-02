@@ -43,8 +43,7 @@ const validSession: FullSession = {
   sessionId: "test-session",
   userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
-  fitbitConnected: true,
-  hasFitbitCredentials: true,
+  healthConnected: true,
   destroy: vi.fn(),
 };
 
@@ -60,11 +59,11 @@ const sampleEntries: FoodLogHistoryEntry[] = [
     fiberG: 0,
     sodiumMg: 100,
     amount: 200,
-    unitId: 147,
+    unitId: "g",
     mealTypeId: 3,
     date: "2026-02-06",
     time: "12:30:00",
-    fitbitLogId: 123,
+    healthLogId: "123",
     isFavorite: false,
   },
   {
@@ -78,11 +77,11 @@ const sampleEntries: FoodLogHistoryEntry[] = [
     fiberG: 1,
     sodiumMg: 5,
     amount: 150,
-    unitId: 147,
+    unitId: "g",
     mealTypeId: 3,
     date: "2026-02-05",
     time: "12:00:00",
-    fitbitLogId: 456,
+    healthLogId: "456",
     isFavorite: false,
   },
 ];

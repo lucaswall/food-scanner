@@ -49,7 +49,7 @@ Then edit `.env.local` and override these values for local development:
 | `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/food_scanner` | Use local Docker Postgres instead of Railway Postgres |
 | `APP_URL` | `http://localhost:3000` | Local dev server, not production domain |
 | `LOG_LEVEL` | `debug` (optional) | More verbose logging during development |
-| `FITBIT_DRY_RUN` | `true` (optional) | Skip Fitbit API calls, log to DB only |
+| `HEALTH_DRY_RUN` | `true` (optional) | Skip Google Health API calls, log to DB only |
 
 Remove any Railway-internal variables (e.g., `RAILWAY_*`, `PORT`) — they're not needed locally.
 
@@ -64,7 +64,7 @@ Then fill in the secrets. See `.env.sample` for all required variables with comm
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — see **OAuth Setup for Local Development** below
 - `ANTHROPIC_API_KEY` — see **Anthropic API Setup** below
 
-> **Note:** Fitbit credentials (`FITBIT_CLIENT_ID` / `FITBIT_CLIENT_SECRET`) are no longer in env vars. Each user enters their own Fitbit Personal app credentials through the app's setup flow at `/app/setup-fitbit`.
+> **Note:** Google Health uses the shared Google OAuth client (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`). No separate per-user credentials. Users connect to Google Health via the one-click `/app/connect-health` flow after logging in.
 
 > **Note:** Migrations run automatically when you start the dev server (`npm run dev`).
 
@@ -140,7 +140,7 @@ This will:
 E2E tests use `.env.test` for configuration. This file is checked into git (contains no secrets) and configured with:
 - `DATABASE_URL` → local Docker Postgres (`food_scanner` database)
 - `ENABLE_TEST_AUTH=true` → enables test-only auth bypass route
-- `FITBIT_DRY_RUN=true` → skips Fitbit API calls
+- `HEALTH_DRY_RUN=true` → skips Google Health API calls
 - `PORT=3001` → production server port (avoids conflict with dev server on 3000)
 - Test values for Google OAuth, Anthropic API (not actually called in smoke tests)
 
@@ -162,7 +162,7 @@ e2e/
 │   ├── food-detail.spec.ts   # Food detail view
 │   ├── analyze.spec.ts       # Food analysis
 │   ├── quick-select.spec.ts  # Quick select
-│   ├── setup-fitbit.spec.ts  # Fitbit setup
+│   ├── connect-health.spec.ts  # Connect Google Health (placeholder)
 │   ├── navigation.spec.ts    # App navigation
 │   ├── empty-states.spec.ts  # Empty state UI
 │   ├── logout.spec.ts        # Logout flow
@@ -243,7 +243,7 @@ Format: `<type>: <summary>`
 
 Examples:
 - `feat: add Google OAuth login flow`
-- `fix: handle expired Fitbit tokens gracefully`
+- `fix: handle expired Google Health tokens gracefully`
 - `chore: update Next.js to 15.1`
 
 ---
@@ -269,7 +269,7 @@ This project is in **production**. When changes affect existing data (DB schema,
 2. PR to `main` → merge → staging auto-deploys
 3. Merge `main` → `release` → production auto-deploys
 
-**Staging** uses `FITBIT_DRY_RUN=true` to skip Fitbit API calls while preserving local DB logging.
+**Staging** uses `HEALTH_DRY_RUN=true` to skip Google Health API calls while preserving local DB logging.
 
 ---
 
@@ -344,14 +344,12 @@ The CLI link is stored globally at `~/.railway/config.json`, not in the project 
 
 ## OAuth Setup for Local Development
 
-Follow the [OAuth Setup section in README.md](README.md#oauth-setup) to create Google and Fitbit OAuth credentials. Then add the localhost redirect URIs to each provider:
+Follow the [OAuth Setup section in README.md](README.md#oauth-setup) to create Google OAuth credentials. Then add the localhost redirect URI:
 
 - **Google Cloud Console** → Your OAuth client → Authorized redirect URIs → add:
   `http://localhost:3000/api/auth/google/callback`
-- **Fitbit Developer** → Your app → Redirect URIs → add:
-  `http://localhost:3000/api/auth/fitbit/callback`
 
-Copy the Google Client ID and Client Secret values into your `.env.local` file. For Fitbit, enter your Personal app credentials through the setup flow at `/app/setup-fitbit` after logging in.
+Copy the Google Client ID and Client Secret values into your `.env.local` file. Google Health scopes are configured on the GCP consent screen — no extra setup needed locally.
 
 ---
 

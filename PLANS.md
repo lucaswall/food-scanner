@@ -1,803 +1,1315 @@
 # Implementation Plan
 
-**Created:** 2026-05-08
-**Source:** Inline request: Replace the Fitbit-driven calorie engine with a goal-anchored, device-independent engine. Drop metabolic_flex profile, drop body-fat input, drop expand-on-tap on TargetsCard, gate dashboard goals on declared user settings, show safety-floor warning in Settings (no silent clamp).
-**Linear Issues:** [FOO-1040](https://linear.app/lw-claude/issue/FOO-1040), [FOO-1041](https://linear.app/lw-claude/issue/FOO-1041), [FOO-1042](https://linear.app/lw-claude/issue/FOO-1042), [FOO-1043](https://linear.app/lw-claude/issue/FOO-1043), [FOO-1044](https://linear.app/lw-claude/issue/FOO-1044), [FOO-1045](https://linear.app/lw-claude/issue/FOO-1045), [FOO-1046](https://linear.app/lw-claude/issue/FOO-1046), [FOO-1047](https://linear.app/lw-claude/issue/FOO-1047), [FOO-1048](https://linear.app/lw-claude/issue/FOO-1048), [FOO-1049](https://linear.app/lw-claude/issue/FOO-1049)
-**Branch:** feat/goal-anchored-engine
+**Created:** 2026-05-31
+**Source:** Inline request: Full Fitbit → Google Health API migration (hard cutover, staging-testable) + all review-surfaced bug/defect fixes + Anthropic Core modernization. Agent-only, single-shot, no deferred work.
+**Linear Issues:** [FOO-1071](https://linear.app/lw-claude/issue/FOO-1071), [FOO-1072](https://linear.app/lw-claude/issue/FOO-1072), [FOO-1073](https://linear.app/lw-claude/issue/FOO-1073), [FOO-1074](https://linear.app/lw-claude/issue/FOO-1074), [FOO-1075](https://linear.app/lw-claude/issue/FOO-1075), [FOO-1076](https://linear.app/lw-claude/issue/FOO-1076), [FOO-1077](https://linear.app/lw-claude/issue/FOO-1077), [FOO-1078](https://linear.app/lw-claude/issue/FOO-1078), [FOO-1079](https://linear.app/lw-claude/issue/FOO-1079), [FOO-1080](https://linear.app/lw-claude/issue/FOO-1080), [FOO-1081](https://linear.app/lw-claude/issue/FOO-1081), [FOO-1082](https://linear.app/lw-claude/issue/FOO-1082), [FOO-1083](https://linear.app/lw-claude/issue/FOO-1083), [FOO-1084](https://linear.app/lw-claude/issue/FOO-1084), [FOO-1085](https://linear.app/lw-claude/issue/FOO-1085), [FOO-1086](https://linear.app/lw-claude/issue/FOO-1086), [FOO-1087](https://linear.app/lw-claude/issue/FOO-1087), [FOO-1088](https://linear.app/lw-claude/issue/FOO-1088), [FOO-1089](https://linear.app/lw-claude/issue/FOO-1089), [FOO-1090](https://linear.app/lw-claude/issue/FOO-1090), [FOO-1091](https://linear.app/lw-claude/issue/FOO-1091), [FOO-1092](https://linear.app/lw-claude/issue/FOO-1092), [FOO-1093](https://linear.app/lw-claude/issue/FOO-1093), [FOO-1094](https://linear.app/lw-claude/issue/FOO-1094), [FOO-1095](https://linear.app/lw-claude/issue/FOO-1095), [FOO-1096](https://linear.app/lw-claude/issue/FOO-1096), [FOO-1097](https://linear.app/lw-claude/issue/FOO-1097), [FOO-1098](https://linear.app/lw-claude/issue/FOO-1098), [FOO-1099](https://linear.app/lw-claude/issue/FOO-1099), [FOO-1100](https://linear.app/lw-claude/issue/FOO-1100)
+**Branch:** feat/google-health-migration
 
 ## Context Gathered
 
 ### Codebase Analysis
-
-**Current engine (to replace):**
-- `src/lib/macro-engine.ts` — `computeMacroTargets`, `ACTIVITY_MULTIPLIER=0.85`, `GOAL_MULTIPLIERS={LOSE:0.80,MAINTAIN:1.00,GAIN:1.10}`, two profiles (`MUSCLE_PRESERVE`/`METABOLIC_FLEX`), BMI-tier protein coefficients, `computeRmr` (Mifflin-St Jeor). Keep RMR; replace everything else.
-- `src/lib/daily-goals.ts` — `getOrComputeDailyGoals` cache-hit-then-compute; `tryRatchetRecompute` (only-up); `tryPromoteSeededRow` (seed→live); `resolveTdeeSeed` (7-day median or `RMR × 1.4`); `DEFAULT_ACTIVITY_MULTIPLIER=1.4`; `invalidateUserDailyGoalsForProfileChange`. All ratchet/seed/promote logic deletes; new path is a single idempotent compute.
-- `src/lib/fitbit.ts` — `getFitbitProfile`, `getFitbitLatestWeightKg`, `getFitbitWeightGoal` (`goalType` only), `getActivitySummary` (caloriesOut). Profile + weight reads stay; `getFitbitWeightGoal` and `getActivitySummary` are no longer goal inputs.
-- `src/lib/fitbit-cache.ts` — `getCachedFitbitProfile`, `getCachedFitbitWeightKg`, `getCachedFitbitWeightGoal`, `getCachedActivitySummary`. Last two become unused; remove.
-- `src/lib/macro-engine.ts:62-72` — `MACRO_PROFILES_BY_KEY`, `MACRO_PROFILE_KEYS`, `isMacroProfileKey`, `describeProfile`, `getMacroProfile`, `MacroProfile` interface — all removable.
-
-**Schema (`src/db/schema.ts`):**
-- `users` (line 20): currently has `macroProfile` / `macroProfileVersion` + CHECK constraint. To drop both columns and the CHECK; to add `activityLevel`, `goalWeightKg`, `goalRateKgPerWeek` (all nullable).
-- `dailyCalorieGoals`: currently has `caloriesOut`, `activityKcal`, `bmiTier`, `goalType`, `profileVersion`, `tdeeSource`. To drop all six; to add `activityLevel`, `goalWeightKg`, `goalRateKgPerWeek`, `tdee`, `deficitKcal`. `weightKg`, `rmr`, `weightLoggedDate`, `calorieGoal`, `proteinGoal`, `carbsGoal`, `fatGoal` stay.
-
-**API routes:**
-- `src/app/api/macro-profile/route.ts` (GET/PATCH) — pattern reference for new settings route; the file itself is deleted (no profile selector).
-- `src/app/api/nutrition-goals/route.ts` — internal goals endpoint; returns `NutritionGoals`. Update to handle new audit fields and the `goals_not_set` blocked reason.
-- `src/app/api/v1/nutrition-goals/route.ts` — external v1 endpoint; same updates.
-- `src/app/api/fitbit/profile/route.ts` — exposes sex/age/height/weight to the client; reused by new `DailyGoalsCard` for live target preview.
-
-**UI:**
-- `src/components/macro-profile-card.tsx` — DELETE.
-- `src/components/targets-card.tsx` — REWRITE: drop `expanded` state and ChevronUp/Down toggle (lines 33, 111-126, 129-142). Show all audit fields inline. New audit shape: RMR, activity_level, PAL multiplier, TDEE, goal weight, goal rate, deficit, current weight.
-- `src/components/settings-content.tsx` — replace `<MacroProfileCard />` (line 307) with `<DailyGoalsCard />`. `<DailyTargetsSection>` (line 309) stays.
-- `src/components/daily-dashboard.tsx` — add `<GoalsSetupBanner />` rendered above `<CalorieRing>` whenever `goals?.status === "blocked"`. Existing fallback at lines 290-302 (bare totals when `goals?.calories == null`) already handles the no-goals case visually; banner is purely additive.
-
-**Integration touchpoints:**
-- `src/lib/user-profile.ts:67-100` — chat-context profile string: branches on `dailyGoals.calorieGoal`. Add `goals_not_set` handling.
-- `src/lib/chat-tools.ts:227-253, 280-290` — `executeGetNutritionSummary` and `getDateRangeNutritionSummary` consume `ComputeResult.status`. Add `goals_not_set` reason.
-- `src/lib/api-response.ts:40` / `src/types/index.ts:134` — `errorResponse` and `ErrorCode` patterns to follow for the new settings route.
-
-**Test conventions:**
-- Unit/integration tests colocated in `__tests__/` (e.g., `src/lib/__tests__/macro-engine.test.ts`).
-- E2E specs in `e2e/tests/*.spec.ts`; Fitbit mocks in `e2e/fixtures/fitbit.ts`. Follow patterns in `e2e/tests/macro-engine.spec.ts`.
-- Component tests use Testing Library + Vitest, in `src/components/__tests__/*.test.tsx`.
+- **Fitbit surface (all migrates):** `src/lib/fitbit.ts` (createFood/logFood/deleteFoodLog, profile/weight/weight-goal/activity reads, OAuth exchange/refresh, fetchWithRetry, ensureFreshToken), `fitbit-rate-limit.ts`, `fitbit-cache.ts`, `fitbit-tokens.ts`, `fitbit-credentials.ts`, `fitbit-health.ts`; routes `api/auth/fitbit/*`, `api/fitbit/*`, `api/fitbit-credentials`; components `fitbit-*`, `setup-fitbit`; hook `use-log-to-fitbit`; `FITBIT_*` ErrorCodes + `FITBIT_MEAL_TYPE_LABELS` + Fitbit `unit_id` registry (in the Claude tool schema).
+- **Postgres is the source of truth** for nutrition; `fitbit_log_id`/`fitbit_food_id` are mirror handles only (already optional via the dry-run branches), so the cutover is a module-internal rewrite + OAuth-provider swap + schema migration, not a data rebuild.
+- **Existing patterns to follow:** `src/lib/api-response.ts` + `ErrorCode`; `getSession()`+`validateSession()` (api/*) and `validateApiRequest()` (api/v1/*); `useSWR` shared fetcher (`src/lib/swr.ts`); route→lib→db layering (no `@/db` imports under `src/app`); every app route has `loading.tsx`; `token-encryption.ts` (AES-256-GCM) for tokens.
+- **Test conventions:** colocated `__tests__/` (Vitest), E2E in `e2e/tests/*.spec.ts`. Workers run `npx vitest run "pattern"`.
 
 ### MCP Context
-
-- **Linear:** Connected. Two related Backlog issues canceled this session as superseded: FOO-994 (per-user `ACTIVITY_MULTIPLIER`), FOO-1004 (BMI tier cliff).
-- **Roadmap:** "Calorie Target Formula Review" entry in `ROADMAP.md` is subsumed by this rework — to be removed from the file as part of this work.
-- **Production logs reviewed:** Daily ratchet pattern confirmed for `userId=6bc0189f-...` — calorie target climbs ~1,000 kcal across each day (1,780 → 2,785 on 2026-05-07). Eliminated by the new design.
+- **MCPs used:** Linear (issue creation, team "Food Scanner"); Railway (validated env vars across staging + production).
+- **Validated facts (Railway scan):** ONE shared Google OAuth client (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` identical in both envs) is reused for Google Health — NO new credentials/redirect URIs. `auth.ts` already uses `access_type=offline`. `FITBIT_DRY_RUN=true` is set in staging only; the migration renames it to `HEALTH_DRY_RUN`. `FITBIT_CLIENT_ID`/`FITBIT_CLIENT_SECRET` env vars exist in both envs but have ZERO code usages (orphaned — removed at release). Users: Lucas + Mariana.
+- **Google Health API (verified):** cloud REST successor to the Fitbit Web API (Fitbit Web API turns down Sept 2026); `nutrition-log` supports create/update/batchDelete (anonymous food = food_display_name + manual nutrients); self-serve, restricted scopes ride the existing Testing-mode unverified-app path (≤100 users, no CASA). 4 scopes: `googlehealth.nutrition.writeonly`, `profile.readonly`, `health_metrics_and_measurements.readonly`, `activity_and_fitness.readonly`.
 
 ## Tasks
 
-### Task 1: Schema migration — replace activity-driven columns with goal-anchored columns
+<!-- ===== Phase 0 ===== -->
 
-**Linear Issue:** [FOO-1040](https://linear.app/lw-claude/issue/FOO-1040)
+### Task 1: Bump @anthropic-ai/sdk ^0.78 -> ^0.100.1 and fix type-only compile fallout
+**Linear Issue:** [FOO-1071](https://linear.app/lw-claude/issue/FOO-1071) · **Label:** Improvement · **Phase 0**
+
+**Files:**
+- `package.json` (modify)
+- `package-lock.json` (modify)
+- `src/lib/claude.ts` (modify)
+- `src/lib/claude-usage.ts` (modify)
+
+**Steps:**
+1. Run baseline npx vitest run "claude" and capture the pass count as the regression baseline before touching the dep
+2. Edit package.json to set "@anthropic-ai/sdk": "^0.100.1"; run npm install to refresh package-lock.json
+3. Run npm run typecheck (expect possible failures); fix ONLY type-level breakage in src/lib/claude.ts (the messages.stream param type at ~312, Anthropic.Message/MessageParam/ToolUseBlock/Messages.ToolUnion refs, Sentry.instrumentAnthropicAiClient at ~26, WEB_SEARCH_TOOL type:'web_search_20260209' literal) and src/lib/claude-usage.ts — no behavioral change
+4. Run npm run typecheck (expect pass: zero errors)
+5. Run npx vitest run "claude" (expect pass: same count as baseline; the vi.mock shim at claude.test.ts:142 must keep working), then npm run build and npm run lint (expect zero warnings)
+
+**Notes:**
+- Foundation for A2/A3 — both build on the upgraded SDK (A3 uses the beta context-management types in this SDK line)
+- If the SDK changed the error class shape or stream return type, the hand-rolled MockAnthropic shim (claude.test.ts:142-168) may need a small adjustment; keep the change type-only and STOP if runtime semantics shifted rather than papering over with casts
+
+### Task 2: Extract parseErrorBody/sanitizeErrorBody/jsonWithTimeout into provider-neutral src/lib/http.ts and repoint auth.ts
+**Linear Issue:** [FOO-1072](https://linear.app/lw-claude/issue/FOO-1072) · **Label:** Technical Debt · **Phase 0**
+
+**Files:**
+- `src/lib/http.ts` (create)
+- `src/lib/__tests__/http.test.ts` (create)
+- `src/lib/auth.ts` (modify)
+- `src/lib/fitbit.ts` (modify)
+
+**Steps:**
+1. Write test in src/lib/__tests__/http.test.ts asserting parseErrorBody/sanitizeErrorBody/jsonWithTimeout behave identically to the fitbit.ts originals (sanitize redacts tokens, jsonWithTimeout aborts after REQUEST_TIMEOUT_MS via fake timers, parseErrorBody handles non-JSON bodies)
+2. Run npx vitest run "http" (expect fail — module does not exist)
+3. Move parseErrorBody, sanitizeErrorBody, jsonWithTimeout, and REQUEST_TIMEOUT_MS from src/lib/fitbit.ts into src/lib/http.ts (verbatim logic); re-point src/lib/auth.ts line-3 import from @/lib/fitbit to @/lib/http; leave fitbit.ts importing them from http.ts for now (fitbit.ts is deleted later in Phase 3 with no dangling helper)
+4. Run npx vitest run "http auth" and npm run typecheck (expect pass)
+
+**Notes:**
+- M1 from the critique — auth.ts depends on these helpers; they MUST move out before fitbit.ts is deleted or the Google LOGIN path breaks
+- google-health.ts (task 13) will import jsonWithTimeout/sanitizeErrorBody from this module too
+
+### Task 3: Widen exchangeGoogleCode to return refresh_token/expires_in/scope without breaking the LOGIN path
+**Linear Issue:** [FOO-1073](https://linear.app/lw-claude/issue/FOO-1073) · **Label:** Improvement · **Phase 0** · **Depends on:** Task 2
+
+**Files:**
+- `src/lib/auth.ts` (modify)
+- `src/lib/__tests__/auth.test.ts` (modify)
+
+**Steps:**
+1. Write test in src/lib/__tests__/auth.test.ts (extend the exchangeGoogleCode describe) asserting it returns { access_token, refresh_token, expires_in, scope } when the token endpoint includes them, returns access_token with the optional fields undefined when omitted, and still POSTs grant_type=authorization_code with client_id/client_secret/redirect_uri
+2. Run npx vitest run "auth" (expect fail — return shape currently only carries access_token)
+3. Widen exchangeGoogleCode in src/lib/auth.ts to parse and return refresh_token?/expires_in?/scope? alongside access_token; keep the existing LOGIN callers (which read only access_token) untouched and green
+4. Run npx vitest run "auth" (expect pass)
+
+**Notes:**
+- M2 from the critique — the health-connect callback (task 11) requires refresh_token + expires_in + scope to persist the refresh token
+- Pattern: follow the existing fetch+jsonWithTimeout shape in exchangeGoogleCode (auth.ts:21-58)
+
+<!-- ===== Phase 1 ===== -->
+
+### Task 4: Own all src/types/index.ts renames: ErrorCode/session/FoodLogResponse + ServingUnit registry + meal-type
+**Linear Issue:** [FOO-1074](https://linear.app/lw-claude/issue/FOO-1074) · **Label:** Technical Debt · **Phase 1**
+
+**Files:**
+- `src/types/index.ts` (modify)
+- `src/types/__tests__/index.test.ts` (modify)
+
+**Steps:**
+1. Write tests in src/types/__tests__/index.test.ts: (a) getUnitLabel('g',150)==='150g', ('cup',1)==='1 cup', ('cup',2)==='2 cups', ('slice',2)==='2 slices', ('tbsp',3)==='3tbsp', ('serving',1)==='1 serving'; an unknown unit coerces to a safe '3 servings'-style label; coerceServingUnit maps each legacy Fitbit ID (147,226,91,349,364,209,311,304) to the correct string; (b) @ts-expect-error that FoodAnalysis.unit_id:147 and CommonFood.unitId:91 no longer compile while 'g'/'cup' do; (c) ErrorCode union contains HEALTH_NOT_CONNECTED/HEALTH_TOKEN_INVALID/HEALTH_SCOPE_MISSING/HEALTH_RATE_LIMIT/HEALTH_RATE_LIMIT_LOW/HEALTH_TIMEOUT/HEALTH_REFRESH_TRANSIENT/HEALTH_TOKEN_SAVE_FAILED/HEALTH_API_ERROR and excludes all FITBIT_* codes; (d) MEAL_TYPE_LABELS exists and FITBIT_MEAL_TYPE_LABELS does not
+2. Run npx vitest run "types/__tests__/index" (expect fail)
+3. Replace FITBIT_UNITS/getUnitById/FitbitUnitKey with SERVING_UNITS (keyed by ServingUnit 'g'|'oz'|'cup'|'tbsp'|'tsp'|'ml'|'slice'|'serving' carrying {name,plural}), rewrite getUnitLabel(unit:ServingUnit|string, amount) reusing UNITS_WITHOUT_SPACE rules, add coerceServingUnit(value):ServingUnit and export LEGACY_FITBIT_UNIT_ID_TO_SERVING_UNIT; retype FoodAnalysis.unit_id and unitId on CommonFood/FoodLogHistoryEntry/FoodMatch/FoodLogEntryDetail/MealEntry to ServingUnit (keep JSON key names); in the FullSession/SessionData/ErrorCode block rename fitbitConnected->healthConnected, drop hasFitbitCredentials, swap FITBIT_* error codes for HEALTH_* (incl HEALTH_NOT_CONNECTED), rename FoodLogResponse.fitbitLogId->healthLogId (string), FitbitProfile->HealthProfile, FitbitWeightLog->HealthWeightLog, FitbitProfileData->HealthProfileData, FitbitHealthStatus->HealthConnectionStatus, FITBIT_MEAL_TYPE_LABELS->MEAL_TYPE_LABELS, FitbitMealType->MealType (values unchanged); remove the FitbitWeightGoal type if unreferenced
+4. Run npx vitest run "types/__tests__/index" (expect pass)
+
+**Notes:**
+- SINGLE OWNER of src/types/index.ts per C2 — every other task that needs a renamed type/error/unit DEPENDS ON THIS TASK and must not edit src/types/index.ts itself
+- Folds the unit-registry remodel + type retype + M8 meal-type rename + ErrorCode/session/FoodLogResponse renames into one coherent foundation edit
+- Expect a wide compile cascade across claude.ts/food-log.ts/components/routes — those are fixed in their own tasks which depend on this one
+
+- **Migration note:** Session/API contract change (no SQL): clients re-derive healthConnected; FoodLogResponse exposes healthLogId. Logged in MIGRATIONS.md so the release skill knows a forced re-consent shows healthConnected=false until reconnect.
+
+### Task 5: Rename fitbit_tokens->health_tokens + port the token store to src/lib/health-tokens.ts; delete fitbit-tokens.ts
+**Linear Issue:** [FOO-1075](https://linear.app/lw-claude/issue/FOO-1075) · **Label:** Technical Debt · **Phase 1** · **Depends on:** Task 4
 
 **Files:**
 - `src/db/schema.ts` (modify)
-- `drizzle/<auto>.sql` (generated by `drizzle-kit generate`)
-- `drizzle/meta/_journal.json` (generated)
-- `drizzle/meta/<n>_snapshot.json` (generated)
+- `src/lib/health-tokens.ts` (create)
+- `src/lib/__tests__/health-tokens.test.ts` (create)
+- `src/lib/fitbit-tokens.ts` (delete)
+- `src/lib/__tests__/fitbit-tokens.test.ts` (delete)
+- `src/db/__tests__/schema.test.ts` (modify)
 - `MIGRATIONS.md` (modify)
-- `src/types/index.ts` (modify)
 
 **Steps:**
-1. Write tests in `src/db/__tests__/schema.test.ts` (create if missing — otherwise add cases) that exercise the new shape:
-   - `users` row insert succeeds with `activityLevel: null`, `goalWeightKg: null`, `goalRateKgPerWeek: null` (legacy / pre-onboarding state).
-   - `users` row insert succeeds with all three set.
-   - Selecting from `users` no longer references `macroProfile` or `macroProfileVersion` (compile-time check via the typed query builder).
-   - `daily_calorie_goals` row insert succeeds with the new columns set and the dropped columns absent (compile-time check).
-2. Run vitest with the failing test pattern (expect fail at this stage because schema hasn't changed).
-3. Modify `src/db/schema.ts`:
-   - In `users`: remove `macroProfile`, `macroProfileVersion`, and the `users_macro_profile_chk` CHECK constraint. Add:
-     - `activityLevel: text("activity_level")` (nullable)
-     - `goalWeightKg: numeric("goal_weight_kg")` (nullable)
-     - `goalRateKgPerWeek: numeric("goal_rate_kg_per_week")` (nullable)
-     - CHECK constraint `users_activity_level_chk`: `activity_level IN ('sedentary','light','moderate','very_active','extra_active')` OR `activity_level IS NULL`.
-     - CHECK constraint `users_goal_rate_chk`: `goal_rate_kg_per_week >= 0` OR `goal_rate_kg_per_week IS NULL`.
-   - In `dailyCalorieGoals`: remove `caloriesOut`, `activityKcal`, `bmiTier`, `goalType`, `profileVersion`, `tdeeSource`. Add:
-     - `activityLevel: text("activity_level")` (nullable — matches users column at compute time)
-     - `goalWeightKg: numeric("goal_weight_kg")` (nullable)
-     - `goalRateKgPerWeek: numeric("goal_rate_kg_per_week")` (nullable)
-     - `tdee: integer("tdee")` (nullable — RMR × PAL, snapshotted)
-     - `deficitKcal: integer("deficit_kcal")` (nullable — signed: − for LOSE, + for GAIN, 0 for MAINTAIN)
-4. Update `src/types/index.ts`:
-   - Drop `MacroEngineInputs`, `MacroEngineOutputs`, `MacroGoalType`, `BmiTier`, `FitbitWeightGoal`, `NutritionGoalsAudit` (existing shapes — full replacement, not extension).
-   - Add `ActivityLevel = "sedentary" | "light" | "moderate" | "very_active" | "extra_active"`.
-   - Add new `MacroEngineInputs` (sex, ageYears, heightCm, currentWeightKg, activityLevel, goalWeightKg, goalRateKgPerWeek).
-   - Add new `MacroEngineOutputs` (targetKcal, proteinG, carbsG, fatG, rmr, palMultiplier, tdee, deficitKcal, direction: `"LOSE" | "MAINTAIN" | "GAIN"`).
-   - Add new `NutritionGoalsAudit` with the same fields plus `weightKg`, `weightLoggedDate`. Drop `caloriesOut`, `bmiTier`, `goalType`, `activityKcal`.
-   - Update `NutritionGoals.reason` union: drop `"not_computed"` (this rework removes the gap-fill path); add `"goals_not_set"`.
-5. Run `npx drizzle-kit generate` to produce the SQL migration and snapshot. The migration must include:
-   - `ALTER TABLE users DROP CONSTRAINT users_macro_profile_chk;`
-   - `ALTER TABLE users DROP COLUMN macro_profile, DROP COLUMN macro_profile_version;`
-   - `ALTER TABLE users ADD COLUMN activity_level text, ADD COLUMN goal_weight_kg numeric, ADD COLUMN goal_rate_kg_per_week numeric;`
-   - `ALTER TABLE users ADD CONSTRAINT users_activity_level_chk CHECK (activity_level IS NULL OR activity_level IN ('sedentary','light','moderate','very_active','extra_active'));`
-   - `ALTER TABLE users ADD CONSTRAINT users_goal_rate_chk CHECK (goal_rate_kg_per_week IS NULL OR goal_rate_kg_per_week >= 0);`
-   - `ALTER TABLE daily_calorie_goals DROP COLUMN calories_out, DROP COLUMN activity_kcal, DROP COLUMN bmi_tier, DROP COLUMN goal_type, DROP COLUMN profile_version, DROP COLUMN tdee_source;`
-   - `ALTER TABLE daily_calorie_goals ADD COLUMN activity_level text, ADD COLUMN goal_weight_kg numeric, ADD COLUMN goal_rate_kg_per_week numeric, ADD COLUMN tdee integer, ADD COLUMN deficit_kcal integer;`
-   - `DELETE FROM daily_calorie_goals WHERE date >= CURRENT_DATE;` — wipe today and future rows so the new engine computes fresh; historical rows keep their `calorie_goal`/macro values for the dashboard's date-history view (audit columns will read NULL for those past rows; UI handles gracefully — see Task 6).
-6. Add an entry to `MIGRATIONS.md` describing: drop list, add list, the `DELETE FROM daily_calorie_goals WHERE date >= CURRENT_DATE` data step, and the cutover note that user-declared goal fields default to NULL → all users see the goals-setup banner on next dashboard visit.
-7. Run vitest — schema tests should pass once the generated migration is applied locally.
+1. Write test in src/db/__tests__/schema.test.ts (replace the fitbitTokens block ~49-66): assert getTableColumns(healthTokens) has healthUserId/accessToken/refreshToken/expiresAt/scope/updatedAt + notNull userId, and expect(schema).not.toHaveProperty('fitbitTokens')
+2. Write test in src/lib/__tests__/health-tokens.test.ts porting fitbit-tokens.test.ts: getHealthTokens returns null on empty / decrypts access+refresh + healthUserId on a row; upsertHealthTokens encrypts both tokens and onConflictDoUpdate on userId; deleteHealthTokens deletes filtered by userId
+3. Run npx vitest run "health-tokens schema" (expect fail)
+4. In src/db/schema.ts rename the pgTable to health_tokens, export healthTokens, column healthUserId:text('health_user_id'); create src/lib/health-tokens.ts as a verbatim port of fitbit-tokens.ts (HealthTokenRow interface, encrypt/decrypt from token-encryption.ts unchanged) and DELETE src/lib/fitbit-tokens.ts + its test; append the rename + row-clear to MIGRATIONS.md
+5. Run npx vitest run "health-tokens schema" (expect pass), then npm run typecheck to surface remaining @/lib/fitbit-tokens importers (migrated in the session/OAuth tasks)
 
 **Notes:**
-- **Migration note:** Production data affected. (a) `users.macro_profile` / `macro_profile_version` columns dropped (data lost — irrelevant after rework); (b) `daily_calorie_goals` loses `caloriesOut`/`activityKcal`/`bmiTier`/`goalType`/`profileVersion`/`tdeeSource` for historical rows (audit detail lost; calorie/macro goals preserved); (c) all `daily_calorie_goals` rows where `date >= CURRENT_DATE` are deleted at migration time so the new engine writes fresh rows. Run as part of `push-to-production`.
-- Worker must NOT hand-write the `drizzle/<auto>.sql` file or `_journal.json` — run `npx drizzle-kit generate` against the modified `src/db/schema.ts`.
-- After `drizzle-kit generate`, the worker must edit the generated `drizzle/<auto>.sql` to append the `DELETE FROM daily_calorie_goals WHERE date >= CURRENT_DATE;` data statement (drizzle-kit only emits DDL, not data steps).
+- Reuse encryptToken/decryptToken from src/lib/token-encryption.ts verbatim
+- drizzle-kit generate (task 26) must emit a RENAME not drop+create; rows are cleared at deploy anyway but the FK/unique must survive the column rename
 
----
+- **Migration note:** ALTER TABLE fitbit_tokens RENAME TO health_tokens; RENAME COLUMN fitbit_user_id TO health_user_id; then DELETE FROM health_tokens (every stored Fitbit token is invalid under Google) forcing both users to re-consent once. FK + unique carry over under rename.
 
-### Task 2: Rewrite `macro-engine.ts` — single profile, declared PAL, rate-anchored deficit
-
-**Linear Issue:** [FOO-1041](https://linear.app/lw-claude/issue/FOO-1041)
+### Task 6: Drop fitbit_credentials table and delete src/lib/fitbit-credentials.ts (per-user credentials removed)
+**Linear Issue:** [FOO-1076](https://linear.app/lw-claude/issue/FOO-1076) · **Label:** Technical Debt · **Phase 1** · **Depends on:** Task 4
 
 **Files:**
-- `src/lib/macro-engine.ts` (modify — substantial rewrite)
-- `src/lib/__tests__/macro-engine.test.ts` (modify — replace fixtures)
+- `src/db/schema.ts` (modify)
+- `src/lib/fitbit-credentials.ts` (delete)
+- `src/lib/__tests__/fitbit-credentials.test.ts` (delete)
+- `src/db/__tests__/schema.test.ts` (modify)
+- `MIGRATIONS.md` (modify)
 
 **Steps:**
-1. Replace `src/lib/__tests__/macro-engine.test.ts` test cases:
-   - **RMR** — keep existing Mifflin-St Jeor cases for male/female and the rounding behavior (function `computeRmr` is unchanged).
-   - **PAL lookup** — for each `ActivityLevel`, the engine maps to the correct multiplier: sedentary=1.2, light=1.375, moderate=1.55, very_active=1.725, extra_active=1.9. (Constant `PAL_BY_ACTIVITY_LEVEL`, exported for client-side reuse.)
-   - **TDEE** — `tdee = round(rmr × pal)`, returned in outputs.
-   - **Direction** — derived from `goalWeightKg` vs `currentWeightKg`:
-     - `currentWeight > goalWeight` → `LOSE`
-     - `currentWeight < goalWeight` → `GAIN`
-     - `currentWeight === goalWeight` (or `goalRateKgPerWeek === 0`) → `MAINTAIN`
-   - **Deficit / surplus magnitude** — `kcal_per_day = round(goalRateKgPerWeek × 7700 / 7)` (= `goalRateKgPerWeek × 1100`). One kg of body fat ≈ 7700 kcal.
-   - **Target** — `MAINTAIN: targetKcal = tdee`, `LOSE: targetKcal = tdee − kcal_per_day`, `GAIN: targetKcal = tdee + kcal_per_day`. Sign of returned `deficitKcal`: negative for LOSE, positive for GAIN, zero for MAINTAIN.
-   - **No safety clamp** — explicit test: `LOSE` with sedentary + aggressive rate yielding `targetKcal < 1200` returns the raw computed value, NOT a clamped value.
-   - **No body-fat input** — call sites pass only the new `MacroEngineInputs` shape.
-   - **Protein anchoring** — single coefficient per direction, no BMI tier:
-     - `LOSE: 2.2 × currentWeightKg`
-     - `MAINTAIN: 1.6 × currentWeightKg`
-     - `GAIN: 1.8 × currentWeightKg`
-   - **Carbs/fat split** — keep the existing muscle-preserve residual logic but constants live as top-level engine constants (no `MacroProfile` indirection):
-     - `fatG = round(max(currentWeightKg × 0.8, targetKcal × 0.25 / 9))`
-     - `carbsResidual = (targetKcal − proteinG×4 − fatG×9) / 4`
-     - `carbsFloor10pct = (targetKcal × 0.10) / 4`
-     - `carbsG = round(max(carbsResidual, 130, carbsFloor10pct))`
-   - **Input validation** — `INVALID_PROFILE_DATA` for non-finite/non-positive sex/age/height/weight; `SEX_UNSET` for `sex === "NA"`. Drop `INVALID_ACTIVITY_DATA` (no caloriesOut input).
-   - **Goal-rate validation** — `goalRateKgPerWeek < 0` or non-finite throws `INVALID_GOAL_RATE`.
-2. Run vitest pattern (expect fail).
-3. Rewrite `src/lib/macro-engine.ts`:
-   - Delete: `ACTIVITY_MULTIPLIER`, `GOAL_MULTIPLIERS`, `MacroProfile`, `MACRO_PROFILE_MUSCLE_PRESERVE`, `MACRO_PROFILE_METABOLIC_FLEX`, `DEFAULT_MACRO_PROFILE`, `MACRO_PROFILES_BY_KEY`, `MacroProfileKey`, `MACRO_PROFILE_KEYS`, `isMacroProfileKey`, `describeProfile`, `getMacroProfile`. Drop the `BmiTier` re-export.
-   - Keep: `computeRmr` (unchanged).
-   - Add: `PAL_BY_ACTIVITY_LEVEL: Record<ActivityLevel, number>`, `ACTIVITY_LEVEL_LABELS: Record<ActivityLevel, string>` (Sedentary, Light, Moderate, Very active, Extra active), top-level macro constants (`PROTEIN_PER_KG_LOSE = 2.2`, `PROTEIN_PER_KG_MAINTAIN = 1.6`, `PROTEIN_PER_KG_GAIN = 1.8`, `FAT_PER_KG = 0.8`, `FAT_MIN_PERCENT_KCAL = 0.25`, `CARB_FLOOR_GRAMS = 130`, `KCAL_PER_KG = 7700`).
-   - Replace `computeMacroTargets(inputs: MacroEngineInputs): MacroEngineOutputs` per the test spec above.
-4. Run vitest (expect pass).
+1. Write test in src/db/__tests__/schema.test.ts (near the lumenGoals guard): expect(schema).not.toHaveProperty('fitbitCredentials')
+2. Run npx vitest run "schema" (expect fail)
+3. Remove the fitbitCredentials pgTable block from src/db/schema.ts; DELETE src/lib/fitbit-credentials.ts (all 7 exports + FitbitCredentials interface) and its test; append DROP TABLE fitbit_credentials to MIGRATIONS.md
+4. Run npx vitest run "schema" (expect pass), then npm run typecheck to enumerate dangling @/lib/fitbit-credentials importers (session/settings/OAuth tasks own them; report for the lead's cross-domain merge)
 
 **Notes:**
-- Pure function. No I/O, no DB. Must be safely importable in `'use client'` components for live preview (Task 5).
-- Follow the existing pattern for `INVALID_PROFILE_DATA` throws — typed `Error` instances with stable message strings, callers `try/catch`.
+- Hard cutover — no stub. Google Health reuses the single shared Google OAuth client, so per-user client id/secret is obsolete
+- Orphaned Railway vars FITBIT_CLIENT_ID/FITBIT_CLIENT_SECRET removed at deploy (humanDeployNotes), not in code
 
----
+- **Migration note:** DROP TABLE IF EXISTS fitbit_credentials; — no data preservation (held obsolete per-user Fitbit OAuth client id/secret).
 
-### Task 3: Rewrite `daily-goals.ts` service — single idempotent compute path
-
-**Linear Issue:** [FOO-1042](https://linear.app/lw-claude/issue/FOO-1042)
-
-**Files:**
-- `src/lib/daily-goals.ts` (modify — substantial rewrite)
-- `src/lib/__tests__/daily-goals.test.ts` (modify — replace fixtures)
-
-**Steps:**
-1. Replace `src/lib/__tests__/daily-goals.test.ts` test cases:
-   - **Goals not set** — when `users.activity_level`, `users.goal_weight_kg`, or `users.goal_rate_kg_per_week` is NULL, `getOrComputeDailyGoals` returns `{ status: "blocked", reason: "goals_not_set" }` and writes NO row.
-   - **Cache-hit** — when a row exists for `(userId, date)` and date is past, return its values without re-computing or hitting Fitbit.
-   - **Today auto-recompute on settings drift** — when today's row exists but `row.activity_level !== users.activity_level` (or any of the three settings columns differ), recompute and overwrite. Past dates: never auto-recompute.
-   - **Fresh compute path** — first call for `(userId, today)` reads users settings + `getCachedFitbitProfile` + `getCachedFitbitWeightKg`, computes via `computeMacroTargets`, INSERTs the row, returns `{ status: "ok", goals, audit }`.
-   - **Audit shape** — audit contains: `rmr`, `palMultiplier`, `tdee`, `weightKg`, `weightLoggedDate`, `activityLevel`, `goalWeightKg`, `goalRateKgPerWeek`, `deficitKcal`, `direction`. Drop `caloriesOut`, `bmiTier`, `goalType`, `activityKcal`.
-   - **Existing blocked reasons preserved** — `no_weight`, `sex_unset`, `scope_mismatch`, `invalid_profile` still surface from upstream errors.
-   - **`weightStale` flag** — preserved (>7 days old weight log per FOO-1010).
-   - **Past-date computes** — accept and store with the user's CURRENT settings (no time-traveling settings history). Tests assert this is the documented behavior.
-2. Run vitest (expect fail).
-3. Rewrite `src/lib/daily-goals.ts`:
-   - **Delete:** `tryRatchetRecompute` (lines 86-183), `tryPromoteSeededRow` (lines 201-308), `resolveTdeeSeed` (lines 326-391), `DEFAULT_ACTIVITY_MULTIPLIER` constant, the entire seed/promote/ratchet documentation block.
-   - **Delete:** `invalidateUserDailyGoalsForProfileChange` (used only by the old macro-profile route, which is also being deleted).
-   - **Add:** new `invalidateUserDailyGoalsForSettingsChange(userId, todayDate)` — DELETEs `daily_calorie_goals` rows where `userId = $1 AND date >= $2`. Called from the new settings PATCH route.
-   - **Rewrite `getOrComputeDailyGoals(userId, date, log)`:**
-     1. Read users row → check `activityLevel`, `goalWeightKg`, `goalRateKgPerWeek`. If any is NULL → `{ status: "blocked", reason: "goals_not_set" }`.
-     2. Read existing `daily_calorie_goals` row for `(userId, date)`. If present AND date is past → return mapped row. If present AND date is today/future AND `(row.activityLevel, row.goalWeightKg, row.goalRateKgPerWeek)` matches users → return mapped row.
-     3. Read Fitbit profile + weight (cached). Map blocked reasons (`scope_mismatch`, `sex_unset`, `no_weight`, `invalid_profile`).
-     4. Call `computeMacroTargets` with the new inputs. Map `INVALID_PROFILE_DATA`/`SEX_UNSET` exceptions to blocked reasons.
-     5. UPSERT row (INSERT or UPDATE on `(userId, date)` unique). Set `calorieGoal`, `proteinGoal`, `carbsGoal`, `fatGoal`, `weightKg`, `weightLoggedDate`, `rmr`, `tdee`, `activityLevel`, `goalWeightKg`, `goalRateKgPerWeek`, `deficitKcal`. Apply `weightStale` flag.
-     6. Return `{ status: "ok", goals, audit, weightStale }`.
-4. Run vitest (expect pass).
-
-**Notes:**
-- The `getOrComputeDailyGoals` cache-key shape stays the same (the existing call sites in `api/nutrition-goals`, `api/v1/nutrition-goals`, `chat-tools.ts`, and `user-profile.ts` are unchanged); only the audit shape changes.
-- Drop `getCachedFitbitWeightGoal` and `getCachedActivitySummary` from imports — both become unused after this task and are removed in Task 8.
-- All API responses must continue to follow the `successResponse` / `errorResponse` pattern from `src/lib/api-response.ts`.
-
----
-
-### Task 4: New `/api/daily-goals-settings` route + delete `/api/macro-profile` route
-
-**Linear Issue:** [FOO-1043](https://linear.app/lw-claude/issue/FOO-1043)
+### Task 7: Convert food_log_entries.fitbit_log_id->health_log_id TEXT, drop custom_foods.fitbit_food_id, rewire food-log.ts + re-base visibility filter
+**Linear Issue:** [FOO-1077](https://linear.app/lw-claude/issue/FOO-1077) · **Label:** Technical Debt · **Phase 1** · **Depends on:** Task 4, 5
 
 **Files:**
-- `src/app/api/daily-goals-settings/route.ts` (create)
-- `src/app/api/daily-goals-settings/__tests__/route.test.ts` (create)
-- `src/app/api/macro-profile/route.ts` (delete)
-- `src/app/api/macro-profile/__tests__/route.test.ts` (delete)
-
-**Steps:**
-1. Write tests in `src/app/api/daily-goals-settings/__tests__/route.test.ts`:
-   - **GET** — returns `{ activityLevel, goalWeightKg, goalRateKgPerWeek }` for the authenticated user, with `null` for any unset field. Sets `Cache-Control: private, no-cache`. Numeric columns cast to numbers (not strings) in the response payload.
-   - **GET unauth** — returns 401 via `validateSession`.
-   - **PATCH valid** — accepts `{ activityLevel: "light", goalWeightKg: 75.0, goalRateKgPerWeek: 0.5 }`, persists to `users` table, calls `invalidateUserDailyGoalsForSettingsChange(userId, today)`, returns the updated values.
-   - **PATCH partial** — accepts a subset of fields (e.g., only `activityLevel`); only the provided fields are updated; the others retain prior values.
-   - **PATCH validation** — `activityLevel` not in the union → 400 `VALIDATION_ERROR`. `goalWeightKg ≤ 0` or non-finite → 400. `goalRateKgPerWeek < 0` or non-finite → 400. Invalid JSON body → 400.
-   - **PATCH unauth** — returns 401.
-2. Run vitest (expect fail).
-3. Create `src/app/api/daily-goals-settings/route.ts` modeled on `src/app/api/macro-profile/route.ts`:
-   - `GET`: read `activityLevel`, `goalWeightKg`, `goalRateKgPerWeek` from the user row, return as JSON. Cache-Control: `private, no-cache`. Use `successResponse`. Cast numeric strings to numbers in the response shape.
-   - `PATCH`: parse JSON body; validate fields with explicit type guards (not zod — match the existing macro-profile route pattern); UPDATE `users` row; call `invalidateUserDailyGoalsForSettingsChange(session.userId, getTodayDate())`; return updated values.
-   - Auth: `getSession()` + `validateSession()` (browser-facing convention).
-   - Errors: `errorResponse("VALIDATION_ERROR", message, 400)` for validation; the standard `validateSession` 401 path otherwise.
-4. Delete `src/app/api/macro-profile/route.ts` and its `__tests__/`. The route is no longer referenced.
-5. Run vitest (expect pass).
-
-**Notes:**
-- Numeric values arrive from JSON as `number`; persist to Drizzle's `numeric` column as strings (call `.toString()`). Match the pattern used elsewhere (e.g., custom_foods).
-- 15-second timeout applied client-side in Task 5 (`AbortSignal.timeout(15000)`); server-side path has no external API dependency, so no server-side timeout needed.
-
----
-
-### Task 5: Settings UI — `DailyGoalsCard` component (replaces `MacroProfileCard`)
-
-**Linear Issue:** [FOO-1044](https://linear.app/lw-claude/issue/FOO-1044)
-
-**Files:**
-- `src/components/daily-goals-card.tsx` (create)
-- `src/components/__tests__/daily-goals-card.test.tsx` (create)
-- `src/components/macro-profile-card.tsx` (delete)
-- `src/components/__tests__/macro-profile-card.test.tsx` (delete if present)
-- `src/components/settings-content.tsx` (modify — line 13 import, line 307 render)
-
-**Steps:**
-1. Write tests in `src/components/__tests__/daily-goals-card.test.tsx`:
-   - **Loading** — Skeletons render while `/api/daily-goals-settings` and `/api/fitbit/profile` SWR fetches are pending.
-   - **Initial values** — when GET returns existing values, the activity-level radio reflects the saved choice; goal-weight and goal-rate inputs are pre-filled.
-   - **Empty initial state** — when GET returns `null` for all three fields, radios are unselected and numeric inputs are empty (no placeholder values masquerading as data).
-   - **Live target preview** — typing values updates an "Estimated daily target: {N} kcal" display. Computation uses imported `computeMacroTargets` with sex/age/height/weight from `/api/fitbit/profile` SWR data + form values.
-   - **Safety warning** — when computed `targetKcal < 1200` (sex=FEMALE) or `< 1500` (sex=MALE), an `<p role="alert">` displays "⚠ Estimated target {N} cal/day is below the {floor} cal/day safe minimum for unsupervised dieting." Save remains enabled (no clamp).
-   - **Save flow** — click Save → POST PATCH `/api/daily-goals-settings` with all three values → on 200, SWR mutates the goals-related caches (`/api/nutrition-goals*`) so the dashboard and the Settings TargetsCard re-render with new targets.
-   - **Save failure** — non-200 response sets a visible error; Save button re-enabled.
-   - **Save in flight** — Save button shows "Saving…" and is `disabled` while pending.
-   - **Touch targets** — all interactive elements ≥ 44×44 px.
-   - **Mobile-first layout** — visual snapshot at 375px width matches existing settings-card patterns.
-2. Run vitest (expect fail).
-3. Create `src/components/daily-goals-card.tsx`:
-   - `'use client'` component.
-   - SWR fetch `/api/daily-goals-settings` (read settings) and `/api/fitbit/profile` (sex/age/height/weight for live preview).
-   - Form state: local React state for the three fields; sync from SWR on initial load.
-   - Activity level: radio group of 5 options matching `MacroProfileCard.tsx`'s radio pattern. Labels: `Sedentary`, `Light`, `Moderate`, `Very active`, `Extra active`. No supplementary descriptions (per directive: drop "what is it" copy).
-   - Goal weight: `<Input type="number" step="0.1" inputMode="decimal" />` (kg).
-   - Goal rate: `<Input type="number" step="0.05" min="0" inputMode="decimal" />` (kg/week).
-   - Live target preview: render below the form by computing `computeMacroTargets({ sex, ageYears, heightCm, currentWeightKg, activityLevel, goalWeightKg, goalRateKgPerWeek })` whenever all required values are present. Surround in a `try/catch` for `INVALID_PROFILE_DATA` etc. — render "—" on error.
-   - Safety floor: `floor = sex === "FEMALE" ? 1200 : 1500`. Compute and render the warning conditionally.
-   - Save: `fetch("/api/daily-goals-settings", { method: "PATCH", body: JSON.stringify(values), signal: AbortSignal.timeout(15000) })`. On success, `globalMutate((key) => typeof key === "string" && key.startsWith("/api/nutrition-goals"))` (matches `MacroProfileCard:39-42` pattern).
-   - Error handling: catch `AbortError`/`TimeoutError` distinctly per `settings-content.tsx:84-89` pattern.
-   - Duplicate-submission guard: existing `disabled={saving}` flag covers double-clicks (mirror `MacroProfileCard.tsx`).
-4. Update `src/components/settings-content.tsx`:
-   - Replace `import { MacroProfileCard } from "@/components/macro-profile-card";` with `import { DailyGoalsCard } from "@/components/daily-goals-card";`.
-   - Replace `<MacroProfileCard />` with `<DailyGoalsCard />` at line 307.
-5. Delete `src/components/macro-profile-card.tsx` and its test if present.
-6. Run vitest (expect pass).
-
-**Notes:**
-- The live preview imports the pure `computeMacroTargets` from `src/lib/macro-engine.ts` (Task 2). No server round-trip on every keystroke.
-- Safety warning is **informational only** — Save is never blocked. The user has full agency.
-- Use the same `Cache-Control: private, no-cache` reasoning that already governs goal endpoints.
-- Drizzle `numeric` columns return as strings on read; the GET response should expose them as numbers (cast or transform server-side in Task 4) so the form fills cleanly.
-
----
-
-### Task 6: `TargetsCard` rewrite — drop expand-on-tap, show all info inline
-
-**Linear Issue:** [FOO-1045](https://linear.app/lw-claude/issue/FOO-1045)
-
-**Files:**
-- `src/components/targets-card.tsx` (modify)
-- `src/components/__tests__/targets-card.test.tsx` (modify)
-
-**Steps:**
-1. Update `src/components/__tests__/targets-card.test.tsx`:
-   - **No expand toggle** — `<button aria-label="Show calculation details">` and `<button aria-label="Hide calculation details">` are absent. No `ChevronUp`/`ChevronDown` icons rendered.
-   - **All audit fields render inline** when `goals.status === "ok"` and `goals.audit` is present: RMR, activity level (display label, e.g., "Light"), PAL multiplier, TDEE, weight + weight-logged date, goal weight, goal rate, deficit (signed, with direction word: "−500 kcal/day · LOSE", "+275 kcal/day · GAIN", "0 kcal/day · MAINTAIN").
-   - **Blocked states** — render the existing reason-mapped message; new reason `goals_not_set` maps to "Set up your daily goals in Settings to enable targets." (Settings page user is already on Settings — message is plain, no CTA.)
-   - **Weight-stale** — preserved warning at the top.
-   - **Skeleton / error** — preserved.
-   - **Past-date row missing audit fields** — when historical row was written by old engine (audit columns NULL), only render the fields that ARE non-null. No "—" filler rows for missing fields.
-2. Run vitest (expect fail).
-3. Modify `src/components/targets-card.tsx`:
-   - Remove `useState` import for `expanded`; remove `ChevronDown`/`ChevronUp` imports.
-   - Drop the `setExpanded`-bound `<button>` (lines 111-126) and the `expanded && goals.audit && (...)` block (lines 129-142). Render the audit `<div>` unconditionally when `goals.audit` is present.
-   - Update the audit `<div>` content to the new fields per Task 1's `NutritionGoalsAudit` shape:
-     ```
-     RMR: {audit.rmr} kcal
-     Activity: {ACTIVITY_LEVEL_LABELS[audit.activityLevel]} (PAL ×{audit.palMultiplier})
-     TDEE: {audit.tdee} kcal
-     Weight: {audit.weightKg} kg ({audit.weightLoggedDate ? `logged ${audit.weightLoggedDate}` : "no log date"})
-     Goal weight: {audit.goalWeightKg} kg
-     Goal rate: {audit.goalRateKgPerWeek} kg/week
-     Deficit: {formatSignedDeficit(audit.deficitKcal)} kcal/day · {audit.direction}
-     ```
-   - For each `<p>` row, conditionally render only when the underlying field is non-null. For past historical rows that lack new audit fields, only RMR + Weight rows render (existing data).
-   - Keep the top-line target summary block (cal/day + macros) unchanged.
-   - Add `getBlockedMessage` case for `"goals_not_set"`.
-4. Run vitest (expect pass).
-
-**Notes:**
-- `ACTIVITY_LEVEL_LABELS` defined in `src/lib/macro-engine.ts` (Task 2) so it's reusable in `DailyGoalsCard` (Task 5) and here.
-- `formatSignedDeficit(kcal)` — small utility: `kcal === 0 ? "0" : kcal > 0 ? \`+${kcal}\` : \`${kcal}\`` (negative numbers already have the minus sign).
-
----
-
-### Task 7: Dashboard — `GoalsSetupBanner` + gated rendering
-
-**Linear Issue:** [FOO-1046](https://linear.app/lw-claude/issue/FOO-1046)
-
-**Files:**
-- `src/components/goals-setup-banner.tsx` (create)
-- `src/components/__tests__/goals-setup-banner.test.tsx` (create)
-- `src/components/daily-dashboard.tsx` (modify)
-- `src/components/__tests__/daily-dashboard.test.tsx` (modify if present; otherwise create)
-
-**Steps:**
-1. Write tests in `src/components/__tests__/goals-setup-banner.test.tsx`:
-   - **Reason mapping** — the banner renders an `role="alert"` region with text that maps from `reason`:
-     - `goals_not_set` → "Set up your daily goals in Settings to see your targets."
-     - `no_weight` → "Log your weight in Fitbit to enable targets."
-     - `sex_unset` → "Set your biological sex in Fitbit profile to enable targets."
-     - `scope_mismatch` → "Reconnect Fitbit to enable targets."
-     - `invalid_profile` → "Your Fitbit profile has invalid values — update it in the Fitbit app."
-     - `invalid_activity` → "Fitbit returned invalid activity data — try again later."
-   - **CTA** — a single `<Link href="/settings">Open Settings</Link>` is the primary action. (Same destination for every reason; settings page handles each upstream issue.)
-   - **Touch target** — link is ≥ 44×44 px.
-   - **Component is dumb** — receives `reason` prop only; no own data fetching.
-2. Run vitest (expect fail).
-3. Create `src/components/goals-setup-banner.tsx` matching the patterns in `src/components/fitbit-status-banner.tsx` (existing similar banner):
-   - Props: `{ reason: NonNullable<NutritionGoals["reason"]> }`.
-   - Render in an amber/warning-tone container (match `fitbit-status-banner.tsx`'s tailwind palette).
-   - Map reason → message via a local switch.
-4. Update `src/components/__tests__/daily-dashboard.test.tsx` (if present; otherwise add new cases):
-   - **Goals blocked** — when `/api/nutrition-goals` returns `{ status: "blocked", reason: "goals_not_set" }`, the dashboard renders `<GoalsSetupBanner reason="goals_not_set" />` above the calorie display, the bare-totals fallback (no `CalorieRing`), and `MacroBars` without goal targets (existing behavior already produces these — assert it still does).
-   - **Goals ok** — banner is NOT rendered; `CalorieRing` and `MacroBars` with goals render normally.
-5. Run vitest (expect fail).
-6. Modify `src/components/daily-dashboard.tsx`:
-   - Import `GoalsSetupBanner`.
-   - In the JSX between the `DateNavigator` and the calorie ring (after line 286), insert:
-     ```
-     {goals?.status === "blocked" && goals.reason && (
-       <GoalsSetupBanner reason={goals.reason} />
-     )}
-     ```
-   - No other changes — existing fallback (lines 290-302) already handles the no-goals visual state.
-7. Run vitest (expect pass).
-
-**Notes:**
-- The dashboard test file may not exist today — create with the minimum fixtures needed (mock SWR fetches with `vi.mock`).
-- The banner is the only new dashboard widget. It contains zero options/inputs; all interactivity is the link to `/settings`.
-
----
-
-### Task 8: Cleanup — remove obsolete code paths and dependencies
-
-**Linear Issue:** [FOO-1047](https://linear.app/lw-claude/issue/FOO-1047)
-
-**Files:**
-- `src/lib/fitbit-cache.ts` (modify — remove `getCachedFitbitWeightGoal`, `getCachedActivitySummary`)
-- `src/lib/__tests__/fitbit-cache.test.ts` (modify — drop tests for removed functions)
-- `src/lib/fitbit.ts` (modify — remove `getFitbitWeightGoal`, `getActivitySummary` if no remaining callers)
-- `src/lib/__tests__/fitbit.test.ts` (modify accordingly)
-- `src/types/index.ts` (modify — drop `ActivitySummary` if no remaining callers)
-- `ROADMAP.md` (modify — remove "Calorie Target Formula Review" section + Contents row)
-
-**Steps:**
-1. Use Grep to confirm no remaining callers of `getCachedFitbitWeightGoal`, `getCachedActivitySummary`, `getFitbitWeightGoal`, `getActivitySummary` outside of their own modules and test files. If any remain (e.g., from chat-tools or v1 routes), Task 9 must drop them first.
-2. Update `src/lib/__tests__/fitbit-cache.test.ts`: drop the `getCachedFitbitWeightGoal` and `getCachedActivitySummary` test blocks. Run vitest (expect fail because functions still exist).
-3. Modify `src/lib/fitbit-cache.ts`: delete `getCachedFitbitWeightGoal` and `getCachedActivitySummary` exports and their cache TTL entries. Run vitest (expect pass).
-4. Repeat the test-then-delete cycle for `src/lib/fitbit.ts` and `src/types/index.ts` (drop unreferenced types).
-5. Update `ROADMAP.md`:
-   - Remove the entire "## Calorie Target Formula Review" section and its trailing `---` separator.
-   - Remove the Contents-table row pointing to it.
-   - Verify no remaining feature cross-references that section.
-6. Run `npm run lint` and `npm run typecheck` — expect zero warnings (zero-warnings policy from CLAUDE.md).
-
-**Notes:**
-- Keep the `FitbitCallCriticality` type and its `"optional"` mode alive; surviving Fitbit calls (`profile`, `latestWeight`) still use it.
-- After this task, the Fitbit OAuth `activity` scope is no longer required for goal computation, but the existing token's scope claim may already include it. Do NOT change the OAuth request URL — keep the scope set to today's value to avoid forcing a re-consent flow on every user. Strict scope cleanup is out of scope for this rework.
-
----
-
-### Task 9: Integration — `chat-tools.ts`, `user-profile.ts`, v1 API surface
-
-**Linear Issue:** [FOO-1048](https://linear.app/lw-claude/issue/FOO-1048)
-
-**Files:**
-- `src/lib/user-profile.ts` (modify)
-- `src/lib/__tests__/user-profile.test.ts` (modify)
-- `src/lib/chat-tools.ts` (modify)
-- `src/lib/__tests__/chat-tools.test.ts` (modify)
-- `src/lib/food-log.ts` (modify — `getDateRangeNutritionSummary`)
+- `src/db/schema.ts` (modify)
+- `src/lib/food-log.ts` (modify)
+- `src/lib/food-matching.ts` (modify)
 - `src/lib/__tests__/food-log.test.ts` (modify)
-- `src/app/api/nutrition-goals/route.ts` (modify)
-- `src/app/api/nutrition-goals/__tests__/route.test.ts` (modify)
-- `src/app/api/v1/nutrition-goals/route.ts` (modify)
-- `src/app/api/v1/nutrition-goals/__tests__/route.test.ts` (modify)
+- `src/lib/__tests__/food-matching.test.ts` (modify)
+- `src/db/__tests__/schema.test.ts` (modify)
+- `MIGRATIONS.md` (modify)
 
 **Steps:**
-1. Update test cases for the new audit shape and the new `goals_not_set` blocked reason across each consumer file:
-   - `user-profile.ts` chat-context profile string — add a case where `goals.status === "blocked" && goals.reason === "goals_not_set"`. Profile string omits the targets line and adds `Targets pending — set up daily goals in Settings`.
-   - `chat-tools.ts` `executeGetNutritionSummary` — same blocked-reason handling. Lines 253 currently emit `Goal status: blocked (${reason})`; verify the new reason flows through.
-   - `food-log.ts` `getDateRangeNutritionSummary` — for date ranges, days with `goals_not_set` produce a row with `null` calorie/macro goals (matches existing range-mode shape from FOO-1033).
-   - `/api/nutrition-goals` and `/api/v1/nutrition-goals` — assert `audit` field shape uses the new `NutritionGoalsAudit` (no `caloriesOut`, `bmiTier`, `goalType`, `activityKcal`). v1 route's `audit` block must be updated identically. Auth path (`validateApiRequest` for v1, `validateSession` for internal) preserved.
-2. Run vitest (expect fail).
-3. Update each file:
-   - `user-profile.ts:67-100` — add `goals_not_set` branch to the conditional (existing branches return blocked text). Drop any references to `partial` status (no longer in the union).
-   - `chat-tools.ts:227-253` — extend the blocked-status string to include the new reason; no logic shape change.
-   - `chat-tools.ts:280-290` (range summary) — no change needed if it already handles null goals; verify.
-   - `food-log.ts` `getDateRangeNutritionSummary` — same handling.
-   - Both routes — update the `mapToNutritionGoals` (or equivalent) helper to produce the new audit shape from `ComputeResult.audit`.
-4. Run vitest (expect pass).
+1. Write tests: in src/db/__tests__/schema.test.ts assert foodLogEntries has healthLogId (string) and not fitbitLogId, and customFoods does not have fitbitFoodId; in src/lib/__tests__/food-log.test.ts assert insertFoodLogEntry persists healthLogId (string) or null, deleteFoodLogEntry/updateFoodLogEntry return { healthLogId:string|null }, and getCommonFoods/getRecentFoods exclude entries whose health_log_id is null when HEALTH_DRY_RUN unset but include them when HEALTH_DRY_RUN='true'; in food-matching.test.ts assert its visibility filter reads health_log_id not fitbitFoodId and respects HEALTH_DRY_RUN
+2. Run npx vitest run "food-log food-matching schema" (expect fail)
+3. In src/db/schema.ts change fitbitLogId bigint -> healthLogId text('health_log_id') (nullable) and remove the customFoods.fitbitFoodId column; in src/lib/food-log.ts rename every fitbitLogId identifier to healthLogId (number->string), delete every fitbitFoodId field reference (inputs, mappers, inserts, return types), and replace the three isNotNull(customFoods.fitbitFoodId) DRY-RUN gates (~275,391,829) with isNotNull(foodLogEntries.healthLogId) gated on HEALTH_DRY_RUN!=='true' (re-anchor searchFoods to join food_log_entries for its filter); in src/lib/food-matching.ts replace its FITBIT_DRY_RUN + fitbitFoodId reads (~102,112) with HEALTH_DRY_RUN + health_log_id; rename all FITBIT_DRY_RUN reads to HEALTH_DRY_RUN; append the column changes to MIGRATIONS.md
+4. Run npx vitest run "food-log food-matching schema" (expect pass), then npm run typecheck to surface route-handler consumers for the lead
 
 **Notes:**
-- The chat tool's blocked-reason copy should not say "Set up in Settings" — the chat user may not be on the web app. Use neutral copy like `Goal status: blocked (goals_not_set)`.
-- v1 API consumers (e.g., HealthHelper Android app) may parse the `audit` block; this is a breaking change. Acceptable per the `STATUS: PRODUCTION` directive in CLAUDE.md ("Delete unused code immediately. No deprecation warnings needed.").
-- Both routes already use the standard `successResponse` / `errorResponse` API helpers and ErrorCode types — no changes to error sanitization needed beyond the audit shape update.
+- Resolves C1 + M5: drops custom_foods.fitbit_food_id AND rewrites the WHERE clauses in BOTH food-log.ts and food-matching.ts (food-matching.ts was missing from every draft file list) and renames all 5 FITBIT_DRY_RUN sites
+- Visibility semantics shift from 'food has a remote food id' to 'log entry has a remote log id' — a visible behavior change to call out in the PR
 
----
+- **Migration note:** food_log_entries DROP COLUMN fitbit_log_id; ADD COLUMN health_log_id text (drop+add, not a cast — old numeric Fitbit ids are meaningless handles, existing rows get null). custom_foods DROP COLUMN fitbit_food_id. Nutrition data is preserved (Postgres is source of truth); only the external mirror handle resets.
 
-### Task 10: E2E coverage — onboarding gate, settings flow, goals appear
-
-**Linear Issue:** [FOO-1049](https://linear.app/lw-claude/issue/FOO-1049)
+### Task 8: Add performance indexes + daily_calorie_goals activity_level CHECK + partial unique index on (user_id, health_log_id)
+**Linear Issue:** [FOO-1078](https://linear.app/lw-claude/issue/FOO-1078) · **Label:** Performance · **Phase 1** · **Depends on:** Task 7
 
 **Files:**
-- `e2e/tests/goal-anchored-engine.spec.ts` (create)
-- `e2e/fixtures/fitbit.ts` (modify — add fixtures for the new flow)
-- `e2e/tests/macro-engine.spec.ts` (delete or convert — old engine flow)
+- `src/db/schema.ts` (modify)
+- `src/db/__tests__/schema.test.ts` (modify)
+- `MIGRATIONS.md` (modify)
 
 **Steps:**
-1. Write `e2e/tests/goal-anchored-engine.spec.ts` covering the full first-time-setup flow:
-   - **Setup** — test-login as a fresh user (`POST /api/auth/test-login` per `ENABLE_TEST_AUTH`). Mock Fitbit profile/weight via existing fixture pattern (`e2e/fixtures/fitbit.ts`).
-   - **Step 1: Pre-setup dashboard** — visit `/app`. Assert `<GoalsSetupBanner>` is visible with the `goals_not_set` copy. Assert `<CalorieRing>` is NOT visible. Assert the bare calorie total IS visible (current intake totals still render).
-   - **Step 2: Settings navigation** — click "Open Settings" link → URL is `/settings`. Assert `<DailyGoalsCard>` is visible with empty fields.
-   - **Step 3: Set values** — select activity level "Light", enter goal weight `75`, enter goal rate `0.5`. Assert the live target preview shows a number consistent with the engine formula (compute expected value from the test fixture's profile values).
-   - **Step 4: Safety warning visibility** — change goal rate to `2.0` (very aggressive). Assert the safety warning appears. Change back to `0.5`. Assert warning disappears.
-   - **Step 5: Save** — click Save → assert no error, button returns to idle. Confirm `<TargetsCard>` (in `<DailyTargetsSection>`) shows the new targets inline (no expand toggle).
-   - **Step 6: Dashboard renders** — go back to `/app`. Assert banner is gone, `<CalorieRing>` is visible with the saved target, `<MacroBars>` shows protein/carbs/fat goal bars.
-   - **Step 7: Stable across page loads** — reload the page. Assert the target value is the same (no intra-day ratchet). Wait 30s, reload — same value.
-2. Update or delete `e2e/tests/macro-engine.spec.ts` if its scenarios overlap with the old engine flow.
-3. Run `npm run e2e` (full Playwright suite via the Playwright config's auto-build + DB setup). Expect pass.
+1. Write tests in src/db/__tests__/schema.test.ts using getTableConfig: assert food_log_entries has indexes named food_log_entries_user_date_idx over [user_id,date] and food_log_entries_custom_food_idx over [custom_food_id]; custom_foods has custom_foods_user_idx over [user_id]; dailyCalorieGoals has a check named daily_calorie_goals_activity_level_chk; foodLogEntries has a unique index food_log_entries_user_health_log_uniq over [user_id,health_log_id] with a non-empty partial where clause
+2. Run npx vitest run "schema" (expect fail)
+3. In src/db/schema.ts add (via the table-callback): index('food_log_entries_user_date_idx').on(userId,date), index('food_log_entries_custom_food_idx').on(customFoodId), index('custom_foods_user_idx').on(userId); check('daily_calorie_goals_activity_level_chk', activity_level IS NULL OR IN enum — copy the predicate verbatim from users_activity_level_chk); uniqueIndex('food_log_entries_user_health_log_uniq').on(userId,healthLogId).where(sql`health_log_id IS NOT NULL`); import index/uniqueIndex from drizzle-orm/pg-core; append the DDL note to MIGRATIONS.md
+4. Run npx vitest run "schema" (expect pass) and npm run typecheck
 
 **Notes:**
-- Reuse existing `e2e/fixtures/fitbit.ts` mock-fitbit pattern for the profile/weight/sex inputs.
-- Safety-warning trigger value `2.0 kg/week` translates to `2200 kcal/day` deficit — for any reasonable user that drops the target below the floor.
-- E2E suite is **not** part of the regular TDD loop (per CLAUDE.md "Testing strategy"); only the lead runs it via `verifier "e2e"` before release.
+- Partial unique index depends on the health_log_id column existing (task 7)
+- Lead should CREATE INDEX CONCURRENTLY on live tables; partial unique is safe because health_log_id is all-null right after the rename migration
 
----
+- **Migration note:** Three CREATE INDEX (run CONCURRENTLY on populated tables); daily_calorie_goals activity_level CHECK (pre-validate no existing row violates the enum); CREATE UNIQUE INDEX ... WHERE health_log_id IS NOT NULL. No data change.
+
+### Task 9: Add nullable users.weightGoalType (LOSE/MAINTAIN/GAIN) local setting + read/write helper; remove the Fitbit weight-goal source
+**Linear Issue:** [FOO-1079](https://linear.app/lw-claude/issue/FOO-1079) · **Label:** Feature · **Phase 1** · **Depends on:** Task 4
+
+**Files:**
+- `src/db/schema.ts` (modify)
+- `src/lib/user-settings.ts` (modify)
+- `src/lib/__tests__/user-settings.test.ts` (modify)
+- `src/db/__tests__/schema.test.ts` (modify)
+- `MIGRATIONS.md` (modify)
+
+**Steps:**
+1. Write test in src/db/__tests__/schema.test.ts asserting users exposes a nullable weightGoalType column constrained to LOSE/MAINTAIN/GAIN; write test in src/lib/__tests__/user-settings.test.ts asserting a read helper returns the stored weightGoalType or null when unset and a write/validation helper rejects values outside LOSE/MAINTAIN/GAIN
+2. Run npx vitest run "user-settings schema" (expect fail)
+3. Add users.weightGoalType column + CHECK in src/db/schema.ts; add getWeightGoalType/setWeightGoalType (validate enum, scope by userId) to src/lib/user-settings.ts; append the column to MIGRATIONS.md
+4. Run npx vitest run "user-settings schema" (expect pass) and npm run typecheck
+
+**Notes:**
+- Confirmed (grounding) the weight-goal value is display-only (profile card goalType) and NOT consumed by the macro engine — macro-engine derives direction from goalWeightKg vs current weight
+- The Fitbit weight-goal read (getFitbitWeightGoal) + its cache (getCachedFitbitWeightGoal/weightGoalCache) are deleted in tasks 18/20 (C5); this task only adds the local replacement
+
+- **Migration note:** ADD nullable users.weightGoalType (LOSE/MAINTAIN/GAIN). No backfill — null renders as 'Not set'; existing users re-select if they want it displayed.
+
+### Task 10: Rewire src/lib/session.ts to health tokens: healthConnected, drop hasFitbitCredentials, requireFitbit->requireHealth
+**Linear Issue:** [FOO-1080](https://linear.app/lw-claude/issue/FOO-1080) · **Label:** Technical Debt · **Phase 1** · **Depends on:** Task 4, 5, 6
+
+**Files:**
+- `src/lib/session.ts` (modify)
+- `src/lib/__tests__/session.test.ts` (modify)
+- `MIGRATIONS.md` (modify)
+
+**Steps:**
+1. Port tests in src/lib/__tests__/session.test.ts: mock @/lib/health-tokens.getHealthTokens; assert getSession() returns healthConnected:true on a row and false on null; the session object has no hasFitbitCredentials/fitbitConnected keys; validateSession(session,{requireHealth:true}) returns a 400 HEALTH_NOT_CONNECTED Response when healthConnected is false and null when true; no fitbit-credentials module is imported
+2. Run npx vitest run "session" (expect fail)
+3. In src/lib/session.ts replace the getFitbitTokens import with getHealthTokens from @/lib/health-tokens, delete the fitbit-credentials import + hasCredentials lookup, set healthConnected = (await getHealthTokens(userId)) !== null, remove the hasFitbitCredentials field, and collapse the two requireFitbit branches into one requireHealth -> errorResponse('HEALTH_NOT_CONNECTED', ..., 400); append the session-contract note to MIGRATIONS.md
+4. Run npx vitest run "session" (expect pass), then npm run typecheck to surface every validateSession({requireFitbit}) caller and session.fitbitConnected reader for the lead
+
+**Notes:**
+- Foundation module imported by nearly every route — lead merges it with the types/auth domain and runs full npm test post-merge
+- Consumes the ErrorCode/session renames already owned by task 4
+
+- **Migration note:** No SQL (session state is recomputed per request). The forced re-consent shows healthConnected=false until reconnect.
+
+<!-- ===== Phase 2 ===== -->
+
+### Task 11: Add buildGoogleHealthAuthUrl + getGoogleHealthIdentity + reject login when email_verified is not true
+**Linear Issue:** [FOO-1081](https://linear.app/lw-claude/issue/FOO-1081) · **Label:** Security · **Phase 2** · **Depends on:** Task 3
+
+**Files:**
+- `src/lib/auth.ts` (modify)
+- `src/lib/__tests__/auth.test.ts` (modify)
+
+**Steps:**
+1. Write tests in src/lib/__tests__/auth.test.ts: (a) buildGoogleHealthAuthUrl hits accounts.google.com/o/oauth2/v2/auth, reuses GOOGLE_CLIENT_ID, sets access_type=offline + prompt=consent, scope contains all 4 googlehealth.* full URLs, and GOOGLE_HEALTH_SCOPES has length 4; (b) getGoogleHealthIdentity calls health.googleapis.com/v4/users/me/identity with Bearer, returns the health user id string, throws + logs 'google_health_identity_fetch_failed' on 403, aborts after timeout (fake timers); (c) getGoogleProfile returns emailVerified:true for boolean true OR string 'true' and false for false/absent (no throw — gate lives in the callback)
+2. Run npx vitest run "auth" (expect fail)
+3. Implement in src/lib/auth.ts: exported GOOGLE_HEALTH_SCOPES (4 exact URLs) + buildGoogleHealthAuthUrl (mirror buildGoogleAuthUrl, leave the LOGIN builder untouched); getGoogleHealthIdentity (mirror getGoogleProfile fetch+timeout+validate, jsonWithTimeout from @/lib/http); add emailVerified parsing to getGoogleProfile
+4. Run npx vitest run "auth" (expect pass)
+
+**Notes:**
+- Folds the auth-URL builder, identity capture, and the genuinely-missing email_verified security gate into one auth.ts task
+- Scope strings must be the EXACT full https://www.googleapis.com/auth/... URLs in one exported const reused by reads/health-status
+- The email_verified callback gate (403 AUTH_INVALID_EMAIL before getOrCreateUser) is wired in task 14 along with the rest of the callback
+
+### Task 12: Add /api/auth/google-health initiation route (authenticated, state-branching to the shared callback)
+**Linear Issue:** [FOO-1082](https://linear.app/lw-claude/issue/FOO-1082) · **Label:** Feature · **Phase 2** · **Depends on:** Task 11
+
+**Files:**
+- `src/app/api/auth/google-health/route.ts` (create)
+- `src/app/api/auth/google-health/__tests__/route.test.ts` (create)
+
+**Steps:**
+1. Write test in src/app/api/auth/google-health/__tests__/route.test.ts: mock @/lib/session + @/lib/auth; assert (a) no session -> validateSession's 401 returned, no redirect; (b) with a session -> 302 to the sentinel auth URL; (c) rawSession.oauthState is a JSON string whose parsed object has flow==='health-connect' + a nonce and save() was called; (d) buildGoogleHealthAuthUrl called with redirectUri ending in '/api/auth/google/callback'
+2. Run npx vitest run "auth/google-health" (expect fail)
+3. Implement src/app/api/auth/google-health/route.ts (POST+GET delegating to initiate()): require getSession()+validateSession(), build state JSON.stringify({nonce:crypto.randomUUID(), flow:'health-connect'}) into rawSession.oauthState, REUSE buildUrl('/api/auth/google/callback'), call buildGoogleHealthAuthUrl, 302-redirect, createRequestLogger action 'google_health_oauth_start'
+4. Run npx vitest run "auth/google-health" (expect pass)
+
+**Notes:**
+- Reuses the single existing /api/auth/google/callback redirect URI (do NOT register a new one)
+- Keep iron-session sameSite 'lax' so the OAuth redirect carries the cookie back
+
+### Task 13: Branch the Google callback on OAuth state: login (+email_verified gate, setup-health redirect) vs health-connect (persist refresh token)
+**Linear Issue:** [FOO-1083](https://linear.app/lw-claude/issue/FOO-1083) · **Label:** Feature · **Phase 2** · **Depends on:** Task 5, 10, 11, 12
+
+**Files:**
+- `src/app/api/auth/google/callback/route.ts` (modify)
+- `src/app/api/auth/google/callback/__tests__/route.test.ts` (modify)
+- `src/lib/auth.ts` (modify)
+- `src/lib/__tests__/auth.test.ts` (modify)
+
+**Steps:**
+1. Write tests: in auth.test.ts (exchangeGoogleHealthCode) assert it POSTs to oauth2.googleapis.com/token, returns {access_token,refresh_token,expires_in,scope}, and throws a typed 'missing refresh_token' error when omitted; in the callback test: (a) LOGIN regression — no flow keeps create-user+session+302 green; (b) login post-redirect goes to /app when getHealthTokens returns a row and /app/setup-health when null; (c) emailVerified:false -> 403 AUTH_INVALID_EMAIL + warn, no getOrCreateUser/createSession; (d) HEALTH-CONNECT happy path — flow:'health-connect' + existing getSessionById session + tokens incl refresh_token + getGoogleHealthIdentity 'health-uid' -> upsertHealthTokens called with healthUserId/refreshToken/scope, 302 /app, createSession NOT called; (e) health-connect without an authenticated DB session -> 401 AUTH_MISSING_SESSION; (f) health-connect with missing refresh_token -> 400
+2. Run npx vitest run "auth google/callback" (expect fail)
+3. Implement exchangeGoogleHealthCode in src/lib/auth.ts (clone exchangeGoogleCode + validate refresh_token present); in the callback split into handleLogin (parse flow, email_verified gate, exchangeGoogleCode+getGoogleProfile+isEmailAllowed+getOrCreateUser+createSession, then redirect to /app or /app/setup-health based on getHealthTokens) and handleHealthConnect (require getSessionById session, exchangeGoogleHealthCode, getGoogleHealthIdentity, upsertHealthTokens, 302 to returnTo|/app); swap getFitbitTokens/hasFitbitCredentials for getHealthTokens; keep rate-limit guard + state validation/consumption + maskEmail logging
+4. Run npx vitest run "auth google/callback" (expect pass)
+
+**Notes:**
+- Folds M3 (rewrite login-success redirect to setup-health/dashboard, removing the /api/auth/fitbit + hasCredentials tier) into the callback branch task
+- Highest-coordination task — lands after the schema rename + health-tokens module + session rewire; the LOGIN branch must stay behaviorally equivalent (guard with the full login test suite)
+
+- **Migration note:** After cutover all fitbit_tokens rows are cleared; both users re-consent once via login -> /app/setup-health -> google-health.
+
+### Task 14: Create src/lib/google-health-rate-limit.ts — port the criticality breaker re-tuned for Google Cloud quota (429 cooldown)
+**Linear Issue:** [FOO-1084](https://linear.app/lw-claude/issue/FOO-1084) · **Label:** Feature · **Phase 2**
+
+**Files:**
+- `src/lib/google-health-rate-limit.ts` (create)
+- `src/lib/__tests__/google-health-rate-limit.test.ts` (create)
+- `src/lib/fitbit-rate-limit.ts` (delete)
+- `src/lib/__tests__/fitbit-rate-limit.test.ts` (delete)
+
+**Steps:**
+1. Write test in src/lib/__tests__/google-health-rate-limit.test.ts asserting: (a) cold start allows all three criticalities; (b) after a recorded 429 cooldown, assertRateLimitAllowed throws 'HEALTH_RATE_LIMIT_LOW' for 'optional' but returns for 'important'/'critical'; (c) 'critical' during cooldown emits a warn log and still returns; (d) once cooldownUntil elapses all criticalities allowed; (e) _resetForTests clears state
+2. Run npx vitest run "google-health-rate-limit" (expect fail)
+3. Implement src/lib/google-health-rate-limit.ts following fitbit-rate-limit.ts structure (per-user Map, injected logger) but substitute a recent-429 cooldownUntil model (parse Retry-After/RetryInfo); export HealthCallCriticality, assertRateLimitAllowed, recordRateLimitHeaders, getRateLimitSnapshot, _resetForTests; DELETE fitbit-rate-limit.ts + its test
+4. Run npx vitest run "google-health-rate-limit" (expect pass)
+
+**Notes:**
+- Keep the breaker conservative — never block 'critical' writes, so a wrong tuning degrades to extra 429 retries, not lost food logs
+
+- **Migration note:** Google Health 429/Retry-After body shape inferred from docs — to be confirmed against the real API during staging QA.
+
+### Task 15: Create src/lib/google-health.ts core — fetchWithRetry + refreshGoogleHealthToken + race-safe ensureFreshToken
+**Linear Issue:** [FOO-1085](https://linear.app/lw-claude/issue/FOO-1085) · **Label:** Feature · **Phase 2** · **Depends on:** Task 5, 14
+
+**Files:**
+- `src/lib/google-health.ts` (create)
+- `src/lib/__tests__/google-health.test.ts` (create)
+
+**Steps:**
+1. Write tests in src/lib/__tests__/google-health.test.ts (mock fetch, @/lib/google-health-rate-limit, @/lib/health-tokens, @/lib/logger, @sentry/nextjs): fetchWithRetry maps 401->'HEALTH_TOKEN_INVALID', 403->'HEALTH_SCOPE_MISSING', 429-then-200 succeeds after one retry, two 429s->'HEALTH_RATE_LIMIT', deadline exceeded->'HEALTH_TIMEOUT'; refreshGoogleHealthToken returns a new access_token while PRESERVING the input refresh token (Google does not rotate it), throws 'HEALTH_TOKEN_INVALID' on 400/401; a CONCURRENCY test fires ~5 ensureFreshToken(userId) on a near-expired row and asserts refreshGoogleHealthToken runs EXACTLY ONCE and all resolve to the same fresh token
+2. Run npx vitest run "google-health" (expect fail)
+3. Implement src/lib/google-health.ts porting fetchWithRetry from fitbit.ts (AbortController timeout, DEADLINE_MS budget, 429 single-retry, 5xx backoff, breaker on retryCount===0 via the new rate-limit module) using jsonWithTimeout/sanitizeErrorBody from @/lib/http; refreshGoogleHealthToken (POST oauth2.googleapis.com/token grant_type=refresh_token, env GOOGLE_CLIENT_ID/SECRET, preserve refresh token); RACE-SAFE ensureFreshToken — register the in-flight promise BEFORE the refresh decision and re-read the token row INSIDE the deduped promise (refreshInFlight.get(userId) ?? createAndRegister), short-circuit if a concurrent refresh already updated it, delete the key in finally; map upsert failure to 'HEALTH_TOKEN_SAVE_FAILED'
+4. Run npx vitest run "google-health" (expect pass)
+
+**Notes:**
+- The ensureFreshToken concurrency fix closes the read-then-check window present in fitbit.ts:582-633 — highest-value correctness fix
+- Uses getHealthTokens/upsertHealthTokens from the task-5 module
+
+<!-- ===== Phase 3 ===== -->
+
+### Task 16: Add createNutritionLog + deleteNutritionLogs to google-health.ts (isolated body-builder) with HEALTH_DRY_RUN
+**Linear Issue:** [FOO-1086](https://linear.app/lw-claude/issue/FOO-1086) · **Label:** Feature · **Phase 3** · **Depends on:** Task 15
+
+**Files:**
+- `src/lib/google-health.ts` (modify)
+- `src/lib/__tests__/google-health.test.ts` (modify)
+- `src/lib/fitbit.ts` (modify)
+
+**Steps:**
+1. Write tests (mock fetch) for createNutritionLog: ONE POST to nutrition-log/dataPoints (not two), body carries food_display_name + energy + protein/carbs/fat/fiber/sodium, omits trans_fat/sugars/saturated_fat/calories_from_fat when the FoodAnalysis fields are null and includes them when present, rounds fractional calories (Math.round), accepts {amount, servingUnit:string}, returns { healthLogId:<string> }; throws 'HEALTH_API_ERROR' on non-ok and on a 200 body lacking a string id; deleteNutritionLogs: single batchDelete POST with the id array, 404 resolves (already-deleted), 500 throws 'HEALTH_API_ERROR'; with HEALTH_DRY_RUN='true' neither function calls fetch and both resolve
+2. Run npx vitest run "google-health" (expect fail)
+3. Implement createNutritionLog + deleteNutritionLogs in src/lib/google-health.ts with the request-body construction isolated in ONE buildNutritionLogBody helper (port nutrient-param logic from fitbit.ts:221-247, not-found handling from fitbit.ts:367-373), criticality 'critical', module-level HEALTH_DRY_RUN gate (single source)
+4. Run npx vitest run "google-health" (expect pass)
+
+**Notes:**
+- Collapses Fitbit createFood+logFood into one anonymous-food create; batchDelete replaces deleteFoodLog
+- Anonymous-food logs are not editable in place — fine because the app always does delete-old+create-new
+
+- **Migration note:** The Google Health nutrition-log create/batchDelete JSON field paths (energy/macros, serving amount+unit) are inferred from docs — body shapes to be confirmed against the real API during staging QA. The isolated body-builder contains the blast radius.
+
+### Task 17: Rewire log-food + edit-food + food-history DELETE routes to Google Health (create/batchDelete, compensation, idempotency, HEALTH_* error mapping)
+**Linear Issue:** [FOO-1087](https://linear.app/lw-claude/issue/FOO-1087) · **Label:** Feature · **Phase 3** · **Depends on:** Task 4, 7, 16
+
+**Files:**
+- `src/app/api/log-food/route.ts` (modify)
+- `src/app/api/log-food/__tests__/route.test.ts` (modify)
+- `src/app/api/edit-food/route.ts` (modify)
+- `src/app/api/edit-food/__tests__/route.test.ts` (modify)
+- `src/app/api/food-history/[id]/route.ts` (modify)
+- `src/app/api/food-history/[id]/__tests__/route.test.ts` (modify)
+
+**Steps:**
+1. Write log-food tests: new-food POST calls createNutritionLog EXACTLY once (not create+log) and persists the returned string healthLogId; reuse flow builds createNutritionLog from the stored custom food (no legacy fitbit-id check); DB-insert-failure-after-create calls deleteNutritionLogs([id]) and returns INTERNAL_ERROR (PARTIAL_ERROR if rollback also throws); idempotency — two POSTs with the same clientToken/user call createNutritionLog once and return the same foodLogId, a different token creates a new log; a thrown 'HEALTH_RATE_LIMIT_LOW' -> HTTP 503. Write edit-food tests: regular path deletes old + creates new + persists new id; fast path (nutrition unchanged) also delete+create from the entry's own nutrients; both compensation branches (re-create original on failed re-create; delete new on DB failure); HEALTH_DRY_RUN skips remote calls. Write food-history DELETE tests: deletes remote then DB row; skips remote when no healthLogId or HEALTH_DRY_RUN; HEALTH_TOKEN_INVALID->401, HEALTH_API_ERROR->502, HEALTH_RATE_LIMIT_LOW->503
+2. Run npx vitest run "api/log-food api/edit-food api/food-history" (expect fail)
+3. Rewrite all three routes: swap @/lib/fitbit imports for ensureFreshToken/createNutritionLog/deleteNutritionLogs from @/lib/google-health; collapse findOrCreateFood->logFood into createNutritionLog; store string healthLogId; preserve every compensation branch; add the per-user short-TTL in-memory clientToken idempotency guard to log-food (validate clientToken shape in isValidFoodLogRequest); add HEALTH_RATE_LIMIT_LOW->503 (was missing on log-food) and the full HEALTH_* -> HTTP mapping; read HEALTH_DRY_RUN
+4. Run npx vitest run "api/log-food api/edit-food api/food-history" (expect pass)
+
+**Notes:**
+- Consolidates the 3 write-route rewires — they share the same google-health import surface and error-mapping pattern
+- The in-memory idempotency cache is per-process (resets on deploy) — acceptable for a 2-user app; document the TTL
+- edit-food has 4 compensation branches — each must be re-tested
+
+- **Migration note:** log-food request contract gains optional clientToken; responses expose healthLogId instead of fitbit ids (consumed by the hook/UI task). Old rows carrying legacy numeric ids become stale string-incompatible handles, replaced on next edit/delete.
+
+### Task 18: Add getHealthProfile + getHealthLatestWeightKg + getHealthActivitySummary reads to google-health.ts; delete the Fitbit reads + weight-goal read
+**Linear Issue:** [FOO-1088](https://linear.app/lw-claude/issue/FOO-1088) · **Label:** Feature · **Phase 3** · **Depends on:** Task 4, 15, 17
+
+**Files:**
+- `src/lib/google-health.ts` (modify)
+- `src/lib/__tests__/google-health.test.ts` (modify)
+- `src/lib/fitbit.ts` (delete)
+
+**Steps:**
+1. Write tests in src/lib/__tests__/google-health.test.ts: getHealthProfile parses Google Health v4 /users/me into { ageYears:int, sex:'MALE', heightCm } (Bearer + v4 URL asserted); 'female'->'FEMALE', unknown/absent sex -> 'NA' (NOT a throw), height in meters/explicit unit converted to cm, age derived from DOB with frozen time, 401->'HEALTH_TOKEN_INVALID', non-ok->'HEALTH_API_ERROR'. getHealthLatestWeightKg issues EXACTLY ONE ranged fetch over [targetDate-13d,targetDate], returns the most-recent point on/before targetDate (not the first), null on empty, converts non-kg to kg, excludes points after targetDate, logs the 14-day window (not '7 days'). getHealthActivitySummary parses dailyRollUp into { caloriesOut:number }, returns { caloriesOut:null } on empty roll-up (no throw), converts kJ->kcal if applicable, 401/non-ok mapping
+2. Run npx vitest run "google-health" (expect fail)
+3. Implement getHealthProfile/getHealthLatestWeightKg/getHealthActivitySummary in src/lib/google-health.ts via the module fetchWithRetry+criticality, isolating each response parser in its own helper; map the sex enum defaulting unknown to NA, convert height to cm and weight to kg, derive age from DOB, single ranged weight read replacing the 14-day walk-back; DELETE src/lib/fitbit.ts entirely (getFitbitProfile/getFitbitLatestWeightKg/getActivitySummary/getFitbitWeightGoal and the rest) now that all consumers are migrated
+4. Run npx vitest run "google-health" (expect pass) and npm run typecheck (confirm no remaining @/lib/fitbit importer)
+
+**Notes:**
+- Consolidates the 3 read migrations into one google-health.ts read-layer task and performs the final fitbit.ts deletion
+- getFitbitWeightGoal is dropped (C5) — replaced by the local users.weightGoalType from task 9; no read equivalent in Google Health
+- Defaulting unknown sex to NA keeps the daily-goals 'sex_unset' path alive for both users
+
+- **Migration note:** Google Health profile (sex/height/DOB), ranged weight, and dailyRollUp caloriesOut field paths + units (kg/cm/kcal-vs-kJ) are inferred from docs — body shapes to be confirmed against the real API during staging QA.
+
+### Task 19: Rename fitbit-cache->health-cache (drop weight-goal cache) and rewire daily-goals.ts consumers
+**Linear Issue:** [FOO-1089](https://linear.app/lw-claude/issue/FOO-1089) · **Label:** Improvement · **Phase 3** · **Depends on:** Task 18
+
+**Files:**
+- `src/lib/health-cache.ts` (create)
+- `src/lib/__tests__/health-cache.test.ts` (create)
+- `src/lib/fitbit-cache.ts` (delete)
+- `src/lib/__tests__/fitbit-cache.test.ts` (delete)
+- `src/lib/daily-goals.ts` (modify)
+
+**Steps:**
+1. Port src/lib/__tests__/health-cache.test.ts from fitbit-cache.test.ts: mock the google-health read fns; assert getCachedHealthProfile caches for TTL_24H, dedups concurrent in-flight calls, invalidateHealthProfileCache bumps the per-user generation and clears profile/weight/activity; assert the orphan-write guard (value resolved after invalidation is not written); remove all weight-goal cache tests
+2. Run npx vitest run "health-cache" (expect fail)
+3. Create src/lib/health-cache.ts from fitbit-cache.ts with renamed exports (getCachedHealthProfile/getCachedHealthWeightKg/getCachedHealthActivitySummary/invalidateHealthProfileCache), importing the google-health read fns + ensureFreshToken; DELETE getCachedFitbitWeightGoal + weightGoalCache/weightGoalInFlight + their invalidation (C5); update Sentry/log category strings; DELETE src/lib/fitbit-cache.ts; update src/lib/daily-goals.ts imports + the doCompute Promise.all (~334-337) to getCachedHealthProfile/getCachedHealthWeightKg
+4. Run npx vitest run "health-cache daily-goals" (expect pass)
+
+**Notes:**
+- Hub module — daily-goals.ts (macro engine entrypoint), profile route, and v1 activity route all import it; renames land atomically with consumers
+- TTL behavior (24h profile, 1h/10min weight, 5min activity) ports verbatim
+
+### Task 20: Migrate the internal profile route + external v1/activity-summary route to Google Health data + HEALTH_* errors (M4 health-connection status)
+**Linear Issue:** [FOO-1090](https://linear.app/lw-claude/issue/FOO-1090) · **Label:** Improvement · **Phase 3** · **Depends on:** Task 9, 19
+
+**Files:**
+- `src/app/api/health-profile/route.ts` (create)
+- `src/app/api/health-profile/__tests__/route.test.ts` (create)
+- `src/app/api/fitbit/profile/route.ts` (delete)
+- `src/lib/health-connection.ts` (create)
+- `src/lib/__tests__/health-connection.test.ts` (create)
+- `src/lib/fitbit-health.ts` (delete)
+- `src/app/api/health-status/route.ts` (create)
+- `src/app/api/fitbit/health/route.ts` (delete)
+- `src/app/api/v1/activity-summary/route.ts` (modify)
+- `src/app/api/v1/activity-summary/__tests__/route.test.ts` (modify)
+- `src/lib/swr.ts` (modify)
+
+**Steps:**
+1. Write tests: health-profile route returns { ageYears,sex,heightCm,weightKg,weightLoggedDate,goalType,lastSyncedAt } with Cache-Control private,no-cache, goalType from users.weightGoalType (null when unset), ?refresh=1 invalidates cache + invalidateUserDailyGoalsForDate, HEALTH_TOKEN_INVALID->401 / HEALTH_RATE_LIMIT_LOW->503, no FITBIT_CREDENTIALS_MISSING branch; health-connection checkHealthConnection returns needs_reconnect/scope_mismatch/healthy (no needs_setup/credentials branch) using getHealthTokens + GOOGLE_HEALTH_SCOPES; health-status route returns the HealthConnectionStatus payload; v1/activity-summary sources caloriesOut from getCachedHealthActivitySummary, keeps Bearer auth + per-key rate-limit + date validation + ETag, maps HEALTH_* errors and drops the credentials branch
+2. Run npx vitest run "health-profile health-connection health-status v1/activity-summary" (expect fail)
+3. Implement: create /api/health-profile (non-colliding with the public /api/health) reading getCachedHealthProfile/getCachedHealthWeightKg + local weightGoalType, HEALTH_* mapping, DELETE old /api/fitbit/profile; port checkFitbitHealth->checkHealthConnection into src/lib/health-connection.ts (collapse to needs_reconnect/scope_mismatch/healthy, drop the credentials branch) and DELETE src/lib/fitbit-health.ts; create /api/health-status route + DELETE /api/fitbit/health; swap the v1 route to getCachedHealthActivitySummary + HEALTH_* mapping + de-fitbit the log/comment strings; update the SWR keys in src/lib/swr.ts (and HEALTH_BACKED_SWR_CONFIG)
+4. Run npx vitest run "health-profile health-connection health-status v1/activity-summary" (expect pass)
+
+**Notes:**
+- Folds M4 (checkFitbitHealth->checkHealthConnection + /api/fitbit/health route migration, which no draft owned) with the profile route rename and the v1 route migration
+- Choose a profile route path that does NOT shadow the public /api/health check (e.g. /api/health-profile)
+- Uses HealthProfileData/HealthConnectionStatus already renamed in task 4 and goalType from task 9
+
+- **Migration note:** Client-facing route paths change (/api/fitbit/profile -> /api/health-profile, /api/fitbit/health -> /api/health-status); SWR keys move for the profile + daily-goals cards. External v1/activity-summary body { caloriesOut } is unchanged; only the upstream source + error codes change.
+
+### Task 21: Update Claude tool schema/prompt + tool-output validation + DB-write validation to the serving_unit string
+**Linear Issue:** [FOO-1091](https://linear.app/lw-claude/issue/FOO-1091) · **Label:** Improvement · **Phase 3** · **Depends on:** Task 4
+
+**Files:**
+- `src/lib/claude.ts` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
+- `src/lib/food-validation.ts` (modify)
+- `src/lib/__tests__/food-validation.test.ts` (modify)
+- `src/lib/analysis-session.ts` (modify)
+- `src/lib/__tests__/analysis-session.test.ts` (modify)
+
+**Steps:**
+1. Write tests: REPORT_NUTRITION_TOOL + report_session_items items schema expose serving_unit (string + enum exactly ['g','oz','cup','tbsp','tsp','ml','slice','serving']), 'unit_id' absent from properties, serving_unit in required and unit_id excluded; each input_example has a serving_unit string and no numeric unit_id; validateFoodAnalysis on serving_unit:'cup' returns result.unit_id==='cup', a missing/invalid serving_unit coerces to 'serving' (no throw, matching the tolerant confidence pattern); validateSessionItems passes serving_unit through; food-validation isValidFoodAnalysisFields accepts unit_id:'g' and rejects 147/'bogus'; analysis-session match validator accepts unitId:'cup' and rejects 91/'bogus'
+2. Run npx vitest run "claude food-validation analysis-session" (expect fail)
+3. In src/lib/claude.ts rename the schema property + required entry to serving_unit (enum + plain-language description) in BOTH tools, rewrite input_examples, update the system-prompt unit wording (~34, 2120) and the session-item context line (~2342) to stop leaking a numeric id; drop 'unit_id' from validateFoodAnalysis numericFields, read+coerce data.serving_unit via coerceServingUnit, set result.unit_id to the coerced ServingUnit; in src/lib/food-validation.ts and src/lib/analysis-session.ts change the numeric-unit guards to require a serving-unit set member (compare via coerceServingUnit, reject non-members as 400)
+4. Run npx vitest run "claude food-validation analysis-session" (expect pass)
+
+**Notes:**
+- report_nutrition is strict:true + additionalProperties:false — the rename MUST update both properties and required in both tools or the schema is invalid and analysis breaks
+- Coerce (warn+default 'serving') rather than throw on unknown model output so one bad output doesn't abort the analysis
+- Consumes ServingUnit/coerceServingUnit/SERVING_UNITS from task 4
+
+<!-- ===== Phase 4 ===== -->
+
+### Task 22: Rename use-log-to-fitbit->use-log-food + retype healthLogId; update all 5 consumers and unit-renderer components incl chat-tools.ts
+**Linear Issue:** [FOO-1092](https://linear.app/lw-claude/issue/FOO-1092) · **Label:** Improvement · **Phase 4** · **Depends on:** Task 4, 17, 21
+
+**Files:**
+- `src/hooks/use-log-food.ts` (create)
+- `src/hooks/__tests__/use-log-food.test.ts` (create)
+- `src/hooks/use-log-to-fitbit.ts` (delete)
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/quick-select.tsx` (modify)
+- `src/components/food-chat.tsx` (modify)
+- `src/components/saved-food-detail.tsx` (modify)
+- `src/components/log-shared-content.tsx` (modify)
+- `src/components/food-detail.tsx` (modify)
+- `src/components/analysis-result.tsx` (modify)
+- `src/components/food-entry-card.tsx` (modify)
+- `src/components/nutrition-facts-card.tsx` (modify)
+- `src/components/mini-nutrition-card.tsx` (modify)
+- `src/components/food-match-card.tsx` (modify)
+- `src/components/food-entry-detail-sheet.tsx` (modify)
+- `src/components/food-history.tsx` (modify)
+- `src/components/meal-breakdown.tsx` (modify)
+- `src/lib/chat-tools.ts` (modify)
+- `src/components/__tests__/nutrition-facts-card.test.tsx` (modify)
+- `src/components/__tests__/food-entry-card.test.tsx` (modify)
+
+**Steps:**
+1. Write tests: use-log-food test (ported from use-log-to-fitbit) asserts it reads FoodLogResponse.healthLogId; nutrition-facts-card rendered with unitId='g' amount=150 shows '150g'; food-entry-card with unitId='slice' amount=2 shows '2 slices'
+2. Run npx vitest run "use-log-food nutrition-facts-card food-entry-card" (expect fail)
+3. Create src/hooks/use-log-food.ts (rename of use-log-to-fitbit, retype FoodLogResponse usage to healthLogId), DELETE the old hook; update the 5 hook consumers (food-analyzer/quick-select/food-chat/saved-food-detail/log-shared-content); retype every component's unitId/unit_id prop and FoodAnalysis-derived value to ServingUnit (mechanical — chat-tools.ts getUnitLabel calls compile once food.unitId/entry.unitId are strings); flip numeric-unit fixtures to strings across the affected component test files
+4. Run npx vitest run "use-log-food nutrition-facts-card food-entry-card food-detail analysis-result" plus a full component-suite npm test to catch remaining numeric-unit fixtures (expect pass)
+
+**Notes:**
+- Folds M9 (hook rename + 5 consumers) with M10 (chat-tools.ts) and the renderer-consumer cascade — all fall out of the task-4 type changes
+- Budget a sweep of ALL test fixtures that construct FoodAnalysis/entry mocks with numeric unit_id, not just the two named files
+
+### Task 23: Replace Fitbit setup/guard/banner/card/settings UI with one-click Connect Google Health flow; rename healthMode; a11y + contrast fixes
+**Linear Issue:** [FOO-1093](https://linear.app/lw-claude/issue/FOO-1093) · **Label:** Feature · **Phase 4** · **Depends on:** Task 4, 10, 12, 20
+
+**Files:**
+- `src/app/app/connect-health/page.tsx` (create)
+- `src/app/app/connect-health/loading.tsx` (create)
+- `src/app/app/connect-health/__tests__/page.test.tsx` (create)
+- `src/app/app/setup-fitbit/page.tsx` (delete)
+- `src/app/app/setup-fitbit/loading.tsx` (delete)
+- `src/components/fitbit-setup-form.tsx` (delete)
+- `src/components/health-connect-guard.tsx` (create)
+- `src/components/__tests__/health-connect-guard.test.tsx` (create)
+- `src/components/fitbit-setup-guard.tsx` (delete)
+- `src/components/health-status-banner.tsx` (create)
+- `src/components/health-profile-card.tsx` (create)
+- `src/components/fitbit-status-banner.tsx` (delete)
+- `src/components/fitbit-profile-card.tsx` (delete)
+- `src/components/settings-content.tsx` (modify)
+- `src/app/app/page.tsx` (modify)
+- `src/app/app/analyze/page.tsx` (modify)
+- `src/app/app/chat/page.tsx` (modify)
+- `src/app/app/edit/[id]/page.tsx` (modify)
+- `src/app/app/quick-select/page.tsx` (modify)
+- `src/app/app/saved/[id]/page.tsx` (modify)
+- `src/app/app/capture/page.tsx` (modify)
+- `src/app/app/process-captures/page.tsx` (modify)
+- `src/app/api/health/route.ts` (modify)
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/daily-goals-card.tsx` (modify)
+
+**Steps:**
+1. Write/port tests: connect-health page renders h1 'Connect Google Health', SkipLink + <main id=main-content>, back link to /app, a single form posting to the health-connect endpoint with a min-h-[44px] button, redirect('/') when no session; health-connect-guard renders children when healthConnected, else a connect prompt Link to /app/connect-health, animate-pulse on loading, null on undefined data; health-status-banner shows 'Google Health' copy + connect CTA, null when healthy; health-profile-card shows 'Google Health Profile' + 'Refresh from Google Health' + 'Not set in Google Health' (refresh-error <p> text-destructive, stale-weight <p> text-warning); settings renders a Google Health status line + connect/reconnect Link to /app/connect-health + <HealthProfileCard/> and no credential-edit UI; /api/health returns healthMode (not fitbitMode) from HEALTH_DRY_RUN; food-analyzer save banner uses text-success and food-chat warning uses text-warning; capture/process-captures/saved each render SkipLink + <main id=main-content>; food-detail/food-entry-detail-sheet link-copied use text-success and daily-goals-card safety-floor uses text-warning
+2. Run npx vitest run "connect-health health-connect-guard health-status-banner health-profile-card settings-content api/health food-analyzer food-chat capture process-captures saved daily-goals-card food-detail food-entry-detail-sheet" (expect fail)
+3. Implement: create connect-health page+loading (single POST form to the health-connect initiation endpoint), health-connect-guard (single healthConnected branch reading /api/auth/session), health-status-banner + health-profile-card (Google Health copy, renamed health endpoints/types, Link to /app/connect-health, theme-token colors); strip all Fitbit credential state/handlers/cards from settings-content and narrow SessionInfo to {email,healthConnected,expiresAt}; swap all 5 guard-consumer pages + the banner consumer to the new components; add SkipLink/#main-content to capture/process-captures/saved; change /api/health to healthMode from HEALTH_DRY_RUN; fix the contrast tokens in food-analyzer/food-chat/food-detail/food-entry-detail-sheet/daily-goals-card; DELETE setup-fitbit/, fitbit-setup-form, fitbit-setup-guard, fitbit-status-banner, fitbit-profile-card + their tests
+4. Run the same vitest pattern (expect pass); grep src/ + e2e/ to confirm zero remaining Fitbit component/route identifiers or 'fitbitMode'
+
+**Notes:**
+- Consolidates 8 UI drafts (connect page, guard, banner/card rename, settings strip, contrast x2, skiplinks, healthMode) into one cohesive UI cutover — they share the same component graph and depend on the same session/types renames
+- Consumes session.healthConnected (task 10), HealthProfileData/HealthConnectionStatus (task 4), and the health-connect initiation route (task 12)
+- Mobile-first: min-h-[44px] touch targets; success/warning/destructive tokens are defined in globals.css
+
+- **Migration note:** Railway: set HEALTH_DRY_RUN=true on staging (health route reports healthMode). Client UI no longer references /app/setup-fitbit or /api/fitbit-credentials.
+
+### Task 24: Anthropic Core A2: move volatile date/time out of the cached system block + extend cache_control over image blocks
+**Linear Issue:** [FOO-1094](https://linear.app/lw-claude/issue/FOO-1094) · **Label:** Performance · **Phase 4** · **Depends on:** Task 1
+
+**Files:**
+- `src/lib/claude.ts` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
+- `src/lib/__tests__/claude-triage.test.ts` (modify)
+
+**Steps:**
+1. Write tests: call analyzeFood twice with the SAME currentDate but DIFFERENT currentTime and assert system[0].text is byte-identical (toBe) and contains neither 'Current time' nor 'Today's date is:'; assert the messages array carries a block whose text includes 'Today's date is: 2026-02-15' (and 'Current time: 14:30' when provided) as the LAST content block of a user message; drive analyzeFood through the slow path so runToolLoop fires a 2nd call and assert the 2nd request still carries the image blocks AND a cache_control breakpoint on the user content block immediately after the image+description blocks; when the mocked 2nd response reports cache_read_input_tokens>0 the emitted usage StreamEvent carries cacheReadTokens>0
+2. Run npx vitest run "claude claude-triage" (expect fail — date is in system[0].text)
+3. Implement in src/lib/claude.ts: add buildDateContextBlock(currentDate,currentTime) returning a {type:'text',text} message block; remove the date/time concatenations at ~933/1271/1649/1914/2206 so system text is date-free; append the date block as the trailing block of the leading user message in all 6 entry points; add a cache_control:{type:'ephemeral'} breakpoint on the last stable user-content block (post-image, pre-date) in analyzeFood + convertMessages image path; reword the tool description 'today's date (provided in system prompt)' (~171) to 'provided in the conversation'
+4. Rewrite the now-invalid assertions (claude.test.ts:763/1911 date-in-system) to assert date-in-messages; verify the no-date branch (~1923) still holds against system text; update any claude-triage.test.ts system-date assertions; run npx vitest run "claude claude-triage" + npm run typecheck + npm run lint (expect pass)
+
+**Notes:**
+- Stable system prefix is what makes cache_read_input_tokens nonzero — verify via the existing usage StreamEvent/recordUsage path
+- Breakpoint budget: system[0] + last tool + image-prefix = 3 (under the max-4 limit); images MUST precede the date block or the image prefix won't cache
+- Lands before A3 because clearing tool results invalidates the cached prefix at the clear point
+
+### Task 25: Anthropic Core A3: replace truncateConversation with beta context-management clear_tool_uses (delete fn + tests + all 3 call sites)
+**Linear Issue:** [FOO-1095](https://linear.app/lw-claude/issue/FOO-1095) · **Label:** Improvement · **Phase 4** · **Depends on:** Task 1, 24
+
+**Files:**
+- `src/lib/claude.ts` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
+- `src/lib/__tests__/claude-triage.test.ts` (modify)
+
+**Steps:**
+1. Write tests: drive conversationalRefine/editAnalysis(via runToolLoop)/triageRefine and assert each request carries betas including 'context-management-2025-06-27' and context_management.edits[0].type==='clear_tool_uses_20250919' with exclude_tools containing 'web_search'; update the @anthropic-ai/sdk vi.mock so MockAnthropic exposes beta={messages:{stream:mockStream}} and assert getClient wiring calls beta.messages.stream; add a 40-message over-threshold conversation to conversationalRefine and assert the request messages length EQUALS the input length (no client-side dropping) and that truncateConversation is no longer exported (remove its describe block)
+2. Run npx vitest run "claude claude-triage" (expect fail — code still uses messages.stream + truncateConversation)
+3. Implement in src/lib/claude.ts: change createStreamWithRetry (~321) to getClient().beta.messages.stream, widen its streamParams to the beta message-create params type, add a shared CONTEXT_MANAGEMENT const (clear_tool_uses_20250919 + trigger/keep/clear_at_least/exclude_tools:['web_search'] tuned conservatively so the report_nutrition pendingAnalysis loop keeps context) + betas:['context-management-2025-06-27'] applied at the single chokepoint so all 6 entry points benefit; DELETE truncateConversation (762-811), estimateTokenCount (713-760), the 3 truncateConversation call sites (~1631/1950/2372) + their truncation debug logs; keep CLAUDE_MODEL=claude-sonnet-4-6
+4. Delete the obsolete truncateConversation test block; run npx vitest run "claude claude-triage claude-retry" + npm run typecheck + npm run lint + npm run build (expect pass, zero warnings)
+
+**Notes:**
+- C8 — must delete the function AND its tests AND all 3 call sites, not just swap one
+- createStreamWithRetry is the single path all 6 entry points funnel through — confirm the beta stream's finalMessage()/Message type aligns and the Sentry-instrumented client still wraps beta.messages
+- clear_at_least must be high enough to make re-caching worthwhile given A2's image-prefix cache
+
+### Task 26: Non-migration review fixes: claude.ts decomposition + role-prompt decoupling, custom-food insert helper, client-date enforcement, shared-food rate-limit, search SQL pushdown
+**Linear Issue:** [FOO-1096](https://linear.app/lw-claude/issue/FOO-1096) · **Label:** Technical Debt · **Phase 4** · **Depends on:** Task 1, 7
+
+**Files:**
+- `src/lib/claude.ts` (modify)
+- `src/lib/claude-prompts.ts` (create)
+- `src/lib/claude-tools-schema.ts` (create)
+- `src/lib/__tests__/claude.test.ts` (modify)
+- `src/lib/food-log.ts` (modify)
+- `src/lib/__tests__/food-log.test.ts` (modify)
+- `src/lib/date-utils.ts` (modify)
+- `src/app/api/analyze-food/route.ts` (modify)
+- `src/app/api/chat-food/route.ts` (modify)
+- `src/app/api/edit-chat/route.ts` (modify)
+- `src/app/api/process-captures/route.ts` (modify)
+- `src/app/api/analyze-food/__tests__/route.test.ts` (modify)
+- `src/app/api/chat-food/__tests__/route.test.ts` (modify)
+- `src/app/api/shared-food/[token]/route.ts` (modify)
+- `src/app/api/shared-food/[token]/__tests__/route.test.ts` (modify)
+
+**Steps:**
+1. Write tests: characterization test that getAnalysisSystemPrompt/getChatSystemPrompt/getEditSystemPrompt equal today's exported *_SYSTEM_PROMPT (no profile) and `${SYSTEM_PROMPT}\n\n${profile}`+role-instructions (with profile); mapStopReasonToError returns the existing per-label message for model_context_window_exceeded/refusal/max_tokens and null for end_turn/tool_use; the error-wrap helper rethrows ClaudeApiError unchanged, routes AbortError to the abort path, wraps other errors with extractRequestId; toCustomFoodInsertValues stringifies amount/macros, Math.rounds calories, nulls absent tier-1 nutrients, passes through the ?? null defaults; analyze-food + chat-food return 400 VALIDATION_ERROR on missing/invalid clientDate and pass a valid one through; shared-food GET returns 429 RATE_LIMIT_EXCEEDED past the per-user window and 200 on the first request, revokeShareToken nulls shareToken scoped by id+userId; searchFoods builds a where() carrying an ILIKE/array-overlap keyword predicate + a LIMIT while still JS-re-filtering computeMatchRatio>=0.5, getCommonFoods query is row-bounded
+2. Run npx vitest run "claude food-log analyze-food chat-food shared-food" (expect fail)
+3. Implement: replace the .slice(SYSTEM_PROMPT.length) coupling with standalone ANALYSIS/CHAT/EDIT_ROLE_INSTRUCTIONS constants; extract mapStopReasonToError/yieldUsageAndRecord/wrapStreamErrors and replace the duplicated blocks (preserving every per-site message); move prompt constants to claude-prompts.ts + tool schemas to claude-tools-schema.ts re-exported from claude.ts; extract toCustomFoodInsertValues() and call it from all 3 custom-food writers (spread update-path extras on top); replace the `?? getTodayDate()` fallback in the 4 browser routes with a 400 guard (leave v1/nutrition-goals defaulting to server-today, update getTodayDate JSDoc); add checkRateLimit to shared-food GET + revokeShareToken to food-log.ts; push the keyword ILIKE/array-overlap predicate + LIMIT into searchFoods and bound getCommonFoods
+4. Run npx vitest run "claude food-log analyze-food chat-food edit-chat process-captures shared-food" + npm run typecheck (expect pass)
+
+**Notes:**
+- Consolidates the standalone non-migration review fixes that are independent of the cutover (and were over-fragmented into 7 drafts); the claude split modules MUST be re-exported from claude.ts (barrel) so import sites are unaffected, and per-site error/log wording must be preserved exactly
+- Preserve the HEALTH_DRY_RUN-gated visibility filter (owned by task 7) verbatim when adding the searchFoods pushdown — the SQL predicate must be a superset of the JS matcher
+- The shared-food optional shareTokenExpiresAt column is skipped here to avoid an extra schema change; rate-limit + revocation are the required wins
+
+### Task 27: Real-Postgres integration suite: cross-user isolation, deleteUserData admin path, and goal-engine end-to-end test for both user bodies
+**Linear Issue:** [FOO-1097](https://linear.app/lw-claude/issue/FOO-1097) · **Label:** Security · **Phase 4** · **Depends on:** Task 4, 9, 19
+
+**Files:**
+- `src/lib/__tests__/food-log.integration.test.ts` (create)
+- `src/lib/user-data.ts` (create)
+- `src/lib/__tests__/user-data.integration.test.ts` (create)
+- `src/lib/__tests__/daily-goals.integration.test.ts` (create)
+- `vitest.config.ts` (modify)
+- `package.json` (modify)
+- `MIGRATIONS.md` (modify)
+
+**Steps:**
+1. Add a test:integration script / vitest project that runs only *.integration.test.ts against a real integration DATABASE_URL and is excluded from the default fast npm test loop (skip via guard when the env is unset)
+2. Write src/lib/__tests__/food-log.integration.test.ts: seed users A and B (each a custom food + log entry) against a fresh migrated Postgres and assert every cross-user call (getCustomFoodById/getFoodLogEntry/getFoodLogEntryDetail/deleteFoodLogEntry/updateFoodLogEntry/toggleFavorite/setShareToken with B on A's ids) returns null/false and leaves A's data intact; write src/lib/__tests__/user-data.integration.test.ts asserting deleteUserData(A) removes ALL of A's rows across every table in one transaction while B is untouched and a mid-delete failure leaves A intact; write src/lib/__tests__/daily-goals.integration.test.ts (C6) seeding a health profile + local weightGoalType + health activity summary for TWO distinct bodies (Lucas + Mariana profiles) and asserting the daily-goals/macro engine produces the correct per-user goal output for each
+3. Run the integration suite against a local Dockerized PG (expect fail — deleteUserData missing)
+4. Implement deleteUserData(userId) in src/lib/user-data.ts as a db.transaction deleting children-before-parents in FK-safe order (food_log_entries before custom_foods, leaf tables, finally users) scoped by userId; keep FK onDelete NO ACTION and document the rationale + the cascade alternative in MIGRATIONS.md
+5. Run the integration suite (expect pass) and confirm npm test still skips it and stays ~5s; run npm run typecheck
+
+**Notes:**
+- Folds C6 (goal-engine end-to-end test from the NEW data sources for both user bodies — absent from every draft) with the cross-user isolation suite and the deleteUserData admin path, since all three need the same real-Postgres integration harness
+- drizzle node-postgres means pglite is NOT a faithful substitute — use a containerized throwaway PG with the project's real migrations applied; gate strictly on a dedicated integration DATABASE_URL so it never touches prod/dev
+- Mariana + Lucas profiles must differ (multi-user design rule) so the engine is exercised across bodies, not tuned to one
+
+- **Migration note:** Test-only: integration suite needs a throwaway Postgres with the project's Drizzle migrations applied; document the integration DATABASE_URL in DEVELOPMENT.md. deleteUserData keeps FK onDelete NO ACTION (no schema change); the cascade alternative is noted but not applied.
+
+### Task 28: Migrate E2E fixtures + 10 specs to health_tokens/HEALTH_DRY_RUN; remove Fitbit from CSP form-action and the docs
+**Linear Issue:** [FOO-1098](https://linear.app/lw-claude/issue/FOO-1098) · **Label:** Convention · **Phase 4** · **Depends on:** Task 22, 23
+
+**Files:**
+- `e2e/fixtures/db.ts` (modify)
+- `e2e/global-setup.ts` (modify)
+- `e2e/tests/settings.spec.ts` (modify)
+- `e2e/tests/dashboard.spec.ts` (modify)
+- `e2e/tests/analyze.spec.ts` (modify)
+- `e2e/tests/quick-select.spec.ts` (modify)
+- `e2e/tests/refine-chat.spec.ts` (modify)
+- `e2e/tests/log-shared.spec.ts` (modify)
+- `e2e/tests/goal-anchored-engine.spec.ts` (modify)
+- `e2e/tests/empty-states.spec.ts` (modify)
+- `e2e/tests/landing.spec.ts` (modify)
+- `next.config.ts` (modify)
+- `src/lib/__tests__/csp-header.test.ts` (modify)
+- `README.md` (modify)
+- `DEVELOPMENT.md` (modify)
+- `CLAUDE.md` (modify)
+- `.env.sample` (modify)
+
+**Steps:**
+1. Update src/lib/__tests__/csp-header.test.ts to assert form-action no longer contains https://www.fitbit.com; run npx vitest run "csp-header" (expect fail), then remove https://www.fitbit.com from the CSP form-action in next.config.ts and re-run (expect pass)
+2. Migrate e2e/fixtures/db.ts + e2e/global-setup.ts to seed health_tokens (drop fitbit_tokens/fitbit_credentials seeding) and set HEALTH_DRY_RUN; update the 10 affected specs (settings/dashboard/analyze/quick-select/refine-chat/log-shared/goal-anchored-engine/empty-states/landing) for the Connect-Google-Health flow, renamed routes/components, and serving_unit strings
+3. Rewrite README.md/DEVELOPMENT.md/CLAUDE.md/.env.sample to Google Health: tagline/logging-target/tech-stack, single shared Google OAuth client + one-click /app/connect-health (remove dev.fitbit.com + /app/setup-fitbit), CLAUDE.md DATABASE table list (fitbit_tokens->health_tokens, drop fitbit_credentials), ENVIRONMENTS dry-run (FITBIT_DRY_RUN->HEALTH_DRY_RUN), the RATE-LIMIT CRITICALITY + api/auth route-convention sections, and add HEALTH_DRY_RUN to .env.sample with a comment noting scopes are configured on the GCP consent screen
+4. Run grep -ri 'fitbit' README.md DEVELOPMENT.md CLAUDE.md .env.sample next.config.ts e2e/ (expect zero non-historical matches), then npm run e2e (the lead gate) and npm run lint (expect pass, zero warnings)
+
+**Notes:**
+- Folds M6 (CSP form-action) + M7 (E2E fixtures + 10 specs) + the docs sweep — all are the pre-E2E-gate cleanup and touch overlapping config
+- Must land before the E2E gate runs (Phase 1.6 of push-to-production / before PR creation)
+- No outbound connect-src for health.googleapis.com is needed (REST is server-side, not browser)
+
+- **Migration note:** Docs document HEALTH_DRY_RUN (staging always true, production always false) and that Google Health scopes live on the GCP consent screen, not env. E2E fixtures seed health_tokens.
+
+<!-- ===== Phase 5 ===== -->
+
+### Task 29: LEAD ONLY: run a single npx drizzle-kit generate after all schema edits land
+**Linear Issue:** [FOO-1099](https://linear.app/lw-claude/issue/FOO-1099) · **Label:** Technical Debt · **Phase 5** · **Depends on:** Task 5, 6, 7, 8, 9, 26, 27
+
+**Files:**
+- `drizzle/` (create)
+- `src/db/schema.ts` (modify)
+
+**Steps:**
+1. Confirm all schema-editing tasks (5,6,7,8,9 + the shared-food/user-data decisions) are merged and src/db/schema.ts compiles via npm run typecheck
+2. Run npx drizzle-kit generate ONCE (it diffs schema.ts against the previous snapshot locally; no live DB needed) — never hand-write the migration SQL or snapshot
+3. Inspect the generated SQL: verify the fitbit_tokens->health_tokens RENAME (not drop+create) and the column renames; if drizzle emits drop+create, the lead pre-creates the rename via a separate reviewed step rather than hand-tuning the journal; confirm the integer->text unit_id change carries the USING cast + legacy-ID backfill and the index/CHECK/partial-unique DDL match current column names
+4. Run npm run build + npm test to confirm the generated migration + snapshot are consistent
+
+**Notes:**
+- Single generate after ALL schema edits (rename, drops, column type changes, new columns, indexes, checks) — not per-task
+- Workers must never hand-write generated files (past corruption from a hand-written snapshot in PR #29)
+- The actual production migration run + row-clear + Railway var changes are humanDeployNotes executed at release, not in this task
+
+- **Migration note:** Produces the consolidated Drizzle migration for the full schema delta (token rename, credentials drop, food_log/custom_foods column changes, unit_id integer->text + backfill, users.weightGoalType, indexes, daily_calorie_goals CHECK, partial unique index). Lead applies it against production during the release per humanDeployNotes.
+
+### Task 30: LEAD ONLY (agent via Railway MCP + DB): apply release env + token-clear deploy steps — zero human action
+**Linear Issue:** [FOO-1100](https://linear.app/lw-claude/issue/FOO-1100) · **Label:** Technical Debt · **Phase 5** · **Depends on:** Task 29
+
+**Files:**
+- `MIGRATIONS.md` (modify)
+
+**Steps:**
+1. At the staging deploy, the LEAD sets HEALTH_DRY_RUN=true on staging AND HEALTH_DRY_RUN=false on production via the Railway MCP (set_variables) — the standing invariant: staging always true (writes skipped), production always false (writes live). Set staging=true before/with the deploy so staging never goes live.
+2. Via Railway MCP, remove the orphaned vars FITBIT_DRY_RUN (staging), FITBIT_CLIENT_ID and FITBIT_CLIENT_SECRET (both staging + production). Safe to remove FITBIT_DRY_RUN only AFTER the migrated code (which reads HEALTH_DRY_RUN, not FITBIT_DRY_RUN) is live — never before, or pre-migration staging would go live.
+3. Apply the data-only token clear DELETE FROM health_tokens against staging, then production at release (per the push-to-production data-SQL policy — agent-applied, never deferred to the user), so Lucas + Mariana hit the reconnect path and re-consent once.
+4. Verify: GET /api/health reports healthMode=Dry Run on staging; the login → /app/connect-health → google-health round-trip succeeds; production health unaffected. Log the env + token-clear actions in MIGRATIONS.md.
+
+**Notes:**
+- Executed by the LEAD (Railway MCP + DB access), not a worker — workers have no MCP. This replaces what were previously framed as manual deploy notes; NO human action is required.
+- GCP precondition (enable Google Health API + add the 4 scopes) is already DONE — verified by the user.
+- Production application of the Drizzle migration (Task 29) + this token clear happens via the push-to-production release flow, which already runs data SQL agent-side.
+
+- **Migration note:** Release/deploy ops (agent-applied, no human): Railway env — HEALTH_DRY_RUN=true on staging, HEALTH_DRY_RUN=false on production (standing invariant); drop FITBIT_DRY_RUN/FITBIT_CLIENT_ID/FITBIT_CLIENT_SECRET; + DELETE FROM health_tokens. Only drop FITBIT_DRY_RUN after the migrated code is live.
+
+## Deploy Steps — AGENT-EXECUTED, no human action
+
+**Precondition (GCP enable Google Health API + add the 4 scopes): VERIFIED DONE by the user.** No remaining human action.
+
+The release env + token-clear steps are performed by the LEAD agent (Railway MCP + DB) in **Task 30** — not by a human:
+- Railway (staging): set HEALTH_DRY_RUN=true; remove FITBIT_DRY_RUN, FITBIT_CLIENT_ID, FITBIT_CLIENT_SECRET (0 code usages). Production leaves HEALTH_DRY_RUN unset for live writes.
+- DB one-time (lead, at deploy): after the fitbit_tokens->health_tokens rename, clear the table (DELETE FROM health_tokens;) so both Lucas and Mariana re-consent once via login -> /app/connect-health -> Google Health. They will see healthConnected=false until they reconnect.
+- DB (lead, drizzle-kit generate + reviewed SQL): fitbit_tokens RENAME TO health_tokens (+ column rename fitbit_user_id->health_user_id, preserve FK/unique); DROP fitbit_credentials; food_log_entries DROP fitbit_log_id + ADD health_log_id text; custom_foods DROP fitbit_food_id; custom_foods/food_log_entries unit_id integer->text with USING cast + legacy-ID backfill (147->g,226->oz,91->cup,349->tbsp,364->tsp,209->ml,311->slice,304->serving, unknown->serving) and saved_analyses.food_analysis JSONB unit_id remap; ADD users.weightGoalType; new indexes (CREATE INDEX CONCURRENTLY on a live table); daily_calorie_goals activity_level CHECK; partial unique index on food_log_entries(user_id, health_log_id) WHERE NOT NULL.
+- GCP Google Health API enablement + consent-screen scope configuration is handled separately (out of scope for these tasks).
+- Staging QA verifies the inferred Google Health API field paths against the real API; correct the isolated body-builders if any field path differs.
 
 ## Post-Implementation Checklist
-
-1. Run `bug-hunter` agent — Review changes for bugs across all 10 tasks.
-2. Run `verifier` agent (no args) — Unit tests + lint + build.
-3. Run `verifier "e2e"` — Full Playwright suite (only lead, after all tasks merge).
-4. Update `MIGRATIONS.md` final entry to confirm the delete-today-and-future step ran in production (push-to-production workflow executes it as part of release).
+1. Run `bug-hunter` agent — review changes for bugs
+2. Run `verifier` agent (no args) — unit tests + lint + build, zero warnings
+3. Run `verifier "e2e"` agent — E2E suite (staging-testable gate)
+4. LEAD: Task 29 `drizzle-kit generate`, then the release/deploy notes above
 
 ---
 
 ## Plan Summary
 
-**Objective:** Replace the Fitbit-driven, drift-prone calorie engine with a goal-anchored, device-independent prescription. The daily target becomes a stable function of declared activity level, goal weight, and weekly rate — no longer a function of cumulative `caloriesOut` and no longer ratcheted only-up. Onboarding requires the user to set the three new values in Settings; the dashboard hides goal visuals (banner-gated) until they're set. Single profile (muscle-preserve), no body-fat input, no silent safety clamp (informational warning instead).
-**Linear Issues:** FOO-1040, FOO-1041, FOO-1042, FOO-1043, FOO-1044, FOO-1045, FOO-1046, FOO-1047, FOO-1048, FOO-1049
-**Approach:** Schema migration drops 8 obsolete columns and adds 8 new ones, deletes today/future `daily_calorie_goals` rows so the new engine writes fresh. Macro engine simplified to a pure function over Mifflin-St Jeor RMR × PAL multiplier with a deficit derived from `goalRateKgPerWeek × 1100`. Service layer drops ratchet/seed/promote logic in favor of a single idempotent compute. New `/api/daily-goals-settings` GET/PATCH replaces `/api/macro-profile`. UI gains a `DailyGoalsCard` (Settings) and `GoalsSetupBanner` (Dashboard); `TargetsCard` loses its expand-on-tap and inlines all audit fields; `MacroProfileCard` deleted.
-**Scope:** 10 tasks, ~25 files modified, ~7 files created, ~6 files deleted. Touches schema (1 migration), engine (1 module rewrite), service (1 module rewrite), 2 API routes (1 created, 1 deleted, 2 modified), 4 components (2 created, 2 deleted, 2 modified), 5 integration consumers (chat/profile/range/v1), 1 new E2E spec.
+**Objective:** Hard-cutover the app's nutrition/profile/weight/activity integration from Fitbit to Google Health (single absolute switch, no provider flags), fix the review-surfaced bugs, and modernize the Anthropic Core (SDK ^0.100, prompt-cache, server-side context editing).
+**Approach:** Phase the work foundation-first: extract shared HTTP helpers and bump the SDK before any deletes (Phase 0); land the entire data model, the single-owner src/types/index.ts rename, the serving-unit re-model, and the session contract (Phase 1); stand up the Google Health OAuth connect flow and the google-health transport/rate-limit cores (Phase 2); rewire all write and read paths plus the renamed routes/caches (Phase 3); migrate UI/hooks, the Claude cache/context-editing changes, docs, the non-migration bug-fixes, and the E2E/goal-engine tests (Phase 4); then a single lead-only drizzle-kit generate (Phase 5). Every task is test-first with colocated __tests__/ and concrete assertions; Google Health request/response body shapes are isolated in body-builder helpers and verified against the real API during staging QA.
+**Linear Issues:** FOO-1071–FOO-1100 (30 issues, Todo)
+**Scope:** 30 tasks across 6 phases, ~144 files, 62+ test files
 **Key Decisions:**
-- Single source of truth for goal inputs is `users.activity_level / goal_weight_kg / goal_rate_kg_per_week`. Fitbit reads continue for sex/age/height/weight only.
-- No safety clamp; safety floors (1500 male / 1200 female) surface as a Settings-side warning at edit time. User retains full agency.
-- Direction (LOSE/MAINTAIN/GAIN) inferred from `currentWeight` vs `goalWeight`, with `goalRate=0` forcing MAINTAIN.
-- Migration deletes `daily_calorie_goals` rows where `date >= CURRENT_DATE` so the new engine writes fresh today/future rows. Past rows kept for date-history view; their audit fields will read NULL after the column drops, and `TargetsCard` renders only non-null audit rows.
-- Live client-side target preview imports the pure engine function; safety warning is rendered when the previewed target is below the floor.
-- Body-fat / Katch-McArdle excluded from this rework.
-- Adaptive thermogenesis weekly recalibration excluded from this rework.
+- Single absolute cutover: delete ALL Fitbit code (fitbit.ts, fitbit-tokens.ts, fitbit-credentials.ts, fitbit-cache.ts, fitbit-rate-limit.ts, fitbit-health.ts, setup-fitbit, fitbit-setup-form, fitbit-setup-guard, fitbit-status-banner, fitbit-profile-card) — no shims, no provider flag, no deferred stage.
+- Per-user Fitbit credentials are eliminated: Google Health reuses the single shared Google OAuth client; fitbit_credentials table + module dropped.
+- ONE Phase-1 task owns every src/types/index.ts ErrorCode/session/FoodLogResponse/serving-unit/meal-type rename; all other tasks depend on it (resolves C2 worktree conflict).
+- Extract parseErrorBody/sanitizeErrorBody/jsonWithTimeout/REQUEST_TIMEOUT_MS to src/lib/http.ts BEFORE deleting fitbit.ts so auth.ts and google-health.ts have a provider-neutral home (M1).
+- Food visibility filter is re-based off food_log_entries.health_log_id (a remote-log handle), NOT the dropped custom_foods.fitbit_food_id, gated on HEALTH_DRY_RUN (C1/M5).
+- Fitbit numeric serving-unit IDs become an internal ServingUnit string enum ('g'|'oz'|'cup'|'tbsp'|'tsp'|'ml'|'slice'|'serving'); the Claude tool emits serving_unit; a LEGACY_FITBIT_UNIT_ID_TO_SERVING_UNIT map backfills existing rows.
+- Google Health nutrition logs are anonymous single-create (collapse Fitbit createFood+logFood into one createNutritionLog; batchDelete replaces deleteFoodLog); edit is always delete-old+create-new, matching the existing route structure.
+- Weight-goal (LOSE/MAINTAIN/GAIN) has no Google Health equivalent — degrade to a local nullable users.weightGoalType column (display-only consumer); delete getFitbitWeightGoal + its cache.
+- Anthropic Core: keep model claude-sonnet-4-6; move volatile date/time into the message stream so the system prefix caches; extend cache_control over image blocks; replace truncateConversation with beta context-management clear_tool_uses (delete fn + tests + all 3 call sites).
+- drizzle-kit generate is ONE lead-only task after ALL schema edits land; workers never hand-write migrations or snapshots.
+- Release env/DB steps are AGENT-executed by the lead via Railway MCP + DB (Task 30) — set HEALTH_DRY_RUN on staging, drop orphaned FITBIT_* vars, clear health_tokens. Zero human action; GCP enablement already verified done.
+- Dry-run invariant matches the current Fitbit architecture exactly: HEALTH_DRY_RUN gates ONLY the nutrition write/delete (createNutritionLog/deleteNutritionLogs) + the visibility filter; OAuth (all 4 scopes), token refresh, and profile/weight/activity reads are REAL on staging. Staging always HEALTH_DRY_RUN=true, production always false. The actual nutrition write/delete is the only surface first exercised in production.
 **Risks:**
-- v1 API audit-block shape change is breaking for external consumers (e.g., HealthHelper). Acceptable per project's "delete unused code immediately" stance.
-- Past-date dashboard views will show partial audit data (only RMR + Weight) for entries written by the old engine. UI handles gracefully by rendering only non-null rows.
-- Migration is sizable (drop + add 14 columns total + DELETE step). The DELETE statement must be appended to the drizzle-kit-generated SQL by hand because drizzle-kit emits DDL only.
+- Google Health request/response BODY SHAPES (nutrition-log create/batchDelete, users/me/identity, health_metrics weight query, activity dailyRollUp, profile sex/height/DOB) are inferred from docs, not a live API. Body-builders are isolated; unit tests mock fetch; correctness is verified during staging QA (C4).
+- The fitbitFoodId visibility-filter re-base changes which foods appear in history/search in production — intended under Postgres-as-source-of-truth but a visible behavior change to call out in the PR (C1).
+- The unit_id integer->text ALTER on populated custom_foods/food_log_entries needs a USING cast + legacy-ID backfill; a wrong USING corrupts every portion label — verify against a DB backup before release.
+- Google profile sex/height/DOB enum mapping must default unknown sex to NA (never throw) or daily-goals compute breaks for both users.
+- Migrating createStreamWithRetry from messages.stream to beta.messages.stream touches the single path all 6 Claude entry points funnel through; the Sentry-instrumented client must still wrap beta.messages.
+- context-management clear_tool_uses interacts with prompt caching — clearing tool results invalidates the cached prefix at the clear point, so clear_at_least must be high enough and image-prefix caching (A2) lands before A3.
+- src/types/index.ts and src/lib/session.ts are foundation files imported by nearly every route; the field renames break the build until all consumers land in the same merge — lead runs full npm test post-merge.
+- Forcing both users to re-consent means healthConnected=false until they reconnect — expected but must be communicated.
 
 ---
 
-## Iteration 1
+## Iteration 1: Phase 0 — Anthropic SDK bump + provider-neutral HTTP extraction
 
-**Implemented:** 2026-05-08
+**Date:** 2026-05-31
+**Status:** PARTIAL — 27 tasks remaining (Phases 1–5)
+**Method:** single-agent
+
+### Summary
+Completed all of Phase 0 (foundation-before-deletes): bumped `@anthropic-ai/sdk` to ^0.100.1, extracted the shared HTTP helpers into a provider-neutral `src/lib/http.ts`, and widened `exchangeGoogleCode` to surface `refresh_token`/`expires_in`/`scope` for the upcoming health-connect callback. The tree is fully green (typecheck 0 errors, all touched suites pass, build + lint clean). Stopped at the Phase 0/1 boundary — Phase 1 renames the single-owner `src/types/index.ts`, which breaks compilation across every consumer until Tasks 5–23 land, so it cannot be partially completed; the next run resumes at Task 4.
+
+### Completed Tasks
+- **Task 1: Bump @anthropic-ai/sdk ^0.78 → ^0.100.1** (FOO-1071) — dependency upgraded + `npm install`; the anticipated type fallout did not materialize (typecheck passed with zero source edits to claude.ts/claude-usage.ts); `vitest "claude"` = 292 passing (= baseline), build + lint clean.
+- **Task 2: Extract parseErrorBody/sanitizeErrorBody/jsonWithTimeout → src/lib/http.ts** (FOO-1072) — moved the 3 helpers + `REQUEST_TIMEOUT_MS` verbatim into the new `src/lib/http.ts` with a colocated test; `fitbit.ts` now imports + re-exports them (so `fitbit.test.ts` importers stay green until fitbit.ts is deleted in Phase 3); `auth.ts` repointed to `@/lib/http`.
+- **Task 3: Widen exchangeGoogleCode → {access_token, refresh_token?, expires_in?, scope?}** (FOO-1073) — added the `ExchangeGoogleCodeResult` interface, parse the optional fields with type guards (undefined when omitted), LOGIN callers (read only `access_token`) untouched; 3 new auth tests.
+
+### Issues Encountered
+- The repeated "blank/duplicated" tool outputs earlier in the run were a transient output-delivery lag, not failures — every command had actually executed. Mitigated by routing long commands to a file via `run_in_background` and reading the file on the completion notification.
+- Initial Task-2 test draft asserted incorrect helper behavior (assumed Bearer-redaction); corrected to match the verbatim implementations (`sanitizeErrorBody` strips HTML + truncates to 500; `parseErrorBody` falls back to `"unable to read body"`; `jsonWithTimeout` throws `"Response body read timed out"`).
+- A Task-3 test compared a `URLSearchParams` body as a string; fixed by `String(...)`-coercing before asserting `.toContain`.
+
+### Tasks Remaining
+Resume at **Phase 1, Task 4** (FOO-1074 — single-owner `src/types/index.ts` rename), then Tasks 5–10 (rest of Phase 1), then Phases 2–5 (Tasks 11–30). Phase 1 must be completed as one atomic unit (the types rename cascades across all consumers + schema.ts) before typecheck returns to green.
+
+### Verification
+- `npm run typecheck` — 0 errors
+- `npx vitest run http` — pass (8); `npx vitest run auth` — pass (24); `npx vitest run fitbit` — pass (130); `npx vitest run "claude"` — pass (292)
+- `npm run build` — success; `npm run lint` — zero warnings
+- (Task 1 full gate run earlier: tests + build + lint all exit 0)
+
+### Files Changed
+- `package.json` (modify — SDK ^0.100.1)
+- `package-lock.json` (modify)
+- `src/lib/http.ts` (create)
+- `src/lib/__tests__/http.test.ts` (create)
+- `src/lib/fitbit.ts` (modify — helpers moved out, re-exported from @/lib/http)
+- `src/lib/auth.ts` (modify — import @/lib/http; widen exchangeGoogleCode)
+- `src/lib/__tests__/auth.test.ts` (modify — 3 new exchangeGoogleCode tests)
+
+<!-- REVIEW COMPLETE --> <!-- reviewed in the consolidated migration review under Iteration 6 -->
+
+---
+
+## Iteration 2: Phase 1 — data model + single-owner type rename + session contract
+
+**Date:** 2026-05-31
+**Status:** PARTIAL — 20 tasks remaining (Phases 2–5, Tasks 11–30)
+**Method:** single-agent
+
+### Summary
+Completed all of **Phase 1 (Tasks 4–10)** — the foundational data-model + type cutover. Task 4 owns the single rename of `src/types/index.ts`; Tasks 5–9 rewrite `src/db/schema.ts` (token table rename, credentials-table drop, food-log column changes, indexes/checks, `weightGoalType`); Task 10 rewires the session contract. Every Phase-1 task was implemented test-first; **all 251 Phase-1 unit tests pass** and **all seven Phase-1 source files typecheck clean** (0 errors in `types/index.ts`, `db/schema.ts`, `health-tokens.ts`, `food-log.ts`, `food-matching.ts`, `users.ts`, `session.ts`). bug-hunter reviewed the diff and found 0 actionable bugs.
+
+**Expected red global typecheck (≈384 errors):** The single-owner `types/index.ts` rename cascades across every consumer that is migrated in later phases (`fitbit*.ts`, `claude.ts`, `daily-goals.ts`, all `src/app/api/**` routes, `src/components/**`, hooks). This is the documented inherent property of this atomic cutover (Iteration 1 flagged it: "breaks compilation across every consumer until Tasks 5–23 land"). The full build/verifier/E2E gate is therefore deferred to the end of the migration (the plan's Post-Implementation Checklist + plan-review-implementation), not run mid-cutover. Verification this iteration was per-task via `npx vitest run` (Vitest compiles per-file via esbuild, independent of the project-wide `tsc`).
+
+### Completed Tasks
+- **Task 4 (FOO-1074):** Single-owner `src/types/index.ts` rewrite — `FITBIT_UNITS`/`getUnitById`/`FitbitUnitKey` → `ServingUnit` string enum + `SERVING_UNITS` + `coerceServingUnit` + `LEGACY_FITBIT_UNIT_ID_TO_SERVING_UNIT`; `getUnitLabel(ServingUnit|string, amount)`; retyped `unit_id`/`unitId` to `ServingUnit` on `FoodAnalysis`/`CommonFood`/`FoodLogHistoryEntry`/`FoodMatch`/`FoodLogEntryDetail`/`MealEntry`; `fitbitConnected`→`healthConnected`, dropped `hasFitbitCredentials`; `ErrorCode` FITBIT_*→HEALTH_* (dropped `FITBIT_CREDENTIALS_MISSING`); `FoodLogResponse.fitbitLogId`(number)→`healthLogId`(string), dropped `fitbitFoodId`; `FitbitProfile(Data)`→`HealthProfile(Data)`, `FitbitWeightLog`→`HealthWeightLog`, `FitbitHealthStatus`→`HealthConnectionStatus` (dropped `needs_setup`), `FITBIT_MEAL_TYPE_LABELS`→`MEAL_TYPE_LABELS`, `FitbitMealType`→`MealType`; removed `FitbitWeightGoal`. 19 tests.
+- **Task 5 (FOO-1075):** `fitbit_tokens`→`health_tokens` (`fitbit_user_id`→`health_user_id`); ported the store to `src/lib/health-tokens.ts` (`getHealthTokens`/`upsertHealthTokens`/`deleteHealthTokens`, `HealthTokenRow`); deleted `fitbit-tokens.ts` + test. 10 tests.
+- **Task 6 (FOO-1076):** Dropped `fitbit_credentials` table; deleted `src/lib/fitbit-credentials.ts` + test.
+- **Task 7 (FOO-1077):** `food_log_entries.fitbit_log_id`(bigint)→`health_log_id`(text), dropped `custom_foods.fitbit_food_id`, **`unit_id` integer→text on both tables** (required for the `ServingUnit` types + the migration's USING-cast backfill); rewired `food-log.ts` + `food-matching.ts` (every `fitbitLogId`→`healthLogId` string, removed all `fitbitFoodId`, mappers wrap unit reads in `coerceServingUnit`); re-based the visibility/DRY-RUN filter from `custom_foods.fitbit_food_id` to `food_log_entries.health_log_id` gated on `HEALTH_DRY_RUN` across `getCommonFoods`/`getRecentFoods`/`searchFoods`/`findMatchingFoods`; renamed all `FITBIT_DRY_RUN`→`HEALTH_DRY_RUN`. 161 tests (food-log + food-matching).
+- **Task 8 (FOO-1078):** Added indexes `food_log_entries_user_date_idx`, `food_log_entries_custom_food_idx`, `custom_foods_user_idx`; `daily_calorie_goals_activity_level_chk` CHECK; partial unique index `food_log_entries_user_health_log_uniq` on `(user_id, health_log_id) WHERE health_log_id IS NOT NULL`.
+- **Task 9 (FOO-1079):** Added nullable `users.weight_goal_type` + CHECK (`LOSE`/`MAINTAIN`/`GAIN`); `getWeightGoalType`/`setWeightGoalType` in `src/lib/users.ts` (the existing settings module — the plan's notional `user-settings.ts`).
+- **Task 10 (FOO-1080):** `session.ts` derives `healthConnected` from `getHealthTokens`; dropped `hasFitbitCredentials`; `validateSession({requireHealth})` → 400 `HEALTH_NOT_CONNECTED` (collapsed the two-tier fitbit check).
+
+### Interpretations / decisions (documented per Autonomous-Execution rules)
+- **Single-owner completeness:** the plan's Task-4 step-3 enumeration omitted the `fitbitLogId`→`healthLogId` rename and `fitbitFoodId` removal on the *data interfaces* (`FoodLogHistoryEntry`/`MealEntry`/`FoodLogEntryDetail`/`CommonFood`/`FoodMatch`), but those tasks "must not edit `types/index.ts`" (C2). Resolved by making Task 4 reflect the full end-state shape so consumers cascade — the only internally consistent reading.
+- **`unit_id` column type:** no task explicitly assigned the `integer`→`text` schema change, but the `ServingUnit` string types + the deploy notes' USING-cast backfill + Task 29's `drizzle-kit generate` all require it. Assigned to Task 7 (the schema + food-log data task) as the natural owner.
+- **`HealthConnectionStatus` dropped `needs_setup`** and **`FitbitWeightGoal` removed** now (end-state) even though their last consumers (`fitbit-health.ts`, `fitbit.ts`/`fitbit-cache.ts`) aren't deleted until Phase 3 — consistent with the cascade; those files are already red and are deleted in Tasks 18/20.
+- **Module mapping:** plan's `user-settings.ts` = existing `src/lib/users.ts`; weight-goal helpers added there.
+- **Test-fixture transform:** the visibility filter is mocked in unit tests (WHERE isn't executed), so the `HEALTH_DRY_RUN` dry-run tests assert mapping/inclusion (renamed away from the dead `fitbitFoodId` assertions); numeric `unit_id` fixtures coerce correctly via `coerceServingUnit`.
+
+### Issues Encountered
+- The food-log test suite (~3000 lines) required a bulk mechanical transform (`FITBIT_DRY_RUN`→`HEALTH_DRY_RUN`, `fitbitLogId`→`healthLogId` with number→string, helper-default unit strings) plus ~15 targeted semantic edits (removed obsolete `fitbitFoodId` insert-value/output assertions, deleted the bigint-range and "uses provided fitbitFoodId" tests). Done via a Node regex pass + hand edits; all 141 food-log tests pass.
+
+### Tasks Remaining
+Resume at **Phase 2, Task 11** (FOO-1081 — `buildGoogleHealthAuthUrl`/`getGoogleHealthIdentity`/email_verified gate), then the rest of Phase 2 (Tasks 12–15: google-health initiation route, callback branching, rate-limit core, google-health transport core), Phase 3 (Tasks 16–21: nutrition write/delete + read migration, route rewires, fitbit.ts deletion, health-cache, profile/v1 routes, Claude serving_unit schema), Phase 4 (Tasks 22–28: hook/component cutover, UI connect flow, Anthropic A2/A3, non-migration fixes, integration suite, E2E/docs), Phase 5 (Tasks 29–30: lead-only `drizzle-kit generate` + release env/token-clear). The global typecheck returns to green around Task 23 (when the last UI/route/claude consumers land); the full verifier + E2E gate runs after Phase 4.
+
+### Verification
+- Phase-1 suites (all green): `types/__tests__/index` (19), `db/__tests__/schema` (33), `health-tokens` (10), `food-log` (141), `food-matching` (20), `users` (12), `session` (15) — **251 tests pass**.
+- `npm run typecheck` — **intentionally red (~384 errors), all in unmigrated Phase 2–4 consumers**; the 7 Phase-1 source files are typecheck-clean (verified by filtering tsc output to those paths → empty).
+- bug-hunter (Sonnet) reviewed the full Phase-1 diff — **0 actionable bugs** (one redundant-but-harmless dry-run guard noted, kept for parity with the original Fitbit code).
+- Full build/lint/E2E **deferred** to migration end (structurally impossible mid-cutover; runs in the Post-Implementation Checklist / plan-review-implementation).
+
+### Files Changed
+- `src/types/index.ts` (modify), `src/types/__tests__/index.test.ts` (modify)
+- `src/db/schema.ts` (modify — health_tokens rename, fitbit_credentials drop, food_log/custom_foods columns, unit_id→text, indexes/checks, weightGoalType), `src/db/__tests__/schema.test.ts` (modify)
+- `src/lib/health-tokens.ts` (create), `src/lib/__tests__/health-tokens.test.ts` (create)
+- `src/lib/fitbit-tokens.ts` (delete), `src/lib/__tests__/fitbit-tokens.test.ts` (delete)
+- `src/lib/fitbit-credentials.ts` (delete), `src/lib/__tests__/fitbit-credentials.test.ts` (delete)
+- `src/lib/food-log.ts` (modify), `src/lib/__tests__/food-log.test.ts` (modify)
+- `src/lib/food-matching.ts` (modify), `src/lib/__tests__/food-matching.test.ts` (modify)
+- `src/lib/users.ts` (modify — weightGoalType helpers), `src/lib/__tests__/users.test.ts` (modify)
+- `src/lib/session.ts` (modify), `src/lib/__tests__/session.test.ts` (modify)
+- `MIGRATIONS.md` (modify — Tasks 4–10 migration notes)
+
+<!-- REVIEW COMPLETE --> <!-- reviewed in the consolidated migration review under Iteration 6 -->
+
+---
+
+## Iteration 3: Phase 2 — Google Health OAuth connect flow + transport/rate-limit cores
+
+**Date:** 2026-05-31
+**Status:** PARTIAL — 15 tasks remaining (Phases 3–5, Tasks 16–30)
+**Method:** Agent team (2 workers, worktree-isolated)
+
+### Summary
+Completed all of **Phase 2 (Tasks 11–15)** — the Google Health OAuth connect flow plus the google-health transport + rate-limit cores. Two independent work units ran in parallel: **worker-1** (auth/OAuth: Tasks 11–13) and **worker-2** (transport: Tasks 14–15). No file overlap, both merges clean (worker-2 fast-forward, worker-1 ort merge). All **216 Phase-2 unit tests pass** (108 across the 5 directly-touched files; full Phase-2 suite incl. rate-limit/transport). bug-hunter found **1 HIGH bug** (naked `upsertHealthTokens` in the health-connect callback branch) — fixed by the lead with a typed `HEALTH_TOKEN_SAVE_FAILED` 500 + a regression test.
+
+**Expected red global typecheck (385 errors):** unchanged in nature from Iteration 2 — all in unmigrated Phase 3–4 Fitbit consumers (`fitbit.ts`, `fitbit-cache.ts`, `claude.ts`, components, old `/api/auth/fitbit/*` + `/api/fitbit/*` routes). Deleting `fitbit-rate-limit.ts` (Task 14) added a couple of new `fitbit.ts` import errors — expected (`fitbit.ts` is deleted in Task 18). The Phase-2 merged source files are themselves typecheck-clean (filtered `tsc` output for them → empty). Full build/verifier/E2E remain deferred to migration end.
+
+### Tasks Completed This Iteration
+- **Task 11 (FOO-1081):** Added `GOOGLE_HEALTH_SCOPES` (4 exact full URLs), `buildGoogleHealthAuthUrl` (mirrors login builder, `access_type=offline`+`prompt=consent`), `getGoogleHealthIdentity` (`health.googleapis.com/v4/users/me/identity`, Bearer, timeout+AbortController, logs `google_health_identity_fetch_failed`), and `emailVerified` parsing on `getGoogleProfile` (boolean `true` OR string `'true'` → true, else false, no throw). (worker-1)
+- **Task 12 (FOO-1082):** Created `/api/auth/google-health/route.ts` (POST+GET → `initiate()`): `getSession()`+`validateSession()`, state `{nonce, flow:'health-connect'}` into `rawSession.oauthState`, reuses `buildUrl('/api/auth/google/callback')`, 302-redirects. (worker-1)
+- **Task 13 (FOO-1083):** Added `exchangeGoogleHealthCode` (validates `refresh_token` present, throws typed error if absent); rewrote the callback to branch on `flow==='health-connect'` (require `getSessionById` DB session, exchange + `getGoogleHealthIdentity` + `upsertHealthTokens`, 302 `/app`, no `createSession`) vs login (email_verified gate → 403 `AUTH_INVALID_EMAIL` before allowlist; post-login redirect to `/app` when health tokens exist else `/app/setup-health`); removed `fitbit-tokens`/`fitbit-credentials` imports. (worker-1)
+- **Task 14 (FOO-1084):** Created `src/lib/google-health-rate-limit.ts` (per-user Map, injected logger, recent-429 `cooldownUntil` model; exports `HealthCallCriticality`, `assertRateLimitAllowed`, `recordRateLimitHeaders`, `getRateLimitSnapshot`, `_resetForTests`; never blocks `critical`); deleted `fitbit-rate-limit.ts` + test. (worker-2)
+- **Task 15 (FOO-1085):** Created `src/lib/google-health.ts` (`fetchWithRetry`: 401→`HEALTH_TOKEN_INVALID`, 403→`HEALTH_SCOPE_MISSING`, 429 single-retry then `HEALTH_RATE_LIMIT`, 5xx backoff, `DEADLINE_MS` budget→`HEALTH_TIMEOUT`; `refreshGoogleHealthToken` preserves the input refresh token; **race-safe `ensureFreshToken`** registers the in-flight promise BEFORE the refresh decision and re-reads the row inside the deduped IIFE, closing the read-then-check window present in `fitbit.ts`; upsert failure → `HEALTH_TOKEN_SAVE_FAILED`). Concurrency test: 5 concurrent calls → token endpoint hit exactly once. (worker-2)
+
+### Tasks Remaining
+Resume at **Phase 3, Task 16** (FOO-1086 — `createNutritionLog`/`deleteNutritionLogs` on google-health.ts with `HEALTH_DRY_RUN`), then Tasks 17–21 (write-route rewires, fitbit.ts deletion + reads, health-cache rename, profile/v1 routes, Claude serving_unit schema), Phase 4 (Tasks 22–28), Phase 5 (Tasks 29–30: lead-only `drizzle-kit generate` + release env/token-clear). Global typecheck returns to green around Task 23; full verifier + E2E gate runs after Phase 4.
+
+### Files Modified
+- `src/lib/auth.ts` (modify), `src/lib/__tests__/auth.test.ts` (modify — 15 new tests, 38 total)
+- `src/app/api/auth/google-health/route.ts` (create), `src/app/api/auth/google-health/__tests__/route.test.ts` (create — 10 tests)
+- `src/app/api/auth/google/callback/route.ts` (modify — flow-branching rewrite + lead's upsert try/catch), `src/app/api/auth/google/callback/__tests__/route.test.ts` (modify — 29 tests incl. lead's HEALTH_TOKEN_SAVE_FAILED regression test)
+- `src/lib/google-health-rate-limit.ts` (create), `src/lib/__tests__/google-health-rate-limit.test.ts` (create — 13 tests)
+- `src/lib/google-health.ts` (create), `src/lib/__tests__/google-health.test.ts` (create — 19 tests)
+- `src/lib/fitbit-rate-limit.ts` (delete), `src/lib/__tests__/fitbit-rate-limit.test.ts` (delete)
+
+### Linear Updates
+- FOO-1081 → Todo → In Progress → Review
+- FOO-1082 → Todo → In Progress → Review
+- FOO-1083 → Todo → In Progress → Review
+- FOO-1084 → Todo → In Progress → Review
+- FOO-1085 → Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter (Sonnet): Found 1 HIGH bug — naked `upsertHealthTokens` in the health-connect callback branch (DB failure after token exchange → unstructured 500). Fixed by the lead: wrapped in try/catch returning `errorResponse("HEALTH_TOKEN_SAVE_FAILED", …, 500)` + added a regression test. Verified-clean: ensureFreshToken dedup, AbortController/setTimeout cleanup, OAuth state/nonce, email_verified gate, returnTo open-redirect guard, token-logging.
+- verifier (full build/lint/E2E): **deferred** to migration end (structurally impossible mid-cutover). Per-file verification via `npx vitest run`: all 108 directly-touched Phase-2 tests pass; `npm run typecheck` red (385) only in unmigrated consumers, 0 in Phase-2 files.
+
+### Work Partition
+- Worker 1: Tasks 11, 12, 13 (auth/OAuth domain — `auth.ts`, google-health initiation route, callback branching)
+- Worker 2: Tasks 14, 15 (transport domain — google-health rate-limit + transport cores)
+
+### Merge Summary
+- Worker 2 (foundation/service layer): fast-forward, no conflicts
+- Worker 1 (auth + routes): ort merge, no conflicts
+- Lead post-merge: bug fix in `callback/route.ts` (HIGH bug from bug-hunter) + regression test
+
+### Continuation Status
+Phase boundary reached (workers-mode checkpoint). Phase 2 complete and merged; resume at Phase 3, Task 16.
+
+<!-- REVIEW COMPLETE --> <!-- reviewed in the consolidated migration review under Iteration 6 -->
+
+---
+
+## Iteration 4: Phase 3 — Google Health write/read transport + route rewires + Claude serving_unit
+
+**Date:** 2026-05-31
+**Status:** PARTIAL — 9 tasks remaining (Phases 4–5, Tasks 22–30)
+**Method:** Agent team (2 workers, worktree-isolated)
+
+### Summary
+Completed all of **Phase 3 (Tasks 16–21)** — the Google Health nutrition write/delete + profile/weight/activity reads, the three write-route rewires, the health-cache rename, the profile/v1/health-status routes, and the Claude `serving_unit` tool-schema migration. Two work units ran in parallel: **worker-1** (a sequential transport/routes/cache chain, Tasks 16→17→18→19→20, including the full deletion of `src/lib/fitbit.ts`) and **worker-2** (the independent Claude analysis domain, Task 21). After merge, **all 874 migrated + foundation unit tests pass**. bug-hunter found **4 real bugs** (2 HIGH, 2 MEDIUM) — all fixed by the lead with regression tests.
+
+**Expected red global typecheck (251 errors, down from ~385):** Deleting `fitbit.ts`/`fitbit-cache.ts`/`fitbit-health.ts` + the `/api/fitbit/*` routes removed many errors; the remainder are all in **unmigrated Phase-4 consumers** (`src/components/**`, `src/hooks/use-log-to-fitbit`, `/api/auth/fitbit/**`, `/api/fitbit-credentials`, `src/lib/chat-tools.ts`, `src/lib/user-profile.ts`, and test fixtures with numeric `unit_id`). The Phase-3 migrated source files are themselves typecheck-clean (filtered `tsc` → empty). Full build/verifier/E2E remain deferred to migration end; the global typecheck returns to green around Task 23.
+
+### Tasks Completed This Iteration
+- **Task 16 (FOO-1086):** `createNutritionLog` + `deleteNutritionLogs` on `google-health.ts` via one isolated `buildNutritionLogBody` helper, criticality `critical`, module-level `HEALTH_DRY_RUN` gate (collapses Fitbit createFood+logFood into one anonymous-food create; batchDelete replaces deleteFoodLog). (worker-1)
+- **Task 17 (FOO-1087):** Rewired `log-food` (per-user `clientToken` in-memory idempotency, full `HEALTH_*`→HTTP mapping incl. `HEALTH_RATE_LIMIT_LOW`→503), `edit-food` (delete-old+create-new on both fast and regular paths, 4 compensation branches), and `food-history/[id]` DELETE to Google Health. (worker-1)
+- **Task 18 (FOO-1088):** `getHealthProfile`/`getHealthLatestWeightKg` (single 14-day ranged read, most-recent on/before target)/`getHealthActivitySummary` on `google-health.ts`; sex enum defaults unknown→`NA`. **Deleted `src/lib/fitbit.ts` + `fitbit.test.ts` entirely.** (worker-1)
+- **Task 19 (FOO-1089):** Created `health-cache.ts` (getCachedHealthProfile/WeightKg/ActivitySummary + invalidateHealthProfileCache, dropped the weight-goal cache); deleted `fitbit-cache.ts`; rewired `daily-goals.ts`. (worker-1)
+- **Task 20 (FOO-1090):** Created `/api/health-profile`, `/api/health-status`, and `src/lib/health-connection.ts` (`checkHealthConnection`: needs_reconnect/scope_mismatch/healthy); migrated `/api/v1/activity-summary`; renamed `swr.ts` export `FITBIT_BACKED_SWR_CONFIG`→`HEALTH_BACKED_SWR_CONFIG`; deleted `/api/fitbit/profile`, `/api/fitbit/health`, `fitbit-health.ts`. (worker-1)
+- **Task 21 (FOO-1091):** Renamed the Claude tool-schema property `unit_id`→`serving_unit` (string enum, 8 members) in BOTH `REPORT_NUTRITION_TOOL` and `REPORT_SESSION_ITEMS_TOOL` (properties + required + input_examples); `validateFoodAnalysis`/`validateSessionItems`/`isValidFoodAnalysisFields`/analysis-session match-validator now treat the unit as a `ServingUnit` string (tolerant coerce→'serving'). (worker-2)
+
+### Lead Merge-Resolution + Bug Fixes
+Cross-worker integration issues caught at the post-merge gate (worker-1's fixtures predate worker-2's parallel validator change) and fixed by the lead:
+- **swr.test.ts** still imported the renamed `FITBIT_BACKED_SWR_CONFIG` → updated to `HEALTH_BACKED_SWR_CONFIG`.
+- **log-food/edit-food test fixtures** used numeric `unit_id: 147` (worker-1 left a "Task 21 migrates it" note); after worker-2 made `isValidFoodAnalysisFields` require a `ServingUnit` string, these payloads 400'd → migrated fixtures to `"g"`.
+- **claude-triage.test.ts** asserted the old `unit_id` in `REPORT_SESSION_ITEMS_TOOL` → updated to `serving_unit` (assertion + fixtures).
+
+bug-hunter (Sonnet) findings — all fixed with regression tests:
+- **[HIGH] daily-goals.ts:467** caught the stale string `"FITBIT_SCOPE_MISSING"`; `google-health.ts` throws `"HEALTH_SCOPE_MISSING"`, so a real 403 never mapped to `scope_mismatch` (the test mock used the same wrong string, hiding it). Fixed code + both test sites.
+- **[HIGH] edit-food/route.ts** top-level `ensureFreshToken` calls (fast + regular paths) were unwrapped → a token-refresh failure escaped as an unhandled 500. Added a `mapHealthErrorToResponse` helper mirroring log-food (HEALTH_TOKEN_INVALID→401, TIMEOUT→504, RATE_LIMIT_LOW→503, RATE_LIMIT→429) and wrapped both calls.
+- **[MEDIUM] log-food/route.ts** idempotency cache was never written in the **reuse** flow (only new-food) → reuse-flow retries duplicated the log. Added the cache write to the reuse success path.
+- **[MEDIUM] log-food/route.ts** mapped exhausted `HEALTH_RATE_LIMIT` to HTTP 500; corrected to **429** (matching v1/activity-summary).
+
+### Interpretations / decisions (documented per Autonomous-Execution rules)
+- **Worker labels:** the "Worker 1"/"Worker 2" Linear labels referenced in older runs do not exist in this workspace; worker attribution is cosmetic, so the lead skipped creating them and relied on real-time Todo→In Progress→Review state transitions (the substantive Linear coordination).
+- **Post-merge gate scope:** full `npm test`/build/E2E is structurally impossible mid-cutover (unmigrated Phase-4 test files import deleted modules). The lead ran the broad Phase-3 + foundation vitest set (874 tests) as the integration gate, exactly as Iterations 1–3 did.
+- **Numeric-`unit_id` fixtures in `food-log.test.ts`/`food-matching.test.ts`** are pre-existing Phase-1 test-fixture type debt (vitest strips types and runs green); left for the Phase-4 Task 22 fixture sweep per its note.
+
+### Tasks Remaining
+Resume at **Phase 4, Task 22** (FOO-1092 — `use-log-to-fitbit`→`use-log-food` rename + retype `healthLogId` across 5 consumers + unit-renderer components + `chat-tools.ts`), then Tasks 23–28 (UI connect-Google-Health flow + settings strip, Anthropic Core A2/A3 cache/context-editing, non-migration review fixes, real-Postgres integration suite, E2E/docs sweep), then Phase 5 (Tasks 29–30: lead-only `drizzle-kit generate` + release env/token-clear). The global typecheck returns to green around Task 23 (last UI/route/claude consumers); the full verifier + E2E gate runs after Phase 4 completes.
+
+### Verification
+- Phase-3 migrated suites (all green): google-health, health-cache, health-connection, daily-goals, swr, log-food, edit-food, food-history/[id], health-profile, health-status, v1/activity-summary, claude, food-validation, analysis-session, claude-triage — plus foundation regression (food-log, food-matching, session, health-tokens, auth, callback, types, schema, rate-limit, claude-usage/retry). **874 tests pass.**
+- 4 lead regression tests added (log-food reuse idempotency + HEALTH_RATE_LIMIT→429; edit-food token-failure→401 + rate-limit-low→503).
+- `npm run typecheck` — **intentionally red (251 errors), all in unmigrated Phase-4 consumers**; the Phase-3 migrated source files are typecheck-clean.
+- bug-hunter (Sonnet): 4 real bugs found and all fixed (2 HIGH, 2 MEDIUM).
+- Full build/lint/E2E **deferred** to migration end (structurally impossible mid-cutover).
+
+### Files Changed
+- `src/lib/google-health.ts` (modify — nutrition write/delete + 3 reads), `src/lib/__tests__/google-health.test.ts` (modify)
+- `src/lib/health-cache.ts` (create, from fitbit-cache.ts), `src/lib/__tests__/health-cache.test.ts` (create); `src/lib/fitbit-cache.ts` + test (delete)
+- `src/lib/health-connection.ts` (create), `src/lib/__tests__/health-connection.test.ts` (create); `src/lib/fitbit-health.ts` (delete)
+- `src/lib/fitbit.ts` + `src/lib/__tests__/fitbit.test.ts` (delete)
+- `src/lib/daily-goals.ts` (modify — health-cache imports + scope-string fix), `src/lib/__tests__/daily-goals.test.ts` (modify)
+- `src/lib/swr.ts` (modify — HEALTH_BACKED_SWR_CONFIG), `src/lib/__tests__/swr.test.ts` (modify — lead rename fix)
+- `src/lib/claude.ts` (modify — serving_unit schema), `src/lib/__tests__/claude.test.ts` + `claude-triage.test.ts` (modify)
+- `src/lib/food-validation.ts` (modify) + test; `src/lib/analysis-session.ts` (modify) + test
+- `src/app/api/log-food/route.ts` (modify — idempotency, 429 fix) + test; `src/app/api/edit-food/route.ts` (modify — token-error mapping) + test; `src/app/api/food-history/[id]/route.ts` (modify) + test
+- `src/app/api/health-profile/route.ts` (create) + test; `src/app/api/health-status/route.ts` (create) + test
+- `src/app/api/fitbit/profile/route.ts` + test, `src/app/api/fitbit/health/route.ts` + test (delete)
+- `src/app/api/v1/activity-summary/route.ts` (modify) + cache-integration test
+- `MIGRATIONS.md` (modify — Phase 3 section: API/route-contract + staging-QA body-shape notes)
+
+### Linear Updates
+- FOO-1086 → Todo → In Progress → Review
+- FOO-1087 → Todo → In Progress → Review
+- FOO-1088 → Todo → In Progress → Review
+- FOO-1089 → Todo → In Progress → Review
+- FOO-1090 → Todo → In Progress → Review
+- FOO-1091 → Todo → In Progress → Review
+
+### Work Partition
+- Worker 1: Tasks 16, 17, 18, 19, 20 (sequential transport/routes/cache chain — `google-health.ts`, write/read routes, `fitbit.ts` deletion, `health-cache.ts`, profile/v1/health-status routes)
+- Worker 2: Task 21 (Claude `serving_unit` tool schema + validation)
+
+### Merge Summary
+- Worker 1 (foundation/service + routes): fast-forward, no conflicts
+- Worker 2 (Claude analysis): ort merge, no conflicts (zero file overlap)
+- Lead post-merge: 3 cross-worker merge fixes + 4 bug-hunter bug fixes + 4 regression tests
+
+### Continuation Status
+Phase boundary reached (workers-mode checkpoint). Phase 3 complete and merged; resume at Phase 4, Task 22.
+
+<!-- REVIEW COMPLETE --> <!-- reviewed in the consolidated migration review under Iteration 6 -->
+
+---
+
+## Iteration 5: Phase 4 — UI cutover + Anthropic Core (A2/A3) + non-migration fixes + integration suite + E2E/docs
+
+**Date:** 2026-06-01
+**Status:** PARTIAL — 2 tasks remaining (Phase 5, Tasks 29–30: lead-only `drizzle-kit generate` + release deploy)
+**Method:** Agent team (3 workers, worktree-isolated)
+
+### Summary
+Completed all of **Phase 4 (Tasks 22–28)** — the entire consumer/UI cutover, the Anthropic Core modernization, the non-migration review fixes, the real-Postgres integration suite, and the E2E/docs sweep. Three work units ran in parallel: **worker-1** (UI domain: 22→23→28), **worker-2** (Anthropic Core + `claude.ts` decomposition: 24→25→26), **worker-3** (real-Postgres integration suite: 27). **The global `npm run typecheck` is now GREEN again** (0 errors) — the migration's single-owner-type cascade is fully resolved, as the plan predicted (~Task 23). Full unit suite (**3419 tests, 192 files**) passes, lint is clean (zero warnings), and the production build compiles successfully. bug-hunter found **5 real Fitbit-leftover bugs** (1 HIGH, 3 MEDIUM, 1 LOW) in components that no worker task explicitly listed — all fixed with regression-test updates.
+
+### Tasks Completed This Iteration
+- **Task 22 (FOO-1092):** Renamed `use-log-to-fitbit`→`use-log-food`, retyped `FoodLogResponse.healthLogId` (string) across the 5 hook consumers + unit-renderer components + `chat-tools.ts`; swept numeric `unit_id` fixtures → ServingUnit strings. (worker-1)
+- **Task 23 (FOO-1093):** Replaced all Fitbit setup/guard/banner/card/settings UI with the one-click Connect-Google-Health flow — created `/app/connect-health` (page+loading), `HealthConnectGuard`, `HealthStatusBanner`, `HealthProfileCard`; stripped credential UI from settings; swapped 5 guard-consumer pages; added SkipLink/`#main-content` to capture/process-captures/saved; `/api/health`→`healthMode`; contrast tokens; **deleted `setup-fitbit`, the 4 `fitbit-*` components + tests, AND the orphaned `/api/auth/fitbit/*` + `/api/fitbit-credentials` routes**. (worker-1)
+- **Task 24 (FOO-1094):** A2 — `buildDateContextBlock` moves volatile date/time out of the cached system block (byte-stable system prefix); `cache_control` breakpoint over the image+description prefix. (worker-2)
+- **Task 25 (FOO-1095):** A3 — `createStreamWithRetry`→`getClient().beta.messages.stream`; shared `CONTEXT_MANAGEMENT` (`clear_tool_uses_20250919`, `exclude_tools:['web_search']`, `betas:['context-management-2025-06-27']`) at the single chokepoint; deleted `truncateConversation`/`estimateTokenCount` + all 3 call sites + tests. (worker-2)
+- **Task 26 (FOO-1096):** Decomposed `claude.ts` into `claude-prompts.ts` + `claude-tools-schema.ts` (barrel re-export, no import-site churn); role-prompt decoupling; `toCustomFoodInsertValues` helper; client-date 400 enforcement on the 4 browser routes; shared-food rate-limit + `revokeShareToken`; searchFoods SQL pushdown. (worker-2; module split completed on a lead follow-up)
+- **Task 27 (FOO-1097):** Real-Postgres integration suite (`food-log`/`user-data`/`daily-goals` `.integration.test.ts`, env-guarded + excluded from the fast loop), `deleteUserData` (FK-safe transaction, ON DELETE NO ACTION), two-body (Lucas+Mariana) goal-engine test. (worker-3; written write-only — see Verification) 
+- **Task 28 (FOO-1098):** E2E fixtures/global-setup → seed `health_tokens` + `HEALTH_DRY_RUN`; 10 specs migrated to the Connect-Google-Health flow + `healthLogId`/serving_unit; CSP form-action de-Fitbit; README/DEVELOPMENT/CLAUDE.md/.env.sample rewritten to Google Health. (worker-1)
+
+### Lead Cross-Cutting Cleanup (post-merge — the `requireFitbit→requireHealth` caller migration Task 10 flagged "for the lead")
+The single-owner type rename left ~120 typecheck errors across consumers no worker task owned; the lead resolved them as one coherent change:
+- **`requireFitbit`→`requireHealth`:** `analyze-food` + `nutrition-goals` → `{ requireHealth: true }` (they gated on connection before); `chat-food`/`edit-chat`/`process-captures`/`chat-captures` dropped the option (were `false`). Removed worker-2's 4 `@ts-expect-error` suppressions.
+- **`nutrition-goals` + `v1/nutrition-goals`:** full FITBIT_*→HEALTH_* error-code mapping (`mapFitbitError`→`mapHealthError`); dropped the obsolete `FITBIT_CREDENTIALS_MISSING`/424 arm; scope_mismatch→403 uses HEALTH_SCOPE_MISSING.
+- **`auth/session/route.ts`:** response now returns `healthConnected` (dropped `fitbitConnected`/`hasFitbitCredentials`) — matches what `HealthConnectGuard` reads.
+- **`find-matches/route.ts`:** stale `typeof unit_id !== "number"` body validation → `coerceServingUnit`-based ServingUnit-string check (a genuinely missed migration surfaced by the fixture sweep).
+- **Test fixtures (deterministic transform, scoped to the 25 erroring files only — never the negative-test files):** numeric `unit_id`/`unitId`→ServingUnit strings, `fitbitLogId`→`healthLogId` (string), removed `fitbitFoodId`/`hasFitbitCredentials`, collapsed inline `validateSession` mocks to the single `requireHealth`/`healthConnected`/`HEALTH_NOT_CONNECTED` branch; un-annotated fixtures got `as const` on the unit field; 23 stale FITBIT_* test expectations updated to HEALTH_*.
+
+### bug-hunter Findings (all fixed with regression-test updates)
+- **[HIGH]** `daily-dashboard.tsx` delete-error UI checked `FITBIT_TOKEN_INVALID`/`FITBIT_NOT_CONNECTED` and linked to the deleted `/api/auth/fitbit` → reconnect link never rendered. Fixed to `HEALTH_TOKEN_INVALID`→`/app/connect-health` and `HEALTH_NOT_CONNECTED`→`/settings`.
+- **[MEDIUM]** `targets-card.tsx` + `goals-setup-banner.tsx` blocked-goal messages said "Fitbit" → Google Health (+ test assertions).
+- **[MEDIUM]** `food-log-confirmation.tsx` success subtitles said "Fitbit library"/"Fitbit API skipped" → Google Health (+ tests).
+- **[MEDIUM]** Internal `nutrition-goals` route had an unreachable `HEALTH_SCOPE_MISSING` catch arm (the lead had added it; `getOrComputeDailyGoals` resolves scope to blocked/200) → removed the arm + its impossible test (restores original no-scope-arm behavior; v1 keeps its explicit scope_mismatch→403).
+- **[LOW]** `use-keyboard-shortcuts` prop `onLogToFitbit`→`onLogFood` (+ `food-analyzer.tsx` + test).
+
+bug-hunter explicitly verified-clean: the `requireHealth` gate correctness, the FITBIT→HEALTH error mapping + dropped 424 arm, `auth/session` `healthConnected` ↔ `HealthConnectGuard`, `find-matches` unit validation, `deleteUserData` userId-scoping + FK order, the A3 beta context-management config, `revokeShareToken` scoping, and the `toCustomFoodInsertValues` refactor.
+
+### Interpretations / decisions (documented per Autonomous-Execution rules)
+- **`requireFitbit→requireHealth` caller migration is lead-owned cross-cutting work.** No Phase-4 task listed `auth/session`, `nutrition-goals`, `chat-captures`, `find-matches`, or the ~8 route-test inline `validateSession` mocks; Task 10's note explicitly reserved "every `validateSession({requireFitbit})` caller" for the lead. Resolved as a single post-merge change.
+- **Task 27 integration suite written write-only (like E2E).** Workers run in restricted-Bash worktrees and cannot orchestrate Docker/Postgres; worker-3 wrote env-guarded `*.integration.test.ts` + `deleteUserData` and verified the default `vitest` loop excludes them. The live integration gate (Docker PG + `drizzle-kit push` + `INTEGRATION_DATABASE_URL`) is a lead/release step — Docker (OrbStack) was not running this session, so it is queued for the review/release gate alongside E2E.
+- **Phase 5 (Tasks 29–30) deferred to the release flow (`push-to-production`).** Task 29 `drizzle-kit generate` prompts interactively on the `fitbit_tokens`→`health_tokens` table/column renames (interactive tooling is unsupported in this autonomous context), and the `integer`→`text` `unit_id` change needs a hand-reviewed `USING` cast + legacy-ID backfill that drizzle won't auto-emit; Task 30 applies production Railway-env + DB changes. Both are squarely the deploy phase (the plan itself frames Task 30 as executed "via the push-to-production release flow"). Checkpointing at the Phase 4/5 boundary per phase-gated execution.
+
+### Tasks Remaining
+Resume at **Phase 5, Task 29** (FOO-1099 — lead-only `npx drizzle-kit generate` of the consolidated schema delta: token-table rename, credentials drop, food_log/custom_foods column changes, `unit_id` integer→text + USING-cast backfill, `users.weightGoalType`, indexes, daily_calorie_goals CHECK, partial unique index), then **Task 30** (FOO-1100 — release Railway-env + `DELETE FROM health_tokens` token-clear). Both are best run inside `push-to-production` (DB backup + reviewed-SQL machinery + ability to answer drizzle's interactive rename prompts). Also queued for the review/release gate: the live `npm run e2e` run and the `INTEGRATION_DATABASE_URL` integration-suite run (both need Docker, unavailable this session).
+
+### Verification
+- `npm run typecheck` — **GREEN, 0 errors** (global typecheck restored after the full consumer cascade landed).
+- `npm test` — **3419 tests pass, 192 files** (integration suite correctly excluded from the fast loop).
+- `npm run lint` — **zero warnings** (fixed 4 unused-var warnings surfaced once worktrees were pruned).
+- `npm run build` — **compiles successfully**, 57 static pages generated, zero warnings; `/app/connect-health` present, no `setup-fitbit`.
+- bug-hunter (Sonnet): 5 real bugs found, all fixed with regression tests.
+- **E2E + live integration suite: deferred** — Docker (OrbStack) not running this session; both run at the next infra-backed gate (`plan-review-implementation` before PR / `push-to-production` Phase 1.6). Specs/fixtures are committed.
+
+### Files Changed
+- Worker-1 (115 files): `use-log-food` hook + 5 consumers, ~12 unit-renderer components, `chat-tools.ts`; `connect-health/` page+loading+test, `HealthConnectGuard`/`HealthStatusBanner`/`HealthProfileCard` (+ tests); deleted `setup-fitbit/`, 4 `fitbit-*` components + tests, `/api/auth/fitbit/*` + `/api/fitbit-credentials` (+ tests); `settings-content.tsx`, 5 guard pages, capture/process-captures/saved, `/api/health`; e2e fixtures + 10 specs; `next.config.ts` CSP; README/DEVELOPMENT/CLAUDE.md/.env.sample.
+- Worker-2 (15 files): `claude.ts` (A2 date block + cache_control, A3 beta context-management, barrel), `claude-prompts.ts` (create), `claude-tools-schema.ts` (create), `food-log.ts` (`toCustomFoodInsertValues` + `revokeShareToken`), `date-utils.ts`, `analyze-food`/`chat-food`/`edit-chat`/`process-captures` (client-date 400), `shared-food/[token]` (rate-limit) + tests.
+- Worker-3 (8 files): `user-data.ts` (create — `deleteUserData`), 3 `*.integration.test.ts` (create), `vitest.config.ts` + `vitest.integration.config.ts`, `package.json` (`test:integration`), `MIGRATIONS.md`.
+- Lead cross-cutting + bug fixes: `nutrition-goals/route.ts`, `v1/nutrition-goals/route.ts`, `auth/session/route.ts`, `chat-captures/route.ts`, `analyze-food`/`chat-food`/`edit-chat`/`process-captures/route.ts` (requireHealth), `find-matches/route.ts`; `daily-dashboard.tsx`, `targets-card.tsx`, `goals-setup-banner.tsx`, `food-log-confirmation.tsx`, `use-keyboard-shortcuts.ts`, `food-analyzer.tsx`; ~27 test files (fixture/expectation cleanup).
+
+### Linear Updates
+- FOO-1092 → Todo → In Progress → Review
+- FOO-1093 → Todo → In Progress → Review
+- FOO-1094 → Todo → In Progress → Review
+- FOO-1095 → Todo → In Progress → Review
+- FOO-1096 → Todo → In Progress → Review
+- FOO-1097 → Todo → In Progress → Review
+- FOO-1098 → Todo → In Progress → Review
+- (FOO-1099, FOO-1100 remain Todo — Phase 5, deferred to push-to-production)
+
+### Work Partition
+- Worker 1: Tasks 22, 23, 28 (UI/hooks/components + E2E specs + docs — sequential, 28 depends on 22+23)
+- Worker 2: Tasks 24, 25, 26 (Anthropic Core A2/A3 + `claude.ts` decomposition — sequential, all edit `claude.ts`)
+- Worker 3: Task 27 (real-Postgres integration suite — independent)
+
+### Merge Summary
+- Worker 2 (foundation/services): fast-forward, no conflicts
+- Worker 3 (integration tests/lib): ort merge, no conflicts
+- Worker 1 (UI/routes/e2e/docs): ort merge, no conflicts
+- Lead post-merge: cross-cutting `requireFitbit→requireHealth` migration (~120 typecheck errors + 23 test expectations) + 5 bug-hunter fixes + module-split follow-up
+
+### Continuation Status
+Phase boundary reached (workers-mode checkpoint, context heavily consumed). Phase 4 complete, merged, and verified (typecheck/unit/lint/build/bug-hunter all green); E2E + live integration deferred to the infra-backed review/release gate. Resume at Phase 5, Task 29 — run inside `push-to-production`.
+
+<!-- REVIEW COMPLETE --> <!-- reviewed in the consolidated migration review under Iteration 6 -->
+
+---
+
+## Iteration 6: Phase 5 Task 29 (drizzle-kit generate) + full deferred-gate verification — IMPLEMENTATION COMPLETE
+
+**Date:** 2026-06-01
+**Status:** COMPLETE — implementation finished. Only Task 30 (the release deploy itself) remains, and it is performed BY `push-to-production`, not as pending implementation work.
+**Method:** single-agent (lead)
+
+### Summary
+Closed out the implementation by running **Task 29** (the lead-only Drizzle codegen) and executing the two gates that were infra-deferred in Iteration 5 (Docker was unavailable then; OrbStack was started this session). **All gates are green.** This plan is ready for `push-to-production`, which performs Task 30 (the production migration + Railway-env + token-clear) as the release action — see the **RELEASE RUNBOOK** at the top of `MIGRATIONS.md` for the complete, failure-aware deploy instructions.
+
+### Tasks Completed This Iteration
+- **Task 29 (FOO-1099):** Ran `npx drizzle-kit generate` once (driven via `expect` to accept the additive/`create` default on the two interactive rename prompts). Produced `drizzle/0027_google_health_migration.sql` + `0027_snapshot.json` + `_journal.json`. The file is **correct for fresh DBs** (startup-migrate `0001…0027` builds the full current schema — proven by the integration + E2E runs below). Its two **production hazards are documented** in the MIGRATIONS.md runbook so `push-to-production` overrides them in the manual migration: (1) `unit_id` integer→text ALTER lacks the `USING` cast + legacy-ID→ServingUnit backfill; (2) `saved_analyses.food_analysis` JSONB `unit_id` remap is invisible to Drizzle; (3) indexes need `CONCURRENTLY` on live tables.
+
+### Deferred-gate verification (now run — all green)
+- **Integration suite (Task 27):** brought up Docker (OrbStack) + the compose Postgres, created a throwaway `food_scanner_integration` DB, `drizzle-kit push`ed the schema, ran `INTEGRATION_DATABASE_URL=… npm run test:integration` → **20 tests pass** (cross-user isolation, `deleteUserData`, two-body Lucas+Mariana goal engine).
+- **E2E suite (Task 28):** reset the `food_scanner` E2E DB to empty so the production-build webServer's **startup-migrate ran `0001…0027`** to build the current schema, then `npm run e2e` → **135 tests pass** (incl. the Google-Health settings/connect/profile specs).
+- **Re-confirmed:** `npm test` 3419 ✅, `npm run typecheck` 0 errors ✅, `npm run lint` zero warnings ✅, `npm run build` ✅.
+
+### Lead fix discovered during the E2E gate
+- **`.env.test` still set `FITBIT_DRY_RUN=true`** (dead var) instead of `HEALTH_DRY_RUN=true` — `.env.test` was not in Task 28's file list, so worker-1 missed it (it had updated `.env.sample` only). Without this the E2E webServer would run with the dry-run gate OFF. Fixed to `HEALTH_DRY_RUN=true`. (`.env.test` is git-tracked, so this also fixes `push-to-production`'s Phase 1.7 E2E gate.)
+
+### Tasks Remaining
+None for implementation. **Task 30 (FOO-1100)** — the production Drizzle migration + `DELETE FROM health_tokens` + Railway-env changes — is the **release deploy**, executed by the `push-to-production` skill per the MIGRATIONS.md RELEASE RUNBOOK (DB backup, manual-migration build + journal insert, env changes, deployment verification). It is not pending code.
+
+### Verification
+- Drizzle: `drizzle/0027_google_health_migration.sql` generated; `schema.ts` ↔ snapshot consistent (no drift); fresh-DB migrate verified via the E2E startup-migrate.
+- Tests: unit **3419**, integration **20**, E2E **135** — all pass. typecheck/lint/build clean.
+
+### Files Changed
+- `drizzle/0027_google_health_migration.sql` (create), `drizzle/meta/0027_snapshot.json` (create), `drizzle/meta/_journal.json` (modify)
+- `.env.test` (modify — `FITBIT_DRY_RUN`→`HEALTH_DRY_RUN`)
+- `MIGRATIONS.md` (modify — added the RELEASE RUNBOOK with the failure-aware deploy instructions)
+
+### Linear Updates
+- FOO-1099 → Todo → In Progress → Review (Task 29 — drizzle-kit generate done)
+- FOO-1100 remains Todo — it is the release deploy performed by `push-to-production`.
+
+### Continuation Status
+Implementation COMPLETE. All gates green. Hand off to `push-to-production` for the release (Task 30) — the MIGRATIONS.md RELEASE RUNBOOK is the single source of truth and survives this plan's archival.
+
+### Review Findings (consolidated — all 6 iterations / Tasks 1–29)
+
+Reviewed the full `feat/google-health-migration` diff vs `main` (93 source files, 260 total) with an 8-reviewer parallel workflow partitioned by subsystem (auth/OAuth, transport, DB/schema/migration, write-routes, read-routes, claude/anthropic, UI×2), each applying security + reliability + quality lenses, plus a lead cross-check of routes outside the diff.
+
+Summary: **13 issues to FIX** (3 HIGH, 5 MEDIUM, grouped into 9 Linear issues incl. one LOW cleanup bundle) — Fix Plan created; **several findings DISCARDED** as non-bugs.
+
+**FIX — Linear issues created in Todo (full Fix Plan below):**
+- [HIGH] BUG: `POST /api/saved-analyses` still validates `unit_id` as a number → "Save for later" 400s post-migration (route was outside the diff; lead-found) — [FOO-1101]
+- [HIGH] BUG: edit-food regular-path DB-failure compensation deletes the new health log but never re-creates the original → food silently vanishes from Google Health (`edit-food/route.ts:425`) — [FOO-1102]
+- [HIGH] ERROR: incomplete HEALTH_*→HTTP error mapping (food-history DELETE missing 504/429/403; log-food missing 403; edit-food inner catches flatten to 500; health-profile missing 429; v1/activity-summary missing TOKEN_SAVE_FAILED) — [FOO-1103]
+- [MEDIUM] BUG: Claude system prompt instructs tapping a nonexistent "Log to Fitbit" button (`claude-prompts.ts:15`) — [FOO-1104]
+- [MEDIUM] BUG: log-food idempotency cache-hit returns wrong `reusedFood` flag + Map never evicts (`log-food/route.ts:27,156`) — [FOO-1105]
+- [MEDIUM] BUG: food-detail share lacks null-guard on `result.data.shareUrl` + food-detail/health-profile-card fetches lack `AbortSignal.timeout` — [FOO-1106]
+- [MEDIUM] IMPROVEMENT: log-shared page omits HealthConnectGuard / actionable not-connected UX — [FOO-1107]
+- [MEDIUM] BUG: rate-limit breaker allows `important` calls during 429 cooldown, contradicting CLAUDE.md's criticality contract (`google-health-rate-limit.ts:117`) — [FOO-1108]
+- [LOW] CONVENTION (bundle): docs/branding (layout metadata, PWA manifest, weight JSDoc, MIGRATIONS runbook accuracy) + a11y (chat SkipLink, quick-select ARIA) + conversationalRefine log `action` + open-redirect guard test + stale Fitbit comments/test-fixtures/dead-code sweep — [FOO-1109]
+
+**DISCARDED — not bugs (with reasoning):**
+- [SECURITY] token-encryption derives the health-token AES key from SESSION_SECRET (shared key material) — not a bug; AES-256-GCM encryption is correct and the secret is server-side. Key separation is a defense-in-depth hardening idea, not a vulnerability; out of scope for this migration. (Can be a backlog improvement.)
+- [TYPE] `auth/session/route.ts` uses `session!` after a side-effecting early-return — runtime-safe, style-only.
+- [EDGE-CASE] google-health 429 no-Retry-After sleep doesn't pre-check the deadline budget — adds ≤1s latency to an already-failing call; negligible, not a correctness bug.
+- [TEST] coverage-only gaps on already-correct code (5xx-retry timing path; health-connect returnTo branch) — correct code, low value; not filing. (The genuinely-missing security test for the open-redirect guard IS filed under FOO-1109.)
+- The MIGRATIONS.md "saved_analyses JSONB unit_id MUST be remapped or portion labels break" claim was reviewed as HIGH but **downgraded**: the render path coerces legacy numeric IDs via `coerceServingUnit`, so old saved analyses render correctly without the remap. The remaining work is a documentation-accuracy correction (folded into FOO-1109), not a functional release breaker.
+
+### Linear Updates
+- FOO-1071 … FOO-1099 (Tasks 1–29): Review → Merge (all original tasks completed)
+- FOO-1100 (Task 30): remains Todo — it is the production release deploy, performed by `push-to-production`
+- FOO-1101 … FOO-1109: created in Todo (Fix Plan — Bug/Improvement/Convention)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Consolidated review findings for the Google Health migration (Iterations 1–6, Tasks 1–29)
+**Linear Issues:** [FOO-1101](https://linear.app/lw-claude/issue/FOO-1101), [FOO-1102](https://linear.app/lw-claude/issue/FOO-1102), [FOO-1103](https://linear.app/lw-claude/issue/FOO-1103), [FOO-1104](https://linear.app/lw-claude/issue/FOO-1104), [FOO-1105](https://linear.app/lw-claude/issue/FOO-1105), [FOO-1106](https://linear.app/lw-claude/issue/FOO-1106), [FOO-1107](https://linear.app/lw-claude/issue/FOO-1107), [FOO-1108](https://linear.app/lw-claude/issue/FOO-1108), [FOO-1109](https://linear.app/lw-claude/issue/FOO-1109)
+
+> NOTE: These fixes must land BEFORE `push-to-production`. FOO-1101 (Save-for-later broken) and FOO-1102 (edit-food data loss) are functional regressions invisible to the existing gates (tsc green, suites pass on stale fixtures).
+
+### Fix 1: Save-for-later POST route rejects ServingUnit string unit_id (HIGH)
+**Linear Issue:** [FOO-1101](https://linear.app/lw-claude/issue/FOO-1101)
+
+1. Write a failing test in `src/app/api/saved-analyses/__tests__/route.test.ts`: POST with `unit_id: 'g'` (string) → 201; a truly-invalid unit → 400.
+2. In `src/app/api/saved-analyses/route.ts` replace the inline `typeof foodAnalysis.unit_id !== "number"` validation (line 49) with `validateFoodAnalysis` from `@/lib/food-validation` (same as the bulk route), or coerce via `coerceServingUnit`.
+3. Update the route-test fixture from numeric to ServingUnit string.
+
+### Fix 2: edit-food regular-path compensation re-creates the original log (HIGH)
+**Linear Issue:** [FOO-1102](https://linear.app/lw-claude/issue/FOO-1102)
+
+1. Write a failing test in `edit-food/__tests__/route.test.ts`: regular path, create succeeds, DB update throws → assert the original health log is re-created and DB metadata updated with the compensation id.
+2. In `src/app/api/edit-food/route.ts` regular-path DB-error catch (lines 421-441), after deleting `newHealthLogId`, re-create from `buildAnalysisFromEntry(entry)` and persist via `updateFoodLogEntryMetadata` (mirror the fast-path at 272-299).
+
+### Fix 3: Complete HEALTH_*→HTTP error mapping across routes (HIGH)
+**Linear Issue:** [FOO-1103](https://linear.app/lw-claude/issue/FOO-1103)
+
+1. Write failing tests for the uncovered statuses: food-history DELETE → 504 (TIMEOUT), 429 (RATE_LIMIT), 403 (SCOPE_MISSING); log-food → 403 (SCOPE_MISSING); health-profile → 429 (RATE_LIMIT); edit-food create/delete failures → 401/403/429/504 per code.
+2. Centralize the mapping in a shared helper covering TOKEN_INVALID→401, SCOPE_MISSING→403, RATE_LIMIT→429, RATE_LIMIT_LOW→503, TIMEOUT→504, REFRESH_TRANSIENT→502, TOKEN_SAVE_FAILED→500, API_ERROR→502; route every catch through it (preserve compensation behavior).
+
+### Fix 4: Claude prompt button label "Log to Fitbit" → "Log to Google Health" (MEDIUM)
+**Linear Issue:** [FOO-1104](https://linear.app/lw-claude/issue/FOO-1104)
+
+1. Update the `claude.test.ts:2934/2961` assertions (currently lock in `/Log to Fitbit/`) to expect the new label; add a positive assertion to the edit-prompt test (2686).
+2. Change `REPORT_NUTRITION_UI_CARD_NOTE` in `src/lib/claude-prompts.ts:15` to "Log to Google Health".
+
+### Fix 5: log-food idempotency reusedFood flag + cache eviction (MEDIUM)
+**Linear Issue:** [FOO-1105](https://linear.app/lw-claude/issue/FOO-1105)
+
+1. Write a failing test: two identical reuse-flow POSTs with the same clientToken both return `reusedFood: true` + same foodLogId.
+2. Store `reusedFood` in the cache entry and return it on a hit; add a cheap sweep of expired entries.
+
+### Fix 6: Share/refresh client robustness (MEDIUM)
+**Linear Issue:** [FOO-1106](https://linear.app/lw-claude/issue/FOO-1106)
+
+1. Write failing tests: malformed `/api/share` 200 → friendly error (no unhandled rejection); fetches use a timeout.
+2. `food-detail.tsx` handleShare: optional-chain `result?.data?.shareUrl` + error when missing; add `AbortSignal.timeout()`; add `AbortSignal.timeout()` to `health-profile-card.tsx` refresh fetch.
+
+### Fix 7: log-shared not-connected UX (MEDIUM)
+**Linear Issue:** [FOO-1107](https://linear.app/lw-claude/issue/FOO-1107)
+
+1. Write a failing test for the not-connected state on the log-shared page.
+2. Wrap the logging UI in `HealthConnectGuard` (still allow viewing the shared food) or surface an actionable `/app/connect-health` reconnect link on HEALTH_NOT_CONNECTED.
+
+### Fix 8: rate-limit `important` cooldown behavior aligned to CLAUDE.md (MEDIUM)
+**Linear Issue:** [FOO-1108](https://linear.app/lw-claude/issue/FOO-1108)
+
+1. Write/update tests in `google-health-rate-limit.test.ts`: during an active cooldown, `important` throws HEALTH_RATE_LIMIT_LOW (matching CLAUDE.md); `critical` still proceeds.
+2. Update `assertRateLimitAllowed` (lines 117-120) to block `important` during cooldown; verify the `important` callers (health-profile, daily-goals first compute) degrade gracefully on the 503/blocked path. (If allow-during-cooldown is intended instead, update CLAUDE.md + the breaker doc and justify — but do not leave code and contract divergent.)
+
+### Fix 9: Migration cleanup — docs/branding, a11y, logging, security test, stale-Fitbit sweep (LOW)
+**Linear Issue:** [FOO-1109](https://linear.app/lw-claude/issue/FOO-1109)
+
+1. User-visible/doc: `layout.tsx:45` metadata + `public/manifest.json:4` → "Google Health"; correct `google-health.ts:662` weight JSDoc (no conversion); correct `MIGRATIONS.md` saved_analyses JSONB note (optional, render coerces).
+2. A11y: fix `chat/page.tsx:16` SkipLink target; resolve `quick-select.tsx:255` aria-controls/aria-pressed conflict.
+3. Logging: add structured `action` to `claude.ts:1576` conversationalRefine error log.
+4. Security test: add the returnTo open-redirect guard test in the google callback test.
+5. Stale-Fitbit sweep: comments (daily-goals, user-profile, claude-tools-schema, types mealTypeId JSDoc, use-keyboard-shortcuts, food-analyzer, goals-setup-banner, swr); test fixtures/names (food-log stale fitbitFoodId + isFavorite coverage, find-matches, daily-goals var names, about-section name); dead test code (chat-food `if(false)`, edit-chat mock error code); log-food clientToken double-cast.
+
+---
+
+## Iteration 7: Fix Plan — Google Health migration review fixes (FOO-1101..1109)
+
+**Implemented:** 2026-06-01
 **Method:** Agent team (4 workers, worktree-isolated)
 
 ### Tasks Completed This Iteration
-- Task 1 (FOO-1040): Schema migration — schema.ts + types/index.ts + MIGRATIONS.md (worker-1)
-- Task 2 (FOO-1041): Rewrote macro-engine.ts — declared PAL, rate-anchored deficit, no safety clamp (worker-1)
-- Task 3 (FOO-1042): Rewrote daily-goals.ts — single idempotent compute, dropped ratchet/seed/promote (worker-1)
-- Task 4 (FOO-1043): New /api/daily-goals-settings GET/PATCH; deleted /api/macro-profile (worker-2)
-- Task 5 (FOO-1044): DailyGoalsCard component with live target preview + safety-floor warning; deleted MacroProfileCard (worker-2)
-- Task 6 (FOO-1045): TargetsCard rewrite — no expand toggle; inline audit fields with non-null guards (worker-3)
-- Task 7 (FOO-1046): GoalsSetupBanner + dashboard gate (worker-3)
-- Task 8 (FOO-1047, **partial**): ROADMAP.md cleanup landed; fitbit-cache.ts/fitbit.ts cleanup deferred (live callers in /api/fitbit/profile and /api/v1/activity-summary remain) (worker-4 + lead)
-- Task 9 (FOO-1048): Updated user-profile.ts, chat-tools.ts tests, food-log.ts (range mode), nutrition-goals + v1/nutrition-goals routes for new audit shape and goals_not_set reason (worker-4)
-- Task 10 (FOO-1049): New e2e/tests/goal-anchored-engine.spec.ts (smoke-level: banner, DailyGoalsCard, TargetsCard inline); deleted old e2e/tests/macro-engine.spec.ts (lead post-merge)
+- **Fix 1 (FOO-1101):** saved-analyses POST now validates via `validateFoodAnalysis` (accepts ServingUnit string `unit_id`); fixture updated to string — "Save for later" no longer 400s post-migration. (worker-2)
+- **Fix 2 (FOO-1102):** edit-food regular-path DB-failure compensation re-creates the original Google Health log from `buildAnalysisFromEntry(entry)` and persists the compensation id via `updateFoodLogEntryMetadata`, mirroring the fast path. (worker-1)
+- **Fix 3 (FOO-1103):** new `src/lib/health-error-response.ts` (`mapHealthError`) centralizes the full HEALTH_*→HTTP mapping (401/403/429/503/504/502/500/502 + INTERNAL_ERROR fallback); wired into log-food, edit-food, food-history DELETE, health-profile, and v1/activity-summary catches. (worker-1; health-profile + v1/activity-summary routed through the helper by the lead per bug-hunter Bug 2)
+- **Fix 4 (FOO-1104):** `REPORT_NUTRITION_UI_CARD_NOTE` "Log to Fitbit" → "Log to Google Health" (both occurrences); claude.test assertions updated. (worker-2 + worker-4 sweep)
+- **Fix 5 (FOO-1105):** log-food idempotency cache stores/returns `reusedFood` on a hit and sweeps expired entries on write; `clientToken` now read via the typed `FoodLogRequest.clientToken` field (lead applied the cast cleanup worker-4 deferred). (worker-1 + lead)
+- **Fix 6 (FOO-1106):** food-detail `handleShare` optional-chains `result?.data?.shareUrl` with a friendly error + outer catch, and both share + health-profile-card refresh fetches gained `AbortSignal.timeout(10000)`. (worker-3)
+- **Fix 7 (FOO-1107):** log-shared logging UI wrapped in `HealthConnectGuard` (viewing the shared food still allowed). (worker-3)
+- **Fix 8 (FOO-1108):** rate-limit `assertRateLimitAllowed` now blocks `important` calls during a 429 cooldown (throws HEALTH_RATE_LIMIT_LOW, matching CLAUDE.md); only `critical` bypasses. (worker-2)
+- **Fix 9 (FOO-1109):** cleanup sweep — layout/manifest "Fitbit"→"Google Health", google-health weight JSDoc corrected, MIGRATIONS saved_analyses note softened to optional, quick-select aria fix, conversationalRefine `action` log, +2 returnTo open-redirect guard tests, and a broad stale-Fitbit comment/fixture/dead-code sweep. (worker-4) [chat/page.tsx SkipLink already correct — no change needed.]
 
 ### Files Modified
-- Schema/types: src/db/schema.ts, src/types/index.ts, drizzle/0026_goal_anchored_engine.sql, drizzle/meta/0026_snapshot.json, drizzle/meta/_journal.json, MIGRATIONS.md
-- Engine/service: src/lib/macro-engine.ts, src/lib/daily-goals.ts, src/lib/users.ts (helpers added)
-- API routes: src/app/api/daily-goals-settings/route.ts (created), src/app/api/macro-profile/route.ts (deleted), src/app/api/v1/nutrition-goals/route.ts
-- UI: src/components/daily-goals-card.tsx (created), src/components/macro-profile-card.tsx (deleted), src/components/targets-card.tsx, src/components/goals-setup-banner.tsx (created), src/components/daily-dashboard.tsx, src/components/settings-content.tsx
-- Integration: src/lib/user-profile.ts, src/lib/__tests__/chat-tools.test.ts, src/app/api/nutrition-goals/__tests__/route.test.ts, src/app/api/v1/nutrition-goals/__tests__/route.test.ts, src/lib/__tests__/user-profile.test.ts
-- Tests: associated __tests__ files for every module above
-- E2E: e2e/tests/goal-anchored-engine.spec.ts (created), e2e/tests/macro-engine.spec.ts (deleted), e2e/tests/dashboard.spec.ts (Settings link selectors disambiguated)
-- Docs: ROADMAP.md (Calorie Target Formula Review section removed), MIGRATIONS.md (entry added)
+- **NEW:** `src/lib/health-error-response.ts`
+- Routes: `src/app/api/log-food/route.ts`, `src/app/api/edit-food/route.ts`, `src/app/api/food-history/[id]/route.ts`, `src/app/api/health-profile/route.ts`, `src/app/api/v1/activity-summary/route.ts`, `src/app/api/saved-analyses/route.ts`
+- Lib: `src/lib/google-health-rate-limit.ts`, `src/lib/claude-prompts.ts`, `src/lib/google-health.ts`, `src/lib/daily-goals.ts`, `src/lib/user-profile.ts`, `src/lib/claude-tools-schema.ts`, `src/lib/claude.ts`, `src/lib/swr.ts`, `src/lib/haptics.ts`
+- Types/hooks: `src/types/index.ts` (added `FoodLogRequest.clientToken?`), `src/hooks/use-keyboard-shortcuts.ts`
+- Components/pages: `src/components/food-detail.tsx`, `src/components/health-profile-card.tsx`, `src/components/food-analyzer.tsx`, `src/components/goals-setup-banner.tsx`, `src/components/quick-select.tsx`, `src/app/app/log-shared/[token]/log-shared-content.tsx`, `src/app/layout.tsx`
+- Docs/config: `public/manifest.json`, `MIGRATIONS.md`
+- Plus colocated test files for each of the above (new + updated assertions/fixtures)
 
 ### Linear Updates
-- FOO-1040: Todo → In Progress → Review
-- FOO-1041: Todo → In Progress → Review
-- FOO-1042: Todo → In Progress → Review
-- FOO-1043: Todo → In Progress → Review
-- FOO-1044: Todo → In Progress → Review
-- FOO-1045: Todo → In Progress → Review
-- FOO-1046: Todo → In Progress → Review
-- FOO-1047: Todo → In Progress → Review (partial — see Tasks Remaining)
-- FOO-1048: Todo → In Progress → Review
-- FOO-1049: Todo → In Progress → Review
+- FOO-1101 … FOO-1109: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 5 issues (2 Major, 3 Minor) — all fixed before final verification:
-  1. Major: `goalWeightKg` not validated in computeMacroTargets — added to INVALID_PROFILE_DATA guard.
-  2. Major: Stale `NewAudit` local interface in targets-card.tsx — replaced with canonical `NutritionGoalsAudit`.
-  3. Minor: Stale `as RangeEntry["reason"]` casts in v1/nutrition-goals/route.ts — removed.
-  4. Minor: Stale audit fixture in daily-dashboard.test.tsx (line 252) — updated to new shape.
-  5. Minor: `invalid_activity` dead reason — removed from union, banner, REASON_MESSAGES, and tests (no path produces it after engine rewrite).
-- verifier: 3491 unit tests pass, lint clean, build clean, 144 E2E tests pass.
+- bug-hunter: Found 2 issues, both fixed before proceeding — [MEDIUM] edit-food inner-compensation DB-update failures now return `PARTIAL_ERROR` (orphaned-log/stale-pointer surfacing) across all 3 compensation blocks + updated the fast-path regression test; [LOW] health-profile & v1/activity-summary routed through the shared `mapHealthError` helper instead of duplicated inline if-chains.
+- verifier: 3,436 unit/integration tests pass, lint clean, production build clean (57 routes, zero warnings). typecheck: 0 errors.
 
 ### Work Partition
-- Worker 1: Tasks 1, 2, 3 (foundation — schema, engine, service)
-- Worker 2: Tasks 4, 5 (settings — API + DailyGoalsCard)
-- Worker 3: Tasks 6, 7 (dashboard UI — TargetsCard inline + GoalsSetupBanner)
-- Worker 4: Tasks 8, 9 (cleanup + integration — chat/profile/v1, fitbit-cache)
-- Lead post-merge: drizzle-kit generate (Task 1's generated artifacts), Task 10 (E2E spec), bug-hunter fixes, fitbit-cache cleanup investigation
+- Worker 1: Fixes 2, 3, 5 (backend write-routes + shared HEALTH error helper)
+- Worker 2: Fixes 1, 4, 8 (saved-analyses + Claude prompt + rate-limit)
+- Worker 3: Fixes 6, 7 (client fetch robustness + log-shared UX)
+- Worker 4: Fix 9 (migration cleanup sweep)
 
 ### Merge Summary
-- Worker 1: fast-forward (no conflicts)
-- Worker 2: ort merge, no conflicts (zero file overlap with worker-1's owned files)
-- Worker 3: ort merge, no conflicts
-- Worker 4: ort merge, no conflicts
-- Cross-worker type errors at intermediate stages all resolved by subsequent merges. Lead added back `FitbitWeightGoal` to src/types/index.ts because /api/fitbit/profile and /api/v1/activity-summary still consume the old Fitbit cache helpers — Worker-1's preemptive type drop was incorrect given those callers.
-
-### Tasks Remaining
-- **Task 8 (FOO-1047) partial — fitbit-cache cleanup deferred.** `getCachedFitbitWeightGoal`, `getFitbitWeightGoal`, `getCachedActivitySummary`, `getActivitySummary` still have live callers in `src/app/api/fitbit/profile/route.ts` (Settings page) and `src/app/api/v1/activity-summary/route.ts` (external API). The plan assumed daily-goals.ts was the only consumer — incorrect. Decision needed: either retire the consuming features or accept the helpers as long-lived for those features. Recommend the latter — they serve unrelated functionality and the cleanup goal was scoping to the engine rework.
+- Worker 1: fast-forward (foundation: routes + new lib helper)
+- Worker 2: merged cleanly (typecheck green)
+- Worker 3: merged cleanly (typecheck green)
+- Worker 4: merged cleanly — git auto-merged the overlapping `claude-prompts.ts`/`claude.test.ts` edits (same Fitbit→Google Health change) with no conflict markers
+- Lead post-merge: applied the deferred log-food `clientToken` cast cleanup + the 2 bug-hunter fixes
 
 ### Continuation Status
-Goal-anchored engine rework substantively complete. All 10 task IDs in Review. The remaining Task 8 cleanup is a scope-decision for follow-up, not a blocker for release.
+All Fix Plan tasks (FOO-1101..1109) completed and verified. Ready for `plan-review-implementation`. The remaining FOO-1100 (Task 30) is the production release deploy, performed by `push-to-production` per the MIGRATIONS.md RELEASE RUNBOOK.
 
 ### Review Findings
 
-Summary: 14 findings raised by 3-reviewer team (security, reliability, quality); 8 classified as FIX, 6 DISCARDED.
+Summary: 16 findings (Workflow review: security, reliability, quality reviewers — 15; E2E gate — 1) — 3 FIXED INLINE, 13 DISCARDED.
+- FIXED INLINE: 3 issue(s) — verified via TDD + bug-hunter (no new issues) + full E2E gate (135 pass)
 
-**Issues requiring fix (Linear issues created in Todo):**
-- [LOW] EDGE CASE: PATCH /api/daily-goals-settings accepts JSON array body silently (`src/app/api/daily-goals-settings/route.ts:78-80`) — [FOO-1050](https://linear.app/lw-claude/issue/FOO-1050)
-- [MEDIUM] TYPE: getBlockedMessage param widened to string defeats exhaustiveness (`src/components/targets-card.tsx:22`) — [FOO-1051](https://linear.app/lw-claude/issue/FOO-1051)
-- [MEDIUM] LOGGING: doCompute catch block silently swallows engine error context (`src/lib/daily-goals.ts:321-334`) — [FOO-1052](https://linear.app/lw-claude/issue/FOO-1052)
-- [MEDIUM] EDGE CASE: missing test for past-date row stability under settings drift (`src/lib/__tests__/daily-goals.test.ts`) — [FOO-1053](https://linear.app/lw-claude/issue/FOO-1053)
-- [MEDIUM] EDGE CASE: missing integration tests for MAINTAIN direction (`src/lib/__tests__/daily-goals.test.ts`) — [FOO-1054](https://linear.app/lw-claude/issue/FOO-1054)
-- [LOW] TYPE: unnecessary `as string` widening cast in goals_not_set check (`src/lib/user-profile.ts:91`) — [FOO-1055](https://linear.app/lw-claude/issue/FOO-1055)
-- [LOW] LOGGING: nutrition-goals GET success logged at INFO instead of DEBUG (`src/app/api/nutrition-goals/route.ts:29`) — [FOO-1056](https://linear.app/lw-claude/issue/FOO-1056)
-- [LOW] EDGE CASE: missing boundary test for goalWeightKg = 0 in PATCH validation (`src/app/api/daily-goals-settings/__tests__/route.test.ts`) — [FOO-1057](https://linear.app/lw-claude/issue/FOO-1057)
+**Issues fixed inline:**
+- [HIGH] BUG: edit-food fast-path relog-failure compensation didn't return `PARTIAL_ERROR` (and logged a false "compensation succeeded") when the compensation DB id-link update failed — the only one of 4 compensation blocks missing this. Added the `PARTIAL_ERROR` return + regression test. (`src/app/api/edit-food/route.ts`; FOO-1110)
+- [MEDIUM] BUG: log-food + food-history DELETE logged ALL HEALTH_* errors at `error` level (Sentry-noise regression from the FOO-1103 `mapHealthError` centralization, which dropped the prior warn-for-transient distinction). Added `isExpectedHealthError` helper + warn/error branching + unit test. (`src/lib/health-error-response.ts`, `src/app/api/log-food/route.ts`, `src/app/api/food-history/[id]/route.ts`; FOO-1111)
+- [MEDIUM] BUG: quick-select tab buttons lost all accessible active-state — the FOO-1109 a11y sub-fix removed `aria-pressed` (keeping `aria-controls`) on a wrong premise; the project's own `dashboard-shell` combines both, and `role="tablist"` was intentionally removed in FOO-613. Broke the `quick-select.spec.ts` E2E test. Restored `aria-pressed` + added a unit regression test. (`src/components/quick-select.tsx`; FOO-1112)
 
 **Discarded findings (not bugs):**
-- [DISCARDED] EDGE CASE: migration timing for `DELETE FROM daily_calorie_goals WHERE date >= CURRENT_DATE` (`drizzle/0026_goal_anchored_engine.sql:20`) — Operational note only; the push-to-production skill controls deploy timing and the row regeneration is by design (banner-gated UI handles the transient blocked state).
-- [DISCARDED] CONVENTION: hand-edit appended to drizzle-generated SQL (`drizzle/0026_goal_anchored_engine.sql:20`) — Documented accepted pattern in MEMORY.md ("Drizzle migrations + manual data migrations" lesson) and explicitly required by the plan's Task 1 step 5; drizzle-kit emits DDL only.
-- [DISCARDED] EDGE CASE: `buildAuditFromRow` direction reconstruction (`src/lib/daily-goals.ts:83-84`) — Reviewer self-confirmed: reconstruction from `deficitKcal` sign is consistent with engine's storage rules. No bug.
-- [DISCARDED] EDGE CASE: negative `targetKcal` on extreme `goalRateKgPerWeek` (`src/lib/macro-engine.ts:104`) — By design (no safety clamp); the safety-floor warning in DailyGoalsCard handles user agency. Reviewer self-confirmed intentional.
-- [DISCARDED] ASYNC: pre-existing Fitbit-error propagation from `buildUserProfile` (`src/lib/user-profile.ts:61`) — Pre-existing pattern (route-level handlers catch generic errors). Reviewer flagged "for awareness" not as a definitive bug. Existing chat-tool callers handle thrown errors via the generic catch path.
-- [DISCARDED] BUG: race condition in `invalidateUserDailyGoalsForSettingsChange` vs in-flight `doCompute` (`src/lib/daily-goals.ts:362-384`) — Self-correcting via the settings-drift check at step 2 of `getOrComputeDailyGoals`: when an in-flight compute writes a stale row after invalidate, the next read detects mismatch between stored `(activityLevel, goalWeightKg, goalRateKgPerWeek)` and `users.*` and recomputes. Window is bounded to one stale page load; concurrent invocation across two tabs/devices in <100ms is the only trigger. Reviewer described as "self-correcting within one request cycle"; the existing rowSettingsMatch logic is the citation.
+- [DISCARDED][HIGH] TYPE: `mapHealthError` switch is non-exhaustive / operates on raw string — the input is genuinely `unknown` (caught thrown values), so a runtime `default → INTERNAL_ERROR` is the correct design and a compile-time-exhaustive switch is infeasible; all 8 currently-thrown HEALTH_* codes are explicitly handled (verified). No current correctness impact.
+- [DISCARDED][MEDIUM] SECURITY: saved-analyses forwards `validateFoodAnalysis` error messages to the client — consistent with the existing `saved-analyses/bulk` route (the pattern FOO-1101 was told to mirror); the disclosed names are FoodAnalysis schema fields the client already sends, not secrets/internals.
+- [DISCARDED][MEDIUM] SECURITY/TEST: open-redirect guard tested only for health-connect flow, not login flow — the guard (`startsWith("/") && !startsWith("//")`) is shared code executed for both flows and is exercised by the health-connect tests; login-flow protection is present. Coverage nicety, not a bug. (raised twice, med+low)
+- [DISCARDED][MEDIUM] TEST: edit-food regular-path compensation test uses a loose `toHaveBeenCalledWith` — the compensation behavior (re-create + persist) IS asserted; token-identity is not a correctness property worth tightening.
+- [DISCARDED][MEDIUM] TEST: FOO-1101 fixed behavior "not tested" — the `201 with unit_id:'g'` test DOES prove a string unit_id now succeeds (exactly the regression). Adequate.
+- [DISCARDED][MEDIUM] CONVENTION: 4 stale "Log to Fitbit" test NAMES in `food-chat.test.tsx` (assertions are correct) — cosmetic, zero correctness impact, and in a file outside this iteration's changed-files review scope.
+- [DISCARDED][LOW] SECURITY/TEST: no cross-user idempotency isolation test — the cache key provably includes `userId` (`getIdempotencyKey`). Code correct.
+- [DISCARDED][LOW] ERROR: `mapHealthError` doesn't log when passed a non-Error — callers already log before invoking (per its contract); redundant.
+- [DISCARDED][LOW] CONVENTION: log-food logs raw `clientToken` — it's a non-sensitive client idempotency key (not an auth credential per CLAUDE.md); logging it aids tracing.
+- [DISCARDED][LOW] TEST: no idempotency-cache TTL-expiry test — the TTL/sweep logic is trivial and correct; code-correct coverage gap, not a bug.
+- (R4 [LOW] "missing fast-path compensation DB-fail test" resolved as part of the FOO-1110 inline fix — that test was added.)
 
 ### Linear Updates
-- FOO-1040 → FOO-1049: Review → Merge (10 original task issues completed)
-- FOO-1050 → FOO-1057: Created in Todo (8 Fix issues — all S-size; routed via Fix Plan because count > 3)
+- FOO-1101 … FOO-1109: Review → Merge (Iteration 7 Fix Plan tasks completed)
+- FOO-1110: Created in Merge (Fix: edit-food fast-path compensation PARTIAL_ERROR — fixed inline)
+- FOO-1111: Created in Merge (Fix: log-food/food-history HEALTH_* log-level regression — fixed inline)
+- FOO-1112: Created in Merge (Fix: quick-select aria-pressed restore — fixed inline, surfaced by E2E)
 
-<!-- REVIEW COMPLETE -->
-
----
-
-## Fix Plan
-
-**Source:** Iteration 1 review findings (2026-05-08)
-**Linear Issues:** [FOO-1050](https://linear.app/lw-claude/issue/FOO-1050), [FOO-1051](https://linear.app/lw-claude/issue/FOO-1051), [FOO-1052](https://linear.app/lw-claude/issue/FOO-1052), [FOO-1053](https://linear.app/lw-claude/issue/FOO-1053), [FOO-1054](https://linear.app/lw-claude/issue/FOO-1054), [FOO-1055](https://linear.app/lw-claude/issue/FOO-1055), [FOO-1056](https://linear.app/lw-claude/issue/FOO-1056), [FOO-1057](https://linear.app/lw-claude/issue/FOO-1057)
-
-### Fix 1: Reject JSON array body in PATCH /api/daily-goals-settings
-**Linear Issue:** [FOO-1050](https://linear.app/lw-claude/issue/FOO-1050)
-
-1. Add a route test in `src/app/api/daily-goals-settings/__tests__/route.test.ts` asserting `[{"activityLevel":"light"}]` returns 400 `VALIDATION_ERROR`. Run vitest (expect fail).
-2. In `src/app/api/daily-goals-settings/route.ts:78-80`, add `Array.isArray(raw)` to the rejection branch alongside the existing object-shape guard.
-3. Run vitest (expect pass).
-
-### Fix 2: Tighten getBlockedMessage param type in TargetsCard
-**Linear Issue:** [FOO-1051](https://linear.app/lw-claude/issue/FOO-1051)
-
-1. In `src/components/targets-card.tsx:22`, change `reason?: string` to `reason?: GoalBlockedReason` (import the union from `@/types` or replicate from `goals-setup-banner.tsx`).
-2. Convert the switch into an exhaustive `Record<GoalBlockedReason, string>` lookup matching `goals-setup-banner.tsx`'s pattern, so adding a new union member produces a compile-time error here.
-3. Run `npm run typecheck` and vitest.
-
-### Fix 3: Log conversions of upstream errors in doCompute
-**Linear Issue:** [FOO-1052](https://linear.app/lw-claude/issue/FOO-1052)
-
-1. Add a unit test in `src/lib/__tests__/daily-goals.test.ts`: mock the engine to throw `INVALID_PROFILE_DATA`, assert a `warn` log is emitted via the existing test logger spy. Run vitest (expect fail).
-2. In `src/lib/daily-goals.ts:321-334`, emit `l.warn({ action: "daily_goals_blocked", reason }, "Daily goals blocked")` (or matching shape) on each engine/Fitbit error conversion. Use `debug` for `goals_not_set` (expected user state) and `warn` for the engine/Fitbit error conversions.
-3. Run vitest (expect pass).
-
-### Fix 4: Test past-date row stability under settings drift
-**Linear Issue:** [FOO-1053](https://linear.app/lw-claude/issue/FOO-1053)
-
-1. Add unit test in `src/lib/__tests__/daily-goals.test.ts`:
-   - Insert a `daily_calorie_goals` row for `(userId, today - 5)` storing `activityLevel: "sedentary"`, `goalWeightKg: 80`, `goalRateKgPerWeek: 0.5`.
-   - Set the `users` row to drifted values (`"moderate"`, 75, 1.0).
-   - Call `getOrComputeDailyGoals(userId, today - 5)`.
-   - Assert returned goals/audit match the stored row exactly. Verify no DB write was issued (mock the UPSERT spy).
-2. Run vitest (test should pass with the current implementation).
-
-### Fix 5: Test MAINTAIN direction at integration level
-**Linear Issue:** [FOO-1054](https://linear.app/lw-claude/issue/FOO-1054)
-
-1. Add three test cases in `src/lib/__tests__/daily-goals.test.ts`:
-   - Case A: `goalWeightKg === currentWeightKg`, `goalRateKgPerWeek = 0.5` → assert `audit.direction === "MAINTAIN"`, `audit.deficitKcal === 0`, stored row's `deficit_kcal === 0`.
-   - Case B: `goalRateKgPerWeek = 0` (with mismatched weights) → same assertions.
-   - Case C: seed a row with `deficit_kcal = 0`, `tdee = rmr × pal` → assert `buildAuditFromRow` reconstructs `direction === "MAINTAIN"`.
-2. Run vitest (cases should pass with the current implementation).
-
-### Fix 6: Remove unnecessary string cast in user-profile.ts
-**Linear Issue:** [FOO-1055](https://linear.app/lw-claude/issue/FOO-1055)
-
-1. In `src/lib/user-profile.ts:91`, remove the `as string` cast: `(goalsResult.reason as string) === "goals_not_set"` → `goalsResult.reason === "goals_not_set"`.
-2. Run `npm run typecheck` and vitest.
-
-### Fix 7: Lower nutrition-goals GET log level to DEBUG
-**Linear Issue:** [FOO-1056](https://linear.app/lw-claude/issue/FOO-1056)
-
-1. In `src/app/api/nutrition-goals/route.ts:29`, change `log.info(...)` on the success branch to `log.debug(...)`.
-2. Run vitest.
-
-### Fix 8: Add boundary test for goalWeightKg = 0 in PATCH validation
-**Linear Issue:** [FOO-1057](https://linear.app/lw-claude/issue/FOO-1057)
-
-1. Add a test case to the existing PATCH validation block in `src/app/api/daily-goals-settings/__tests__/route.test.ts`: assert `{ goalWeightKg: 0 }` returns 400 `VALIDATION_ERROR`.
-2. Run vitest (should pass with the current implementation).
-
----
-
-## Iteration 2
-
-**Implemented:** 2026-05-08
-**Method:** Single-agent (8 surgical fixes, all S-sized — worker overhead would have exceeded serial implementation time per Fix Plan calibration)
-
-### Tasks Completed This Iteration
-- Fix 1 (FOO-1050): Added `Array.isArray(raw)` to PATCH `/api/daily-goals-settings` body guard; added test for JSON array body
-- Fix 2 (FOO-1051): Replaced `getBlockedMessage`'s `string` switch with `Record<GoalBlockedReason, string>` exhaustive lookup in `targets-card.tsx`; imported `GoalBlockedReason` from `goals-setup-banner`
-- Fix 3 (FOO-1052): Added `l.warn` logs on engine/Fitbit error conversions in `doCompute` (catch block — `FITBIT_SCOPE_MISSING`, `INVALID_PROFILE_DATA`, `INVALID_GOAL_RATE`); added `l.debug` for `goals_not_set`. **Bug-hunter follow-up:** also added `l.warn` for `sex_unset` and `no_weight` direct-return paths (FOO-1052 was incomplete — those Fitbit-state checks were missing from the spec but obviously in scope)
-- Fix 4 (FOO-1053): Added unit test for past-date row stability under settings drift — verifies stored historical row is returned as-is (no recompute, no DB write) when current `users` settings differ from row's stored values
-- Fix 5 (FOO-1054): Added 3 unit tests for MAINTAIN direction integration — `goalWeight === currentWeight`, `goalRate = 0` with mismatched weights, and `buildAuditFromRow` reconstruction from stored `deficitKcal = 0`
-- Fix 6 (FOO-1055): Removed unnecessary `as string` cast in `user-profile.ts:91` `goals_not_set` check — type narrowing already provided by the `status === "blocked"` guard
-- Fix 7 (FOO-1056): Lowered `log.info` → `log.debug` on the `/api/nutrition-goals` GET success branch (routine read, not a state change)
-- Fix 8 (FOO-1057): Added boundary test for `{ goalWeightKg: 0 }` returning 400 in PATCH validation
-- **Dead-code removal (bug-hunter follow-up):** Removed unreachable `SEX_UNSET` branch from `doCompute` catch block — `profile.sex === "NA"` is short-circuited before `computeMacroTargets` is called, so the engine's `SEX_UNSET` throw never reaches the catch from this caller
-
-### Files Modified
-- `src/app/api/daily-goals-settings/route.ts` (Fix 1)
-- `src/app/api/daily-goals-settings/__tests__/route.test.ts` (Fix 1, Fix 8)
-- `src/app/api/nutrition-goals/route.ts` (Fix 7)
-- `src/components/targets-card.tsx` (Fix 2)
-- `src/lib/daily-goals.ts` (Fix 3 + bug-hunter follow-ups)
-- `src/lib/__tests__/daily-goals.test.ts` (Fix 3, Fix 4, Fix 5 + bug-hunter follow-up tests)
-- `src/lib/user-profile.ts` (Fix 6)
-
-### Linear Updates
-- FOO-1050 → FOO-1057: Todo → In Progress → Review (8 fix issues completed)
-
-### Pre-commit Verification
-- bug-hunter: Found 3 issues — 1 Medium, 2 Low. All fixed before final verification:
-  1. Medium: `sex_unset` and `no_weight` direct-return paths in `daily-goals.ts` lacked the `l.warn` logging that FOO-1052 added elsewhere — implementation was incomplete relative to the spec's intent (Fitbit-state observability gap). Fixed by adding `l.warn` calls and corresponding test cases.
-  2. Low: `SEX_UNSET` branch in catch block was dead code (unreachable due to early sex-check). Removed.
-  3. Low: Missing tests for the new `sex_unset`/`no_weight` log paths. Added.
-- verifier (default mode): All unit tests pass, lint clean, build clean, zero warnings.
-
-### Continuation Status
-Goal-anchored engine rework + Iteration 1 review fixes COMPLETE. All 8 fix issues moved to Review. No tasks remaining.
-
-<!-- ITERATION COMPLETE -->
-
-### Review Findings
-
-Summary: 8 findings raised by 3-reviewer team (security, reliability, quality); 4 classified as FIX (all S-size; Fix Plan path because count > 3), 4 DISCARDED.
-
-**Issues requiring fix (Linear issues created in Todo):**
-- [LOW] SECURITY: PATCH /api/daily-goals-settings missing upper bounds on goalWeightKg / goalRateKgPerWeek (`src/app/api/daily-goals-settings/route.ts:106,119`) — [FOO-1058](https://linear.app/lw-claude/issue/FOO-1058)
-- [LOW] EDGE CASE: empty PATCH body `{}` triggers unnecessary daily-goals invalidation + Fitbit re-fetch (`src/app/api/daily-goals-settings/route.ts:132-133`) — [FOO-1059](https://linear.app/lw-claude/issue/FOO-1059)
-- [MEDIUM] TYPE: `log as never` should be `log as unknown as Logger` in 5 places (`src/lib/__tests__/daily-goals.test.ts:596,610,622,638,653`) — [FOO-1060](https://linear.app/lw-claude/issue/FOO-1060)
-- [LOW] TEST: missing acceptance boundary test for `goalRateKgPerWeek = 0` in PATCH (`src/app/api/daily-goals-settings/__tests__/route.test.ts`) — [FOO-1061](https://linear.app/lw-claude/issue/FOO-1061)
-
-**Discarded findings (not bugs):**
-- [DISCARDED] SECURITY: `date` not URL-encoded in TargetsCard SWR fetch (`src/components/targets-card.tsx:44`) — `date` prop is a page-level computation, not raw user input, and the server-side handler validates format via `isValidDateFormat`. The scenario literally cannot occur given the app's input flow. Reviewer noted "low severity, defense-in-depth" — not a real bug.
-- [DISCARDED] SECURITY: Prompt injection vector via food names interpolated into AI profile string (`src/lib/user-profile.ts:115,123-124`) — pre-existing in lines NOT modified by Iteration 2; the changed file's only modification (Fix 6) was line 91. The threat model does not apply: this is a single-user/family app with `ALLOWED_EMAILS` allowlist; food names are user-typed input that goes only into that user's own AI context. There is no privilege boundary being crossed and no adversarial source. Self-attack via crafted food names has no meaningful impact.
-- [DISCARDED] CONVENTION: `GoalBlockedReason` type lives in `goals-setup-banner.tsx` instead of `@/types` (`src/components/goals-setup-banner.tsx:7`) — the type is a 1-line derivation `NonNullable<NutritionGoals["reason"]>` from the canonical `NutritionGoals` type already in `@/types`. Collocation with primary user is acceptable; CLAUDE.md's "src/types is source of truth" rule applies to API contract types, not derived utility aliases. Style preference, no correctness impact.
-- [DISCARDED] LOGGING: mild double-logging of blocked results (`src/lib/daily-goals.ts` + `src/app/api/nutrition-goals/route.ts`) — different layers serve different purposes: lib emits specific blocked-reason context at warn level for diagnostics; route emits request-completion log at debug level with `status` field for filtering. Action name `nutrition_goals_success` is the route's standard request-completion log pattern (covers both success and blocked statuses); the `status` field in the structured log discriminates. Reviewer noted "not severe duplication".
-
-### Linear Updates
-- FOO-1050 → FOO-1057: Review → Merge (8 Iteration 1 fix issues completed)
-- FOO-1058 → FOO-1061: Created in Todo (4 Iteration 2 fix issues — all S-size; routed via Fix Plan because count > 3)
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Fix Plan
-
-**Source:** Iteration 2 review findings (2026-05-08)
-**Linear Issues:** [FOO-1058](https://linear.app/lw-claude/issue/FOO-1058), [FOO-1059](https://linear.app/lw-claude/issue/FOO-1059), [FOO-1060](https://linear.app/lw-claude/issue/FOO-1060), [FOO-1061](https://linear.app/lw-claude/issue/FOO-1061)
-
-### Fix 1: Add upper bounds to goalWeightKg and goalRateKgPerWeek in PATCH validation
-**Linear Issue:** [FOO-1058](https://linear.app/lw-claude/issue/FOO-1058)
-
-1. Add tests in `src/app/api/daily-goals-settings/__tests__/route.test.ts` covering both rejection (above max) and acceptance (at max) for `goalWeightKg` (max 500) and `goalRateKgPerWeek` (max 5).
-2. In `src/app/api/daily-goals-settings/route.ts:106`, extend the `goalWeightKg` guard with `|| v > 500`.
-3. In `src/app/api/daily-goals-settings/route.ts:119`, extend the `goalRateKgPerWeek` guard with `|| v > 5`.
-4. Run vitest (expect pass).
-
-### Fix 2: Short-circuit empty PATCH body to avoid unnecessary daily-goals invalidation
-**Linear Issue:** [FOO-1059](https://linear.app/lw-claude/issue/FOO-1059)
-
-1. Add a route test asserting that `PATCH` with body `{}` returns 200 without calling `updateUserGoalSettings` or `invalidateUserDailyGoalsForSettingsChange`.
-2. In `src/app/api/daily-goals-settings/route.ts`, after building the `update` object, short-circuit when `Object.keys(update).length === 0` — return current settings via `getUserGoalSettings(session!.userId)` and `successResponse(buildResponse(...))` without touching the lib helpers.
-3. Run vitest (expect pass).
-
-### Fix 3: Replace `log as never` with `log as unknown as Logger` in daily-goals tests
-**Linear Issue:** [FOO-1060](https://linear.app/lw-claude/issue/FOO-1060)
-
-1. Add `import type { Logger } from "@/lib/logger";` (verify export name) at the top of `src/lib/__tests__/daily-goals.test.ts`.
-2. Replace `log as never` with `log as unknown as Logger` at lines 596, 610, 622, 638, 653.
-3. Run `npm run typecheck` and vitest.
-
-### Fix 4: Add acceptance boundary test for `goalRateKgPerWeek = 0` in PATCH
-**Linear Issue:** [FOO-1061](https://linear.app/lw-claude/issue/FOO-1061)
-
-1. Add a test in `src/app/api/daily-goals-settings/__tests__/route.test.ts` asserting that `PATCH` with body `{ goalRateKgPerWeek: 0 }` returns 200 and persists `goalRateKgPerWeek: 0` (MAINTAIN-direction case reachable via API).
-2. Run vitest (expect pass).
-
----
-
-## Iteration 3
-
-**Implemented:** 2026-05-08
-**Method:** Single-agent (4 surgical fixes, all S-sized — 2 work units / 4 effort points; per scope table single-agent path)
-
-### Tasks Completed This Iteration
-- Fix 1 (FOO-1058): Added upper-bound validation to PATCH `/api/daily-goals-settings` — `goalWeightKg ≤ 500`, `goalRateKgPerWeek ≤ 5`. Added rejection tests at 501 / 5.1 and acceptance tests at 500 / 5.
-- Fix 2 (FOO-1059): Empty PATCH body `{}` short-circuits — when `Object.keys(update).length === 0`, return current settings via `getUserGoalSettings(...)` and skip both `updateUserGoalSettings` and `invalidateUserDailyGoalsForSettingsChange`. Added test asserting no-op call counts. Emits a `daily_goals_settings_patch_noop` debug log.
-- Fix 3 (FOO-1060): Replaced 5 sites of `log as never` with `log as unknown as Logger` in `src/lib/__tests__/daily-goals.test.ts`; added `import type { Logger } from "@/lib/logger";`.
-- Fix 4 (FOO-1061): Added acceptance test for `{ goalRateKgPerWeek: 0 }` returning 200 and persisting 0 (MAINTAIN-direction reachable via the API).
-
-### Files Modified
-- `src/app/api/daily-goals-settings/route.ts` (Fix 1, Fix 2)
-- `src/app/api/daily-goals-settings/__tests__/route.test.ts` (Fix 1, Fix 2, Fix 4)
-- `src/lib/__tests__/daily-goals.test.ts` (Fix 3)
-
-### Linear Updates
-- FOO-1058 → FOO-1061: Todo → In Progress → Review (4 fix issues completed)
-
-### Pre-commit Verification
-- bug-hunter: No bugs found. Verified: bound checks correctly placed after `!isFinite(v)` (NaN/Infinity rejected first); empty-body short-circuit triggers ONLY on `{}` (a body containing `{ activityLevel: null }` correctly proceeds to update); double-cast idiom is correct; no CLAUDE.md violations.
-- verifier (default mode): All unit tests pass, lint clean, build clean, zero warnings.
-
-### Continuation Status
-Goal-anchored engine rework + Iteration 1 review fixes + Iteration 2 review fixes COMPLETE. All 4 Iteration 2 review fix issues moved to Review. No tasks remaining.
-
-<!-- ITERATION COMPLETE -->
-
-### Review Findings
-
-Files reviewed: 3 (single-agent review mode — ≤4 changed files threshold)
-Reviewer scope: security, reliability, quality (sequential)
-Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions, CLAUDE.md compliance, test quality
-
-No issues found — all 4 fixes are surgical, well-tested, and conventional.
-
-Verified:
-- Bound checks (500 kg, 5 kg/week) are placed after `!isFinite(v)` so NaN/Infinity rejected first; rejection (501 / 5.1) and acceptance (500 / 5) tests both present.
-- Empty-update short-circuit triggers ONLY when `Object.keys(update).length === 0`; explicit `null` values still flow through the update path (semantically a settings change, invalidation warranted).
-- `as unknown as Logger` matches the documented test pattern; `Logger` correctly imported from the pino re-export at `src/lib/logger.ts:5`.
-- Acceptance test for `goalRateKgPerWeek = 0` covers the MAINTAIN-direction reachability via the API.
-- No CLAUDE.md violations; standardized API response shape preserved; structured logging with `action` field maintained.
-
-### Linear Updates
-- FOO-1058 → FOO-1061: Review → Merge (4 Iteration 2 fix issues completed)
+### Inline Fix Verification
+- Unit/integration tests: 3,442 pass (was 3,436; +6 new)
+- Typecheck: 0 errors · Lint: 0 warnings
+- Bug-hunter: no new issues in the inline fixes
+- E2E: 135 pass (the quick-select regression that initially failed is now green)
 
 <!-- REVIEW COMPLETE -->
 
@@ -805,40 +1317,4 @@ Verified:
 
 ## Status: COMPLETE
 
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
-- Iteration 1: 10 task issues (FOO-1040..FOO-1049) → Merge
-- Iteration 1 review: 8 fix issues (FOO-1050..FOO-1057) → Merge
-- Iteration 2 review: 4 fix issues (FOO-1058..FOO-1061) → Merge
-- Iteration 4 (post-PR Codex review): 2 fix issues (FOO-1062, FOO-1063) → Merge
-- E2E suite: 144 tests pass.
-
----
-
-## Iteration 4 (post-PR Codex review)
-
-**Implemented:** 2026-05-08
-**Method:** Single-agent inline fixes — both bugs M-size, threshold overridden by user direction (fix on the open PR rather than spinning a new iteration).
-
-### Source
-PR #141 received 2 P2 inline comments from Codex (chatgpt-codex-connector bot). Both confirmed real bugs and inline-fixed before merge.
-
-### Tasks Completed This Iteration
-- **FOO-1062 — Past-date row blocked when users.* settings are null (migration cutover regression).** In `src/lib/daily-goals.ts`, the `goals_not_set` early return fired before the existing-row lookup, so post-migration users (where `users.*` goal columns start as NULL but `daily_calorie_goals` history rows persist) saw `blocked/goals_not_set` for every past date instead of their stored historical targets. Fixed by adding a migration-cutover branch BEFORE the goals_not_set return: when settings are not complete AND date is past, look up the existing row and return it if present (regardless of current settings). Today/future continues to block. Refactored the inline null-disjunction into a `settingsAreComplete(s): s is CompleteUserSettings` type predicate for clean narrowing across both call sites.
-- **FOO-1063 — v1 range mode misreports uncomputed gaps as goals_not_set.** In `src/app/api/v1/nutrition-goals/route.ts`, range-mode hardcoded `reason: "goals_not_set"` for every missing/incomplete date row, without checking user settings. Configured users hitting the range endpoint before single-date computes populated rows were told their goals weren't set up. Fixed by reading user settings via `getUserGoalSettings` in parallel with the date-range query, then choosing `gapReason = settingsConfigured ? "not_computed" : "goals_not_set"`. Introduced a local `RangeReason` type extending `NutritionGoals.reason` with `"not_computed"` — kept range-mode-only so the shared union doesn't pollute the dashboard banner / TargetsCard exhaustive Records.
-
-### Files Modified
-- `src/lib/daily-goals.ts` (FOO-1062 — `doCompute` refactor + `settingsAreComplete` predicate)
-- `src/lib/__tests__/daily-goals.test.ts` (FOO-1062 — 3 new tests in dedicated describe block)
-- `src/app/api/v1/nutrition-goals/route.ts` (FOO-1063 — `getUserGoalSettings` import, parallel fetch, `gapReason` branch, local `RangeReason` type)
-- `src/app/api/v1/nutrition-goals/__tests__/route.test.ts` (FOO-1063 — `mockGetUserGoalSettings` mock, default-configured beforeEach, 4 new tests, updated 1 existing assertion to `not_computed`)
-
-### Linear Updates
-- FOO-1062: Created in Merge (inline-fixed)
-- FOO-1063: Created in Merge (inline-fixed)
-
-### Pre-commit Verification
-- verifier (default mode): 3515 unit tests pass, lint 0, typecheck 0, build 0 warnings.
-
-<!-- ITERATION COMPLETE -->
-<!-- REVIEW COMPLETE -->
-
+All tasks implemented and reviewed successfully across Iterations 1–7. All Linear issues (FOO-1071..1099, FOO-1101..1112) moved to Merge. The 3 review findings were fixed inline (FOO-1110, FOO-1111, FOO-1112). Full gates green: 3,442 unit/integration tests, 135 E2E tests, typecheck 0 errors, lint 0 warnings. Only FOO-1100 (Task 30 — the production release deploy) remains, performed by `push-to-production` per the MIGRATIONS.md RELEASE RUNBOOK.

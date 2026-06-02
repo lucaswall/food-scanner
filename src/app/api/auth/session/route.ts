@@ -16,8 +16,7 @@ export async function GET() {
 
   const response = successResponse({
     email: user?.email ?? null,
-    fitbitConnected: session!.fitbitConnected,
-    hasFitbitCredentials: session!.hasFitbitCredentials,
+    healthConnected: session!.healthConnected,
     expiresAt: session!.expiresAt,
   });
   response.headers.set("Cache-Control", "private, no-cache");

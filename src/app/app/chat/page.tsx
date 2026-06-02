@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { ChatPageClient } from "@/components/chat-page-client";
-import { FitbitSetupGuard } from "@/components/fitbit-setup-guard";
+import { HealthConnectGuard } from "@/components/health-connect-guard";
 import { SkipLink } from "@/components/skip-link";
 
 export default async function ChatPage() {
@@ -14,9 +14,9 @@ export default async function ChatPage() {
   return (
     <>
       <SkipLink />
-      <FitbitSetupGuard>
+      <HealthConnectGuard>
         <ChatPageClient />
-      </FitbitSetupGuard>
+      </HealthConnectGuard>
     </>
   );
 }

@@ -1,11 +1,10 @@
-import { exchangeGoogleCode, getGoogleProfile } from "@/lib/auth";
+import { exchangeGoogleCode, getGoogleProfile, exchangeGoogleHealthCode, getGoogleHealthIdentity } from "@/lib/auth";
 import { errorResponse } from "@/lib/api-response";
 import { getRawSession } from "@/lib/session";
 import { buildUrl } from "@/lib/url";
 import { createRequestLogger } from "@/lib/logger";
-import { createSession } from "@/lib/session-db";
-import { getFitbitTokens } from "@/lib/fitbit-tokens";
-import { hasFitbitCredentials } from "@/lib/fitbit-credentials";
+import { createSession, getSessionById } from "@/lib/session-db";
+import { getHealthTokens, upsertHealthTokens } from "@/lib/health-tokens";
 import { isEmailAllowed } from "@/lib/env";
 import { getOrCreateUser } from "@/lib/users";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -41,15 +40,19 @@ export async function GET(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Invalid OAuth state", 400);
   }
 
-  // Extract returnTo from JSON state if present
+  // Parse flow and returnTo from JSON state if present
+  let flow: string | null = null;
   let returnTo: string | null = null;
   try {
     const parsed = JSON.parse(state) as Record<string, unknown>;
+    if (typeof parsed.flow === "string") {
+      flow = parsed.flow;
+    }
     if (typeof parsed.returnTo === "string" && parsed.returnTo.startsWith("/") && !parsed.returnTo.startsWith("//")) {
       returnTo = parsed.returnTo;
     }
   } catch {
-    // Plain string state — no returnTo
+    // Plain string state — no flow or returnTo
   }
 
   // Consume OAuth state immediately after validation
@@ -58,6 +61,72 @@ export async function GET(request: Request) {
 
   const redirectUri = buildUrl("/api/auth/google/callback");
 
+  // === HEALTH-CONNECT FLOW ===
+  if (flow === "health-connect") {
+    // Require an existing authenticated session in the cookie
+    const cookieSessionId: string | undefined = rawSession.sessionId || undefined;
+    if (!cookieSessionId) {
+      log.warn({ action: "health_connect_no_session" }, "health connect attempted without cookie session");
+      return errorResponse("AUTH_MISSING_SESSION", "No active session", 401);
+    }
+
+    const dbSession = await getSessionById(cookieSessionId);
+    if (!dbSession) {
+      log.warn({ action: "health_connect_invalid_session" }, "health connect session not found in DB");
+      return errorResponse("AUTH_MISSING_SESSION", "No active session", 401);
+    }
+
+    let healthTokens: { access_token: string; refresh_token: string; expires_in?: number; scope?: string };
+    try {
+      healthTokens = await exchangeGoogleHealthCode(code, redirectUri);
+    } catch (error) {
+      log.error(
+        { action: "health_token_exchange_error", error: error instanceof Error ? error.message : String(error) },
+        "failed to exchange google health authorization code",
+      );
+      return errorResponse("VALIDATION_ERROR", "Failed to exchange health authorization code", 400);
+    }
+
+    let healthUserId: string;
+    try {
+      healthUserId = await getGoogleHealthIdentity(healthTokens.access_token);
+    } catch (error) {
+      log.error(
+        { action: "health_identity_fetch_error", error: error instanceof Error ? error.message : String(error) },
+        "failed to fetch google health identity",
+      );
+      return errorResponse("VALIDATION_ERROR", "Failed to fetch Google Health identity", 400);
+    }
+
+    const expiresAt = healthTokens.expires_in
+      ? new Date(Date.now() + healthTokens.expires_in * 1000)
+      : new Date(Date.now() + 3600 * 1000);
+
+    try {
+      await upsertHealthTokens(
+        dbSession.userId,
+        {
+          healthUserId,
+          accessToken: healthTokens.access_token,
+          refreshToken: healthTokens.refresh_token,
+          expiresAt,
+          scope: healthTokens.scope,
+        },
+        log,
+      );
+    } catch (error) {
+      log.error(
+        { action: "health_token_upsert_error", error: error instanceof Error ? error.message : String(error) },
+        "failed to persist google health tokens",
+      );
+      return errorResponse("HEALTH_TOKEN_SAVE_FAILED", "Failed to save Google Health tokens", 500);
+    }
+
+    log.info({ action: "health_connect_success" }, "google health connected successfully");
+    return Response.redirect(buildUrl(returnTo ?? "/app"), 302);
+  }
+
+  // === LOGIN FLOW ===
   let tokens: { access_token: string };
   try {
     tokens = await exchangeGoogleCode(code, redirectUri);
@@ -69,7 +138,7 @@ export async function GET(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Failed to exchange authorization code", 400);
   }
 
-  let profile: { email: string; name: string };
+  let profile: { email: string; name: string; emailVerified: boolean };
   try {
     profile = await getGoogleProfile(tokens.access_token);
   } catch (error) {
@@ -78,6 +147,11 @@ export async function GET(request: Request) {
       "failed to fetch google user profile",
     );
     return errorResponse("VALIDATION_ERROR", "Failed to fetch user profile", 400);
+  }
+
+  if (!profile.emailVerified) {
+    log.warn({ action: "google_callback_email_not_verified", email: maskEmail(profile.email) }, "email address not verified");
+    return errorResponse("AUTH_INVALID_EMAIL", "Email address not verified", 403);
   }
 
   if (!isEmailAllowed(profile.email)) {
@@ -93,15 +167,10 @@ export async function GET(request: Request) {
 
   log.info({ action: "google_login_success", email: maskEmail(profile.email) }, "google login successful");
 
-  // Three-way redirect logic:
-  // 1. If Fitbit tokens exist → /app
-  // 2. If Fitbit credentials exist (but no tokens) → /api/auth/fitbit
-  // 3. If neither exist → /app/setup-fitbit
-  const fitbitTokens = await getFitbitTokens(user.id, log);
-  if (fitbitTokens) {
+  // Post-login redirect: /app if health tokens already connected, /app/connect-health if not
+  const userHealthTokens = await getHealthTokens(user.id, log);
+  if (userHealthTokens) {
     return Response.redirect(buildUrl(returnTo ?? "/app"), 302);
   }
-  const hasCredentials = await hasFitbitCredentials(user.id, log);
-  const redirectTo = hasCredentials ? "/api/auth/fitbit" : "/app/setup-fitbit";
-  return Response.redirect(buildUrl(redirectTo), 302);
+  return Response.redirect(buildUrl("/app/connect-health"), 302);
 }

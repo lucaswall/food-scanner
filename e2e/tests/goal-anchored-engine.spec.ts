@@ -9,7 +9,7 @@ import { captureScreenshots } from '../fixtures/screenshots';
  *
  * Smoke-level coverage of the new UI surfaces — goals-setup banner on the
  * dashboard, DailyGoalsCard on settings, and TargetsCard inline rendering.
- * Server-side Fitbit API calls are NOT mocked (test tokens are fake), so
+ * Server-side Google Health API calls are NOT mocked (test tokens are fake), so
  * end-to-end engine output assertions are out of scope here; engine math is
  * covered exhaustively by unit tests in src/lib/__tests__/macro-engine.test.ts
  * and src/lib/__tests__/daily-goals.test.ts.

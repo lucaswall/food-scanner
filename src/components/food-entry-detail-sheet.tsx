@@ -87,7 +87,7 @@ export function FoodEntryDetailSheet({
               <Share2 className="h-5 w-5" />
             </Button>
             {shareCopied && (
-              <span className="text-xs text-green-600">Link copied!</span>
+              <span className="text-xs text-success">Link copied!</span>
             )}
             {shareError && (
               <span className="text-xs text-destructive">{shareError}</span>

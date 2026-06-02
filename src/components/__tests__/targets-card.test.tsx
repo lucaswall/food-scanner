@@ -338,7 +338,7 @@ describe("TargetsCard", () => {
     );
     renderTargetsCard();
     await waitFor(() => {
-      expect(screen.getByText(/log your weight in fitbit/i)).toBeInTheDocument();
+      expect(screen.getByText(/log your weight in google health/i)).toBeInTheDocument();
     });
   });
 
@@ -372,7 +372,7 @@ describe("TargetsCard", () => {
     );
     renderTargetsCard();
     await waitFor(() => {
-      expect(screen.getByText(/reconnect fitbit/i)).toBeInTheDocument();
+      expect(screen.getByText(/reconnect google health/i)).toBeInTheDocument();
     });
   });
 

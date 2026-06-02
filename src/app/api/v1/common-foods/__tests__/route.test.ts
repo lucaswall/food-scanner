@@ -44,7 +44,7 @@ const mockFood: CommonFood = {
   customFoodId: 1,
   foodName: "Oatmeal",
   amount: 1,
-  unitId: 304,
+  unitId: "serving",
   calories: 150,
   proteinG: 5,
   carbsG: 27,
@@ -55,7 +55,6 @@ const mockFood: CommonFood = {
   transFatG: 0,
   sugarsG: 1,
   caloriesFromFat: 27,
-  fitbitFoodId: 123,
   mealTypeId: 1,
   isFavorite: false,
 };

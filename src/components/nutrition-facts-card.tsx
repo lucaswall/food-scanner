@@ -1,4 +1,5 @@
-import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
+import { getUnitLabel, MEAL_TYPE_LABELS } from "@/types";
+import type { ServingUnit } from "@/types";
 
 interface NutritionFactsCardProps {
   foodName: string;
@@ -8,7 +9,7 @@ interface NutritionFactsCardProps {
   fatG: number;
   fiberG: number;
   sodiumMg: number;
-  unitId: number;
+  unitId: ServingUnit;
   amount: number;
   mealTypeId?: number;
   // Tier 1 nutrients (optional)
@@ -96,7 +97,7 @@ export function NutritionFactsCard({
       </div>
       {mealTypeId !== undefined && (
         <div className="border-t border-foreground dark:border-foreground/50 mt-2 pt-2 text-sm text-muted-foreground">
-          {FITBIT_MEAL_TYPE_LABELS[mealTypeId] ?? "Unknown"}
+          {MEAL_TYPE_LABELS[mealTypeId] ?? "Unknown"}
         </div>
       )}
     </div>

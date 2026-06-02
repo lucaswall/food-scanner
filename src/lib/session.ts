@@ -5,8 +5,7 @@ import { getRequiredEnv } from "@/lib/env";
 import { errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { getSessionById, deleteSession, touchSession } from "@/lib/session-db";
-import { getFitbitTokens } from "@/lib/fitbit-tokens";
-import { hasFitbitCredentials } from "@/lib/fitbit-credentials";
+import { getHealthTokens } from "@/lib/health-tokens";
 
 let touchFailCount = 0;
 const TOUCH_FAIL_THRESHOLD = 3;
@@ -69,15 +68,13 @@ export async function getSession(): Promise<FullSession | null> {
     });
   }
 
-  const fitbitTokens = await getFitbitTokens(dbSession.userId);
-  const hasCredentials = await hasFitbitCredentials(dbSession.userId);
+  const healthTokens = await getHealthTokens(dbSession.userId);
 
   return {
     sessionId: dbSession.id,
     userId: dbSession.userId,
     expiresAt: dbSession.expiresAt.getTime(),
-    fitbitConnected: fitbitTokens !== null,
-    hasFitbitCredentials: hasCredentials,
+    healthConnected: healthTokens !== null,
     destroy: async () => {
       await deleteSession(dbSession.id);
       rawSession.destroy();
@@ -87,7 +84,7 @@ export async function getSession(): Promise<FullSession | null> {
 
 export function validateSession(
   session: FullSession | null,
-  options?: { requireFitbit?: boolean },
+  options?: { requireHealth?: boolean },
 ): Response | null {
   if (!session) {
     logger.warn(
@@ -97,20 +94,12 @@ export function validateSession(
     return errorResponse("AUTH_MISSING_SESSION", "No active session", 401);
   }
 
-  if (options?.requireFitbit && !session.fitbitConnected) {
+  if (options?.requireHealth && !session.healthConnected) {
     logger.warn(
-      { action: "session_invalid", reason: "fitbit_not_connected" },
-      "session validation failed: fitbit not connected",
+      { action: "session_invalid", reason: "health_not_connected" },
+      "session validation failed: Google Health not connected",
     );
-    return errorResponse("FITBIT_NOT_CONNECTED", "Fitbit account not connected", 400);
-  }
-
-  if (options?.requireFitbit && !session.hasFitbitCredentials) {
-    logger.warn(
-      { action: "session_invalid", reason: "fitbit_credentials_missing" },
-      "session validation failed: fitbit credentials not configured",
-    );
-    return errorResponse("FITBIT_CREDENTIALS_MISSING", "Fitbit credentials not configured. Please set up your credentials in Settings.", 400);
+    return errorResponse("HEALTH_NOT_CONNECTED", "Google Health account not connected", 400);
   }
 
   return null;

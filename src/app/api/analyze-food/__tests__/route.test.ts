@@ -11,7 +11,7 @@ vi.mock("@/lib/session", () => ({
   getSession: () => mockGetSession(),
   validateSession: (
     session: FullSession | null,
-    options?: { requireFitbit?: boolean },
+    options?: { requireHealth?: boolean },
   ): Response | null => {
     if (!session) {
       return Response.json(
@@ -19,15 +19,9 @@ vi.mock("@/lib/session", () => ({
         { status: 401 },
       );
     }
-    if (options?.requireFitbit && !session.fitbitConnected) {
+    if (options?.requireHealth && !session.healthConnected) {
       return Response.json(
-        { success: false, error: { code: "FITBIT_NOT_CONNECTED", message: "Fitbit account not connected" }, timestamp: Date.now() },
-        { status: 400 },
-      );
-    }
-    if (options?.requireFitbit && !session.hasFitbitCredentials) {
-      return Response.json(
-        { success: false, error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Fitbit credentials not configured" }, timestamp: Date.now() },
+        { success: false, error: { code: "HEALTH_NOT_CONNECTED", message: "Google Health not connected" }, timestamp: Date.now() },
         { status: 400 },
       );
     }
@@ -74,15 +68,14 @@ const validSession: FullSession = {
   sessionId: "test-session",
   userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
-  fitbitConnected: true,
-  hasFitbitCredentials: true,
+  healthConnected: true,
   destroy: vi.fn(),
 };
 
 const validAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
   amount: 150,
-  unit_id: 147,
+  unit_id: "g",
   calories: 320,
   protein_g: 12,
   carbs_g: 28,
@@ -130,14 +123,14 @@ function createMockFile(
 function createMockRequest(
   files: MockFile[],
   description?: string,
-  clientDate?: string,
+  clientDate: string | null = "2026-02-15", // default to valid date; pass null to test missing
   clientTime?: string,
 ): Request {
   const formData = {
     getAll: (key: string) => (key === "images" ? files : []),
     get: (key: string) => {
       if (key === "description") return description ?? null;
-      if (key === "clientDate") return clientDate ?? null;
+      if (key === "clientDate") return clientDate;
       if (key === "clientTime") return clientTime ?? null;
       return null;
     },
@@ -190,10 +183,10 @@ describe("POST /api/analyze-food", () => {
     expect(body.error.code).toBe("AUTH_MISSING_SESSION");
   });
 
-  it("returns 400 FITBIT_NOT_CONNECTED when fitbit is not connected", async () => {
+  it("returns 400 HEALTH_NOT_CONNECTED when Google Health is not connected", async () => {
     mockGetSession.mockResolvedValue({
       ...validSession,
-      fitbitConnected: false,
+      healthConnected: false,
     });
 
     const request = createMockRequest([
@@ -203,7 +196,7 @@ describe("POST /api/analyze-food", () => {
     const response = await POST(request);
     expect(response.status).toBe(400);
     const body = await response.json();
-    expect(body.error.code).toBe("FITBIT_NOT_CONNECTED");
+    expect(body.error.code).toBe("HEALTH_NOT_CONNECTED");
   });
 
   it("returns 400 VALIDATION_ERROR for malformed request body", async () => {
@@ -649,7 +642,7 @@ describe("POST /api/analyze-food", () => {
 
     const formData = {
       getAll: (key: string) => (key === "images" ? [goodFile, failingFile, anotherGoodFile] : []),
-      get: (key: string) => (key === "description" ? null : null),
+      get: (key: string) => (key === "clientDate" ? "2026-02-15" : key === "description" ? null : null),
     };
 
     const request = {
@@ -775,7 +768,7 @@ describe("POST /api/analyze-food", () => {
 
     const formData = {
       getAll: (key: string) => (key === "images" ? [createMockFile("test.jpg", "image/jpeg", 1000)] : []),
-      get: () => null,
+      get: (key: string) => (key === "clientDate" ? "2026-02-15" : null),
     };
     const request = {
       formData: () => Promise.resolve(formData),
@@ -794,5 +787,58 @@ describe("POST /api/analyze-food", () => {
       abortController.signal,
       undefined,
     );
+  });
+});
+
+// =============================================================================
+// Task 26: clientDate enforcement — 400 on missing/invalid clientDate
+// =============================================================================
+
+describe("Task 26: clientDate enforcement (analyze-food)", () => {
+  it("returns 400 VALIDATION_ERROR when clientDate is missing", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "Test food",
+      null, // explicitly no clientDate
+    );
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 VALIDATION_ERROR when clientDate is invalid format", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "Test food",
+      "not-a-date", // invalid clientDate (string but invalid format)
+    );
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("passes valid clientDate through (non-400)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "Test food",
+      "2026-02-15",
+    );
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
   });
 });

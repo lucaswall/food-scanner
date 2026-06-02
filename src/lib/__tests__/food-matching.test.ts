@@ -148,7 +148,7 @@ describe("findMatchingFoods", () => {
     const result = await findMatchingFoods("user-uuid-123", {
       food_name: "Tea with milk",
       amount: 1,
-      unit_id: 91,
+      unit_id: "cup",
       calories: 50,
       protein_g: 2,
       carbs_g: 5,
@@ -178,20 +178,20 @@ describe("findMatchingFoods", () => {
           proteinG: "12",
           carbsG: "35",
           fatG: "10",
-          fitbitFoodId: 100,
           keywords: ["pizza", "margherita"],
           createdAt: new Date("2026-01-01"),
           amount: "1",
-          unitId: 304,
+          unitId: "serving",
         },
         lastLoggedAt: new Date("2026-01-15"),
+        latestHealthLogId: "logged",
       },
     ]);
 
     const result = await findMatchingFoods("user-uuid-123", {
       food_name: "Tea with milk",
       amount: 1,
-      unit_id: 91,
+      unit_id: "cup",
       calories: 50,
       protein_g: 2,
       carbs_g: 5,
@@ -221,20 +221,20 @@ describe("findMatchingFoods", () => {
           proteinG: "30",
           carbsG: "60",
           fatG: "20",
-          fitbitFoodId: 100,
           keywords: ["tea", "milk"],
           createdAt: new Date("2026-01-01"),
           amount: "1",
-          unitId: 91,
+          unitId: "cup",
         },
         lastLoggedAt: new Date("2026-01-15"),
+        latestHealthLogId: "logged",
       },
     ]);
 
     const result = await findMatchingFoods("user-uuid-123", {
       food_name: "Tea with milk",
       amount: 1,
-      unit_id: 91,
+      unit_id: "cup",
       calories: 50,
       protein_g: 2,
       carbs_g: 5,
@@ -264,13 +264,13 @@ describe("findMatchingFoods", () => {
           proteinG: "2",
           carbsG: "5",
           fatG: "2",
-          fitbitFoodId: 100,
           keywords: ["tea", "milk"],
           createdAt: new Date("2026-01-01"),
           amount: "1",
-          unitId: 91,
+          unitId: "cup",
         },
         lastLoggedAt: new Date("2026-01-10"),
+        latestHealthLogId: "logged",
       },
       {
         custom_foods: {
@@ -280,13 +280,13 @@ describe("findMatchingFoods", () => {
           proteinG: "2",
           carbsG: "6",
           fatG: "2",
-          fitbitFoodId: 101,
           keywords: ["tea", "milk", "honey"],
           createdAt: new Date("2026-01-15"),
           amount: "1",
-          unitId: 91,
+          unitId: "cup",
         },
         lastLoggedAt: new Date("2026-01-20"),
+        latestHealthLogId: "logged",
       },
       {
         custom_foods: {
@@ -296,20 +296,20 @@ describe("findMatchingFoods", () => {
           proteinG: "1",
           carbsG: "4",
           fatG: "1",
-          fitbitFoodId: 102,
           keywords: ["tea"],
           createdAt: new Date("2026-01-05"),
           amount: "1",
-          unitId: 91,
+          unitId: "cup",
         },
         lastLoggedAt: new Date("2026-01-25"),
+        latestHealthLogId: "logged",
       },
     ]);
 
     const result = await findMatchingFoods("user-uuid-123", {
       food_name: "Tea with milk",
       amount: 1,
-      unit_id: 91,
+      unit_id: "cup",
       calories: 50,
       protein_g: 2,
       carbs_g: 5,
@@ -346,20 +346,20 @@ describe("findMatchingFoods", () => {
         proteinG: "2",
         carbsG: "5",
         fatG: "2",
-        fitbitFoodId: 100 + i,
         keywords: ["tea", "milk"],
         createdAt: new Date(`2026-01-0${i + 1}`),
         amount: "1",
-        unitId: 91,
+        unitId: "cup",
       },
       lastLoggedAt: new Date(`2026-01-${10 + i}`),
+      latestHealthLogId: "logged",
     }));
     mockGroupBy.mockResolvedValue(foods);
 
     const result = await findMatchingFoods("user-uuid-123", {
       food_name: "Tea with milk",
       amount: 1,
-      unit_id: 91,
+      unit_id: "cup",
       calories: 50,
       protein_g: 2,
       carbs_g: 5,
@@ -389,20 +389,20 @@ describe("findMatchingFoods", () => {
           proteinG: "2",
           carbsG: "5",
           fatG: "2",
-          fitbitFoodId: 100,
           keywords: null,
           createdAt: new Date("2026-01-01"),
           amount: "1",
-          unitId: 91,
+          unitId: "cup",
         },
         lastLoggedAt: new Date("2026-01-15"),
+        latestHealthLogId: "logged",
       },
     ]);
 
     const result = await findMatchingFoods("user-uuid-123", {
       food_name: "Tea with milk",
       amount: 1,
-      unit_id: 91,
+      unit_id: "cup",
       calories: 50,
       protein_g: 2,
       carbs_g: 5,
@@ -422,9 +422,11 @@ describe("findMatchingFoods", () => {
     expect(result).toEqual([]);
   });
 
-  describe("FITBIT_DRY_RUN=true", () => {
-    it("includes foods with null fitbitFoodId", async () => {
-      vi.stubEnv("FITBIT_DRY_RUN", "true");
+  describe("foods with no remote health log (FOO-1114)", () => {
+    it("matches foods with no health_log_id in production mode (filter removed — historical/migrated foods stay visible)", async () => {
+      // HEALTH_DRY_RUN unset (production). Pre-cutover/migrated foods have a NULL
+      // health_log_id; they MUST still be matchable — never hidden behind a remote-sync filter.
+      vi.stubEnv("HEALTH_DRY_RUN", "");
       mockGroupBy.mockResolvedValue([
         {
           custom_foods: {
@@ -434,20 +436,20 @@ describe("findMatchingFoods", () => {
             proteinG: "2",
             carbsG: "5",
             fatG: "2",
-            fitbitFoodId: null,
             keywords: ["tea", "milk"],
             createdAt: new Date("2026-01-01"),
             amount: "1",
-            unitId: 91,
+            unitId: "cup",
           },
           lastLoggedAt: new Date("2026-01-15"),
+          latestHealthLogId: null,
         },
       ]);
 
       const result = await findMatchingFoods("user-uuid-123", {
         food_name: "Tea with milk",
         amount: 1,
-        unit_id: 91,
+        unit_id: "cup",
         calories: 50,
         protein_g: 2,
         carbs_g: 5,
@@ -466,7 +468,6 @@ describe("findMatchingFoods", () => {
 
       expect(result).toHaveLength(1);
       expect(result[0].foodName).toBe("Tea with milk");
-      expect(result[0].fitbitFoodId).toBeNull();
     });
   });
 });

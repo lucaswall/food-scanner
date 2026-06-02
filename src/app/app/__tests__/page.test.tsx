@@ -25,9 +25,9 @@ vi.mock("@/components/dashboard-prefetch", () => ({
   DashboardPrefetch: () => null,
 }));
 
-vi.mock("@/components/fitbit-status-banner", () => ({
-  FitbitStatusBanner: () => (
-    <div data-testid="fitbit-status-banner">FitbitStatusBanner</div>
+vi.mock("@/components/health-status-banner", () => ({
+  HealthStatusBanner: () => (
+    <div data-testid="health-status-banner">HealthStatusBanner</div>
   ),
 }));
 
@@ -37,8 +37,7 @@ const validSession: FullSession = {
   sessionId: "test-session",
   userId: "test-user-uuid",
   expiresAt: Date.now() + 86400000,
-  fitbitConnected: true,
-  hasFitbitCredentials: true,
+  healthConnected: true,
   destroy: vi.fn(),
 };
 
@@ -56,11 +55,11 @@ describe("/app page", () => {
     expect(screen.queryByRole("heading")).not.toBeInTheDocument();
   });
 
-  it("renders FitbitStatusBanner component", async () => {
+  it("renders HealthStatusBanner component", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
     render(jsx);
-    expect(screen.getByTestId("fitbit-status-banner")).toBeInTheDocument();
+    expect(screen.getByTestId("health-status-banner")).toBeInTheDocument();
   });
 
   it("renders DashboardShell component", async () => {

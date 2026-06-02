@@ -15,8 +15,8 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-vi.mock("@/components/fitbit-setup-guard", () => ({
-  FitbitSetupGuard: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+vi.mock("@/components/health-connect-guard", () => ({
+  HealthConnectGuard: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 vi.mock("@/components/quick-select", () => ({
@@ -29,8 +29,7 @@ const validSession: FullSession = {
   sessionId: "test-session",
   userId: "test-user-uuid",
   expiresAt: Date.now() + 86400000,
-  fitbitConnected: true,
-  hasFitbitCredentials: true,
+  healthConnected: true,
   destroy: vi.fn(),
 };
 

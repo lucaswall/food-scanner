@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   const log = createRequestLogger("POST", "/api/chat-captures");
   const session = await getSession();
 
-  const validationError = validateSession(session, { requireFitbit: false });
+  const validationError = validateSession(session);
   if (validationError) return validationError;
 
   const { allowed } = checkRateLimit(`chat-captures:${session!.userId}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);

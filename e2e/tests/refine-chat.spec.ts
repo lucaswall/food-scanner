@@ -146,8 +146,8 @@ test.describe('Refine Chat Screenshots', () => {
     // Wait for mini nutrition card to render before clicking log
     await expect(page.getByText('380', { exact: true })).toBeVisible({ timeout: 5000 });
 
-    // Click "Log to Fitbit" button — use first() since both chat header and analyzer may have this button
-    await page.getByRole('button', { name: 'Log to Fitbit' }).first().click();
+    // Click "Log to Google Health" button — use first() since both chat header and analyzer may have this button
+    await page.getByRole('button', { name: 'Log to Google Health' }).first().click();
 
     // Wait for confirmation screen to render
     await expect(page.getByText(/logged successfully/i)).toBeVisible({ timeout: 10000 });
@@ -214,8 +214,8 @@ test.describe('Free-form Chat', () => {
     // Should show "Chat" title in header
     await expect(page.getByRole('heading', { name: 'Chat' })).toBeVisible();
 
-    // Should NOT show "Log to Fitbit" button initially
-    expect(await page.getByRole('button', { name: /log to fitbit/i }).count()).toBe(0);
+    // Should NOT show "Log to Google Health" button initially
+    expect(await page.getByRole('button', { name: /log to google health/i }).count()).toBe(0);
 
     await captureScreenshots(page, 'chat');
   });
@@ -251,8 +251,8 @@ test.describe('Free-form Chat', () => {
 
     await captureScreenshots(page, 'chat-conversation');
 
-    // Verify "Log to Fitbit" button still not shown (no analysis in response)
-    expect(await page.getByRole('button', { name: /log to fitbit/i }).count()).toBe(0);
+    // Verify "Log to Google Health" button still not shown (no analysis in response)
+    expect(await page.getByRole('button', { name: /log to google health/i }).count()).toBe(0);
   });
 
   test('header updates when analysis arrives from API', async ({ page }) => {
@@ -291,8 +291,8 @@ test.describe('Free-form Chat', () => {
     // Wait for greeting
     await expect(page.getByText(/Hi! Ask me anything/i)).toBeVisible({ timeout: 5000 });
 
-    // Initially no "Log to Fitbit" button
-    expect(await page.getByRole('button', { name: /log to fitbit/i }).count()).toBe(0);
+    // Initially no "Log to Google Health" button
+    expect(await page.getByRole('button', { name: /log to google health/i }).count()).toBe(0);
 
     // Send a message describing food
     const input = page.getByPlaceholder('Type a message...');
@@ -302,8 +302,8 @@ test.describe('Free-form Chat', () => {
     // Wait for response with analysis
     await expect(page.getByText(/I analyzed that as/i)).toBeVisible({ timeout: 5000 });
 
-    // Now "Log to Fitbit" button should appear
-    await expect(page.getByRole('button', { name: /log to fitbit/i })).toBeVisible({ timeout: 3000 });
+    // Now "Log to Google Health" button should appear
+    await expect(page.getByRole('button', { name: /log to google health/i })).toBeVisible({ timeout: 3000 });
 
     // MiniNutritionCard should also appear with calorie info
     await expect(page.getByText('450')).toBeVisible();
@@ -353,7 +353,7 @@ test.describe('Free-form Chat', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           success: true,
-          data: { success: true, reusedFood: false, fitbitLogId: 99999 },
+          data: { success: true, reusedFood: false, healthLogId: "test-99999" },
         }),
       });
     });
@@ -369,11 +369,11 @@ test.describe('Free-form Chat', () => {
     // Wait for analysis response
     await expect(page.getByText(/I analyzed that as/i)).toBeVisible({ timeout: 5000 });
 
-    // Wait for "Log to Fitbit" button to appear
-    await expect(page.getByRole('button', { name: /log to fitbit/i })).toBeVisible({ timeout: 3000 });
+    // Wait for "Log to Google Health" button to appear
+    await expect(page.getByRole('button', { name: /log to google health/i })).toBeVisible({ timeout: 3000 });
 
-    // Click "Log to Fitbit"
-    await page.getByRole('button', { name: /log to fitbit/i }).click();
+    // Click "Log to Google Health"
+    await page.getByRole('button', { name: /log to google health/i }).click();
 
     // Wait for confirmation
     await expect(page.getByText(/logged successfully/i)).toBeVisible({ timeout: 10000 });

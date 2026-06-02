@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { QuickSelect } from "@/components/quick-select";
-import { FitbitSetupGuard } from "@/components/fitbit-setup-guard";
+import { HealthConnectGuard } from "@/components/health-connect-guard";
 import { SkipLink } from "@/components/skip-link";
 
 export default async function QuickSelectPage() {
@@ -17,9 +17,9 @@ export default async function QuickSelectPage() {
       <main id="main-content" className="mx-auto w-full max-w-md flex flex-col gap-6">
         <h1 className="text-2xl font-bold">Quick Select</h1>
 
-        <FitbitSetupGuard>
+        <HealthConnectGuard>
           <QuickSelect />
-        </FitbitSetupGuard>
+        </HealthConnectGuard>
       </main>
     </div>
   );

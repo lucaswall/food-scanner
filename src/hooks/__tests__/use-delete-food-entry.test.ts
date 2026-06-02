@@ -154,11 +154,11 @@ describe("useDeleteFoodEntry", () => {
       expect(onSuccess).not.toHaveBeenCalled();
     });
 
-    it("handles FITBIT_CREDENTIALS_MISSING with specific message", async () => {
+    it("handles HEALTH_NOT_CONNECTED with specific message", async () => {
       mockFetch.mockResolvedValue({
         ok: false,
-        json: async () => ({ success: false, error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Missing creds" } }),
-        text: async () => JSON.stringify({ success: false, error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Missing creds" } }),
+        json: async () => ({ success: false, error: { code: "HEALTH_NOT_CONNECTED", message: "Not connected" } }),
+        text: async () => JSON.stringify({ success: false, error: { code: "HEALTH_NOT_CONNECTED", message: "Not connected" } }),
       });
 
       const { result } = renderHook(() => useDeleteFoodEntry({ onSuccess }));
@@ -168,27 +168,9 @@ describe("useDeleteFoodEntry", () => {
         await result.current.handleDeleteConfirm();
       });
 
-      expect(result.current.deleteError).toBe("Fitbit is not set up. Please configure your credentials in Settings.");
-      expect(result.current.deleteErrorCode).toBe("FITBIT_CREDENTIALS_MISSING");
+      expect(result.current.deleteError).toBe("Google Health is not connected. Please connect in Settings.");
+      expect(result.current.deleteErrorCode).toBe("HEALTH_NOT_CONNECTED");
       expect(vibrateError).toHaveBeenCalled();
-    });
-
-    it("handles FITBIT_NOT_CONNECTED with specific message", async () => {
-      mockFetch.mockResolvedValue({
-        ok: false,
-        json: async () => ({ success: false, error: { code: "FITBIT_NOT_CONNECTED", message: "Not connected" } }),
-        text: async () => JSON.stringify({ success: false, error: { code: "FITBIT_NOT_CONNECTED", message: "Not connected" } }),
-      });
-
-      const { result } = renderHook(() => useDeleteFoodEntry({ onSuccess }));
-      act(() => { result.current.handleDeleteRequest(2); });
-
-      await act(async () => {
-        await result.current.handleDeleteConfirm();
-      });
-
-      expect(result.current.deleteError).toBe("Fitbit is not set up. Please configure your credentials in Settings.");
-      expect(result.current.deleteErrorCode).toBe("FITBIT_NOT_CONNECTED");
     });
 
     it("handles timeout errors (DOMException TimeoutError)", async () => {

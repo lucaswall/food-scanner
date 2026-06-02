@@ -18,13 +18,13 @@ test.describe('Quick Select Page', () => {
     await captureScreenshots(page, 'quick-select');
   });
 
-  test('shows quick select UI when Fitbit is connected', async ({ page }) => {
+  test('shows quick select UI when Google Health is connected', async ({ page }) => {
     await page.goto('/app/quick-select');
 
     // Wait for page to load
     await page.waitForLoadState('networkidle');
 
-    // With seeded Fitbit credentials and tokens, FitbitSetupGuard passes and real UI renders
+    // With seeded Google Health tokens, HealthConnectGuard passes and real UI renders
     // Verify seeded foods are visible (skip Broccoli — may be deleted by parallel test)
     await expect(page.getByText('Grilled Chicken Breast').first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('Brown Rice').first()).toBeVisible();
@@ -142,8 +142,8 @@ test.describe('Quick Select Page', () => {
     // based on time of day. Just verify it's present and proceed to log.
     await expect(page.locator('text=/Select meal type|Breakfast|Lunch|Dinner|Morning Snack|Afternoon Snack|Anytime/i').first()).toBeVisible();
 
-    // Find and click the "Log to Fitbit" button
-    const logButton = page.getByRole('button', { name: /Log to Fitbit/i });
+    // Find and click the "Log to Google Health" button
+    const logButton = page.getByRole('button', { name: /Log to Google Health/i });
     await logButton.click();
 
     // Wait for response
@@ -151,7 +151,7 @@ test.describe('Quick Select Page', () => {
 
     // Verify success feedback — FoodLogConfirmation shows or success toast appears
     const hasSuccessMessage = await page.locator('text=/success|logged|added|confirmed/i').count();
-    const hasConfirmation = await page.locator('text=/Food Logged|Logged to Fitbit/i').count();
+    const hasConfirmation = await page.locator('text=/Food Logged|Logged to Google Health/i').count();
     const redirectedToHistory = page.url().includes('/history');
 
     expect(hasSuccessMessage + hasConfirmation > 0 || redirectedToHistory).toBe(true);
@@ -207,8 +207,8 @@ test.describe('Quick Select Page', () => {
       });
     });
 
-    // Click Log to Fitbit
-    const logButton = page.getByRole('button', { name: /Log to Fitbit/i });
+    // Click Log to Google Health
+    const logButton = page.getByRole('button', { name: /Log to Google Health/i });
     await expect(logButton).toBeVisible({ timeout: 5000 });
     await logButton.click();
 

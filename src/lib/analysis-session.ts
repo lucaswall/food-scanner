@@ -1,6 +1,7 @@
 import { openDB } from "idb";
 import type { DBSchema, IDBPDatabase } from "idb";
-import type { FoodAnalysis, FoodMatch } from "@/types";
+import type { FoodAnalysis, FoodMatch, ServingUnit } from "@/types";
+import { coerceServingUnit } from "@/types";
 
 const DB_NAME = "food-scanner";
 const STORE_NAME = "session-photos";
@@ -23,11 +24,10 @@ interface SerializedFoodMatch {
   transFatG?: number | null;
   sugarsG?: number | null;
   caloriesFromFat?: number | null;
-  fitbitFoodId: number | null;
   matchRatio: number;
   lastLoggedAt: string;
   amount: number;
-  unitId: number;
+  unitId: ServingUnit;
 }
 
 export interface AnalysisSessionState {
@@ -122,7 +122,7 @@ function isValidSerializedMatch(m: unknown): m is SerializedFoodMatch {
     typeof d.matchRatio === "number" &&
     typeof d.lastLoggedAt === "string" &&
     typeof d.amount === "number" &&
-    typeof d.unitId === "number"
+    typeof d.unitId === "string" && coerceServingUnit(d.unitId) === d.unitId
   );
 }
 
@@ -222,7 +222,6 @@ export function serializeFoodMatch(match: FoodMatch): SerializedFoodMatch {
     transFatG: match.transFatG,
     sugarsG: match.sugarsG,
     caloriesFromFat: match.caloriesFromFat,
-    fitbitFoodId: match.fitbitFoodId,
     matchRatio: match.matchRatio,
     lastLoggedAt: match.lastLoggedAt instanceof Date ? match.lastLoggedAt.toISOString() : String(match.lastLoggedAt),
     amount: match.amount,

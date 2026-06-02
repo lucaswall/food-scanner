@@ -5,7 +5,7 @@ import { getOrComputeDailyGoals } from "@/lib/daily-goals";
 import { getDailyNutritionSummary } from "@/lib/food-log";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
-import { FITBIT_MEAL_TYPE_LABELS } from "@/types";
+import { MEAL_TYPE_LABELS } from "@/types";
 
 interface TopFood {
   foodName: string;
@@ -59,7 +59,7 @@ export async function buildUserProfile(
   const l = options?.log ?? logger;
 
   // FOO-1064: goals are optional enrichment for the chat profile. Isolate the
-  // goal-compute promise so a transient Fitbit error (token invalid, rate
+  // goal-compute promise so a transient Google Health error (token invalid, rate
   // limited, timeout) does not discard the DB-only nutrition summary and
   // top-foods context, which may have succeeded.
   const [goalsSettled, nutritionSummary, topFoods] = await Promise.all([
@@ -131,7 +131,7 @@ export async function buildUserProfile(
   if (hasMeals) {
     const mealStrs: string[] = [];
     for (const group of nutritionSummary.meals) {
-      const label = FITBIT_MEAL_TYPE_LABELS[group.mealTypeId] ?? `Meal ${group.mealTypeId}`;
+      const label = MEAL_TYPE_LABELS[group.mealTypeId] ?? `Meal ${group.mealTypeId}`;
       for (const entry of group.entries) {
         const timePart = entry.time ? ` at ${entry.time}` : "";
         mealStrs.push(`${label}${timePart} — ${entry.foodName} (${entry.calories} cal)`);

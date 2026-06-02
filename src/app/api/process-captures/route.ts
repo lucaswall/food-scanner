@@ -4,7 +4,7 @@ import { createRequestLogger } from "@/lib/logger";
 import { triageCaptures } from "@/lib/claude";
 import { isFileLike, ALLOWED_TYPES, MAX_IMAGE_SIZE } from "@/lib/image-validation";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { isValidDateFormat, getTodayDate } from "@/lib/date-utils";
+import { isValidDateFormat } from "@/lib/date-utils";
 import { createSSEResponse } from "@/lib/sse";
 
 const RATE_LIMIT_MAX = 10;
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   const log = createRequestLogger("POST", "/api/process-captures");
   const session = await getSession();
 
-  const validationError = validateSession(session, { requireFitbit: false });
+  const validationError = validateSession(session);
   if (validationError) return validationError;
 
   const { allowed } = checkRateLimit(`process-captures:${session!.userId}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
@@ -108,11 +108,13 @@ export async function POST(request: Request) {
     );
   }
 
-  // Parse clientDate
+  // Require client-provided date (browser timezone awareness)
   const clientDateRaw = formData.get("clientDate");
-  const currentDate = typeof clientDateRaw === "string" && isValidDateFormat(clientDateRaw)
-    ? clientDateRaw
-    : getTodayDate();
+  if (typeof clientDateRaw !== "string" || !isValidDateFormat(clientDateRaw)) {
+    log.warn({ action: "process_captures_validation" }, "missing or invalid clientDate");
+    return errorResponse("VALIDATION_ERROR", "clientDate is required and must be in YYYY-MM-DD format", 400);
+  }
+  const currentDate = clientDateRaw;
 
   log.info(
     { action: "process_captures_request", imageCount: images.length, captureCount: captureMetadataEntries.length },

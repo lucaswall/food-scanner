@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type Anthropic from "@anthropic-ai/sdk";
 import type { FoodAnalysis, FoodLogEntryDetail } from "@/types";
 import type { StreamEvent } from "@/lib/sse";
 import type { Logger } from "@/lib/logger";
@@ -50,7 +49,7 @@ function makeTextStream(
 
 /** Creates a mock stream for a report_nutrition tool_use response. */
 function makeReportNutritionStream(
-  analysis: FoodAnalysis,
+  analysis: Record<string, unknown>,
   usage: { input_tokens: number; output_tokens: number } = { input_tokens: 1500, output_tokens: 300 },
 ) {
   return createMockStream(
@@ -159,6 +158,12 @@ vi.mock("@anthropic-ai/sdk", () => {
     messages = {
       stream: mockStream,
     };
+    // Task 25: beta.messages.stream is the path used after A3 migration
+    beta = {
+      messages: {
+        stream: mockStream,
+      },
+    };
   }
 
   return {
@@ -232,10 +237,11 @@ vi.stubEnv("ANTHROPIC_API_KEY", "test-api-key");
 
 // --- Fixtures ---
 
+/** Expected parsed FoodAnalysis result (no serving_unit — that is a tool-input field only). */
 const validAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
   amount: 150,
-  unit_id: 147,
+  unit_id: "g",
   calories: 320,
   protein_g: 12,
   carbs_g: 28,
@@ -251,6 +257,9 @@ const validAnalysis: FoodAnalysis = {
   keywords: ["empanada", "carne", "horno"],
   description: "Standard Argentine beef empanada, baked style",
 };
+
+/** Raw tool input as Claude would output — uses serving_unit (string) field. */
+const rawToolInput: Record<string, unknown> = { ...validAnalysis, serving_unit: "g" };
 
 function setupMocks() {
   vi.clearAllMocks();
@@ -269,7 +278,7 @@ describe("Anthropic SDK configuration", () => {
   afterEach(() => { vi.resetModules(); });
 
   it("configures SDK timeout to 120s to accommodate web search latency", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], undefined, "test-user", "2026-02-15"));
@@ -280,7 +289,7 @@ describe("Anthropic SDK configuration", () => {
   });
 
   it("configures SDK with maxRetries", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], undefined, "test-user", "2026-02-15"));
@@ -307,7 +316,7 @@ describe("analyzeFood", () => {
   // --- Fast path: report_nutrition immediately ---
 
   it("fast path: yields analysis + done for report_nutrition response", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     const events = await collectEvents(
@@ -319,7 +328,7 @@ describe("analyzeFood", () => {
   });
 
   it("fast path: analysis event contains validated FoodAnalysis", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     const events = await collectEvents(analyzeFood([], undefined, "user-123", "2026-02-15"));
@@ -329,12 +338,12 @@ describe("analyzeFood", () => {
     expect(analysisEvent?.analysis.food_name).toBe("Empanada de carne");
     expect(analysisEvent?.analysis.calories).toBe(320);
     expect(analysisEvent?.analysis.amount).toBe(150);
-    expect(analysisEvent?.analysis.unit_id).toBe(147);
+    expect(analysisEvent?.analysis.unit_id).toBe("g");
   });
 
   it("fast path: records usage after analysis", async () => {
     mockStream.mockReturnValueOnce(
-      makeReportNutritionStream(validAnalysis, { input_tokens: 1500, output_tokens: 300 })
+      makeReportNutritionStream(rawToolInput, { input_tokens: 1500, output_tokens: 300 })
     );
 
     const { analyzeFood } = await import("@/lib/claude");
@@ -353,7 +362,7 @@ describe("analyzeFood", () => {
     mockRecordUsage.mockImplementation(() => new Promise((resolve) => {
       setTimeout(() => { recordUsageResolved = true; resolve(undefined); }, 100);
     }));
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], undefined, "user-123", "2026-02-15"));
@@ -363,7 +372,7 @@ describe("analyzeFood", () => {
 
   it("fast path: succeeds even if recordUsage throws", async () => {
     mockRecordUsage.mockRejectedValueOnce(new Error("DB error"));
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     const events = await collectEvents(analyzeFood([], undefined, "user-123", "2026-02-15"));
@@ -733,7 +742,7 @@ describe("analyzeFood", () => {
   // --- API call arguments ---
 
   it("passes all 5 tools to Claude with tool_choice auto", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([{ base64: "img", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15"));
@@ -753,18 +762,165 @@ describe("analyzeFood", () => {
     expect(call.tool_choice).toEqual({ type: "auto" });
   });
 
-  it("includes current date in system prompt", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+  it("date appears in messages (last user content block), not in system prompt (A2)", async () => {
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
-    await collectEvents(analyzeFood([], undefined, "user-123", "2026-02-15"));
+    await collectEvents(analyzeFood([], "empanada", "user-123", "2026-02-15"));
 
     const call = mockStream.mock.calls[0][0];
-    expect(call.system[0].text).toContain("2026-02-15");
+    // Date must NOT be in system prompt
+    expect(call.system[0].text).not.toContain("2026-02-15");
+    // Date must be in last content block of user message
+    const content = call.messages[0].content;
+    const lastBlock = content[content.length - 1];
+    expect(lastBlock.text).toContain("2026-02-15");
+  });
+
+  // --- A2: date block in messages, not system (Task 24) ---
+
+  it("A2: system[0].text is date-free and byte-identical for same date with different times", async () => {
+    mockStream
+      .mockReturnValueOnce(makeReportNutritionStream(rawToolInput))
+      .mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    // Call 1: no currentTime
+    await collectEvents(analyzeFood([], "test food", "user-123", "2026-02-15"));
+    const systemText1 = mockStream.mock.calls[0][0].system[0].text;
+
+    // Call 2: different currentTime
+    await collectEvents(analyzeFood([], "test food", "user-123", "2026-02-15", undefined, undefined, "14:30"));
+    const systemText2 = mockStream.mock.calls[1][0].system[0].text;
+
+    expect(systemText1).toBe(systemText2); // byte-identical
+    expect(systemText1).not.toContain("Today's date is:");
+    expect(systemText1).not.toContain("Current time");
+  });
+
+  it("A2: date block appears as LAST content block of user message (with image)", async () => {
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await collectEvents(analyzeFood(
+      [{ base64: "img", mimeType: "image/jpeg" }],
+      "empanada",
+      "user-123",
+      "2026-02-15"
+    ));
+
+    const call = mockStream.mock.calls[0][0];
+    const content = call.messages[0].content;
+    const lastBlock = content[content.length - 1];
+    expect(lastBlock.type).toBe("text");
+    expect(lastBlock.text).toContain("Today's date is: 2026-02-15");
+  });
+
+  it("A2: currentTime included in date block when provided", async () => {
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await collectEvents(analyzeFood(
+      [{ base64: "img", mimeType: "image/jpeg" }],
+      "empanada",
+      "user-123",
+      "2026-02-15",
+      undefined,
+      undefined,
+      "14:30"
+    ));
+
+    const call = mockStream.mock.calls[0][0];
+    const content = call.messages[0].content;
+    const lastBlock = content[content.length - 1];
+    expect(lastBlock.text).toContain("Today's date is: 2026-02-15");
+    expect(lastBlock.text).toContain("Current time: 14:30");
+  });
+
+  it("A2 slow path: 2nd request carries image blocks + cache_control breakpoint on description block", async () => {
+    mockStream.mockReturnValueOnce(
+      makeDataToolStream("search_food_log", { query: "empanada" }, "tool_1")
+    );
+    mockExecuteTool.mockResolvedValueOnce("Found: Empanada — 150g, 320 cal");
+    // 2nd call: end_turn with report_nutrition (runToolLoop handles end_turn with nutrition)
+    mockStream.mockReturnValueOnce(
+      createMockStream(
+        [{ type: "message_stop" }],
+        {
+          model: "claude-sonnet-4-6",
+          stop_reason: "end_turn",
+          content: [{ type: "tool_use", id: "tool_rpt", name: "report_nutrition", input: { ...rawToolInput } }],
+          usage: { input_tokens: 2000, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        }
+      )
+    );
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await collectEvents(analyzeFood(
+      [{ base64: "img", mimeType: "image/jpeg" }],
+      "empanada",
+      "user-123",
+      "2026-02-15"
+    ));
+
+    // 2nd call is inside runToolLoop
+    const call2 = mockStream.mock.calls[1][0];
+    const userMsg = call2.messages[0]; // leading user message preserved
+
+    // images still present
+    const imageBlocks = (userMsg.content as Array<{type: string}>).filter((b) => b.type === "image");
+    expect(imageBlocks.length).toBeGreaterThan(0);
+
+    // cache_control breakpoint exists on a text block (description, post-image pre-date)
+    const cachedBlock = (userMsg.content as Array<{type: string; cache_control?: unknown; text?: string}>).find(
+      (b) => b.cache_control != null
+    );
+    expect(cachedBlock).toBeDefined();
+    expect(cachedBlock?.type).toBe("text");
+
+    // date block is last
+    const lastBlock = userMsg.content[userMsg.content.length - 1];
+    expect(lastBlock.text).toContain("Today's date is: 2026-02-15");
+  });
+
+  it("A2 slow path: cacheReadTokens in 2nd response propagates to usage StreamEvent", async () => {
+    mockStream.mockReturnValueOnce(
+      makeDataToolStream("search_food_log", { query: "empanada" }, "tool_1")
+    );
+    mockExecuteTool.mockResolvedValueOnce("Found: Empanada — 150g, 320 cal");
+    // 2nd stream: end_turn with report_nutrition, reports cache_read_input_tokens > 0
+    mockStream.mockReturnValueOnce(
+      createMockStream(
+        [{ type: "message_stop" }],
+        {
+          model: "claude-sonnet-4-6",
+          stop_reason: "end_turn",
+          content: [{ type: "tool_use", id: "tool_rpt", name: "report_nutrition", input: { ...rawToolInput } }],
+          usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 500 },
+        }
+      )
+    );
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const events = await collectEvents(analyzeFood(
+      [{ base64: "img", mimeType: "image/jpeg" }],
+      "empanada",
+      "user-123",
+      "2026-02-15"
+    ));
+
+    const usageEvents = events.filter((e) => e.type === "usage") as Array<{
+      type: "usage";
+      data: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number };
+    }>;
+    const cacheHitEvent = usageEvents.find((e) => e.data.cacheReadTokens > 0);
+    expect(cacheHitEvent).toBeDefined();
+    expect(cacheHitEvent?.data.cacheReadTokens).toBe(500);
   });
 
   it("uses default text when no description provided", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([{ base64: "img", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15"));
@@ -776,7 +932,7 @@ describe("analyzeFood", () => {
   });
 
   it("passes images as base64 blocks", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood(
@@ -796,20 +952,26 @@ describe("analyzeFood", () => {
     expect(imageBlocks[1].source.data).toBe("img2");
   });
 
-  it("text-only request: no image blocks, description as sole text block", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+  it("text-only request: no image blocks, description + date as content blocks", async () => {
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], "2 medialunas y un cortado", "user-123", "2026-02-15"));
 
     const call = mockStream.mock.calls[0][0];
     const content = call.messages[0].content;
-    expect(content).toHaveLength(1);
+    // No image blocks
+    expect(content.filter((b: {type: string}) => b.type === "image")).toHaveLength(0);
+    // Description block is first (no cache_control for text-only)
     expect(content[0]).toEqual({ type: "text", text: "2 medialunas y un cortado" });
+    // Date block is last
+    const lastBlock = content[content.length - 1];
+    expect(lastBlock.type).toBe("text");
+    expect(lastBlock.text).toContain("Today's date is: 2026-02-15");
   });
 
-  it("includes web_search tool (GA, no beta header)", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+  it("includes web_search tool (GA) via beta channel (A3 context-management)", async () => {
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], undefined, "user-123", "2026-02-15"));
@@ -819,11 +981,12 @@ describe("analyzeFood", () => {
       expect.objectContaining({ type: "web_search_20260209", name: "web_search" })
     );
     expect(call.tools.map((t: { name: string }) => t.name)).not.toContain("code_execution");
-    expect(call).not.toHaveProperty("betas");
+    // A3: betas now always present for context-management
+    expect(call.betas).toContain("context-management-2025-06-27");
   });
 
   it("uses max_tokens 2048 for initial call", async () => {
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], undefined, "user-123", "2026-02-15"));
@@ -952,7 +1115,7 @@ describe("analyzeFood", () => {
         stop_reason: "end_turn",
         content: [
           { type: "text", text: "Based on the nutrition info..." },
-          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: rawToolInput },
         ],
         usage: { input_tokens: 2500, output_tokens: 300, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       }
@@ -1001,7 +1164,7 @@ describe("analyzeFood", () => {
         model: "claude-sonnet-4-6",
         stop_reason: "end_turn",
         content: [
-          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: rawToolInput },
         ],
         usage: { input_tokens: 3000, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       }
@@ -1050,7 +1213,7 @@ describe("analyzeFood", () => {
       }
     ));
     // Tool loop iteration 1: report_nutrition (tool_use → stores pending, continues)
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
     // Tool loop iteration 2: end_turn (uses pending analysis)
     mockStream.mockReturnValueOnce(makeTextStream("Done."));
 
@@ -1203,7 +1366,7 @@ describe("runToolLoop", () => {
       model: "claude-sonnet-4-6",
       stop_reason: "tool_use",
       content: [
-        { type: "tool_use", id: "t_report", name: "report_nutrition", input: validAnalysis },
+        { type: "tool_use", id: "t_report", name: "report_nutrition", input: rawToolInput },
         { type: "tool_use", id: "t_data", name: "get_nutrition_summary", input: { date: "2026-02-15" } },
       ],
       usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -1299,7 +1462,7 @@ describe("runToolLoop", () => {
     expect(call.system[0].text).toContain(CHAT_SYSTEM_PROMPT);
   });
 
-  it("includes web_search tool by default", async () => {
+  it("includes web_search tool by default via beta channel (A3 context-management)", async () => {
     mockStream.mockReturnValueOnce(makeTextStream("Done."));
 
     const { runToolLoop } = await import("@/lib/claude");
@@ -1312,7 +1475,8 @@ describe("runToolLoop", () => {
       expect.objectContaining({ type: "web_search_20260209", name: "web_search" })
     );
     expect(call.tools.map((t: { name: string }) => t.name)).not.toContain("code_execution");
-    expect(call).not.toHaveProperty("betas");
+    // A3: betas now always present for context-management
+    expect(call.betas).toContain("context-management-2025-06-27");
   });
 
   it("handles server_tool_use (web search) without calling executeTool", async () => {
@@ -1367,7 +1531,7 @@ describe("runToolLoop", () => {
         stop_reason: "end_turn",
         content: [
           { type: "text", text: "Here's the analysis." },
-          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: rawToolInput },
         ],
         usage: { input_tokens: 2000, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       }
@@ -1491,7 +1655,7 @@ describe("runToolLoop", () => {
         model: "claude-sonnet-4-6",
         stop_reason: "tool_use",
         content: [
-          { type: "tool_use", id: "tool_rpt_1", name: "report_nutrition", input: validAnalysis },
+          { type: "tool_use", id: "tool_rpt_1", name: "report_nutrition", input: rawToolInput },
           { type: "tool_use", id: "tool_rpt_2", name: "report_nutrition", input: secondAnalysis },
         ],
         usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -1525,7 +1689,7 @@ describe("runToolLoop", () => {
         model: "claude-sonnet-4-6",
         stop_reason: "tool_use",
         content: [
-          { type: "tool_use", id: "tool_rpt_1", name: "report_nutrition", input: validAnalysis },
+          { type: "tool_use", id: "tool_rpt_1", name: "report_nutrition", input: rawToolInput },
           { type: "tool_use", id: "tool_rpt_2", name: "report_nutrition", input: secondAnalysis },
         ],
         usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -1598,7 +1762,7 @@ describe("runToolLoop", () => {
       {
         model: "claude-sonnet-4-6",
         stop_reason: "max_tokens",
-        content: [{ type: "tool_use", id: "tool_rpt", name: "report_nutrition", input: validAnalysis }],
+        content: [{ type: "tool_use", id: "tool_rpt", name: "report_nutrition", input: rawToolInput }],
         usage: { input_tokens: 1500, output_tokens: 1024, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       }
     ));
@@ -1786,6 +1950,7 @@ describe("conversationalRefine", () => {
   afterEach(() => { vi.resetModules(); });
 
   it("yields analysis event when Claude calls report_nutrition", async () => {
+    const updatedRawInput = { ...rawToolInput, amount: 200 };
     const updatedAnalysis = { ...validAnalysis, amount: 200 };
     mockStream.mockReturnValueOnce(createMockStream(
       [
@@ -1799,7 +1964,7 @@ describe("conversationalRefine", () => {
         stop_reason: "end_turn",
         content: [
           { type: "text", text: "I've updated the portion size to 200g" },
-          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: updatedAnalysis },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: updatedRawInput },
         ],
         usage: { input_tokens: 1800, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       }
@@ -1895,7 +2060,7 @@ describe("conversationalRefine", () => {
     expect(systemText).toContain("baseline");
   });
 
-  it("includes current date in system prompt", async () => {
+  it("date appears in messages (last content block of leading user msg), not in system prompt (A2)", async () => {
     mockStream.mockReturnValueOnce(makeTextStream("OK"));
 
     const { conversationalRefine } = await import("@/lib/claude");
@@ -1908,10 +2073,15 @@ describe("conversationalRefine", () => {
     );
 
     const call = mockStream.mock.calls[0][0];
-    expect(call.system[0].text).toContain("Today's date is: 2026-02-15");
+    // NOT in system prompt
+    expect(call.system[0].text).not.toContain("Today's date is: 2026-02-15");
+    // IS in last content block of first user message
+    const content = call.messages[0].content;
+    const lastBlock = content[content.length - 1];
+    expect(lastBlock.text).toContain("Today's date is: 2026-02-15");
   });
 
-  it("omits date from system prompt when currentDate not provided", async () => {
+  it("no date block in messages when currentDate not provided (A2)", async () => {
     mockStream.mockReturnValueOnce(makeTextStream("OK"));
 
     const { conversationalRefine } = await import("@/lib/claude");
@@ -1921,6 +2091,12 @@ describe("conversationalRefine", () => {
 
     const call = mockStream.mock.calls[0][0];
     expect(call.system[0].text).not.toContain("Today's date is:");
+    // messages should not have a date block
+    const content = call.messages[0].content;
+    const dateBlock = (content as Array<{type: string; text?: string}>).find(
+      (b) => b.type === "text" && b.text?.includes("Today's date is:")
+    );
+    expect(dateBlock).toBeUndefined();
   });
 
   it("uses max_tokens 2048", async () => {
@@ -1937,7 +2113,7 @@ describe("conversationalRefine", () => {
     );
   });
 
-  it("attaches per-message images as content blocks before text", async () => {
+  it("attaches per-message images as content blocks before text (A2: date block appended last)", async () => {
     mockStream.mockReturnValueOnce(makeTextStream("I see the food"));
 
     const { conversationalRefine } = await import("@/lib/claude");
@@ -1960,6 +2136,9 @@ describe("conversationalRefine", () => {
     expect(userMsg.content[0].source.media_type).toBe("image/jpeg");
     expect(userMsg.content[1].type).toBe("text");
     expect(userMsg.content[1].text).toBe("Here's the photo");
+    // Date block is appended last (A2)
+    const lastBlock = userMsg.content[userMsg.content.length - 1];
+    expect(lastBlock.text).toContain("Today's date is: 2026-02-15");
   });
 
   it("attaches images to each message independently across turns", async () => {
@@ -1992,7 +2171,7 @@ describe("conversationalRefine", () => {
     expect(secondUser.content[1].type).toBe("text");
   });
 
-  it("user messages without images produce text-only content", async () => {
+  it("user messages without images: text block + date block (A2 date appended)", async () => {
     mockStream.mockReturnValueOnce(makeTextStream("OK"));
 
     const { conversationalRefine } = await import("@/lib/claude");
@@ -2008,9 +2187,12 @@ describe("conversationalRefine", () => {
 
     const call = mockStream.mock.calls[0][0];
     const userMsg = call.messages[0];
-    expect(userMsg.content).toHaveLength(1);
+    // Description block first (no images → no cache_control on description)
     expect(userMsg.content[0].type).toBe("text");
     expect(userMsg.content[0].text).toBe("Just text, no images");
+    // Date block last
+    const lastBlock = userMsg.content[userMsg.content.length - 1];
+    expect(lastBlock.text).toContain("Today's date is: 2026-02-15");
   });
 
   it("mixed conversation: only messages with images get image blocks", async () => {
@@ -2084,7 +2266,7 @@ describe("conversationalRefine", () => {
     );
   });
 
-  it("web_search tool is first in tools array", async () => {
+  it("web_search tool is first in tools array (via beta channel)", async () => {
     mockStream.mockReturnValueOnce(makeTextStream("OK"));
 
     const { conversationalRefine } = await import("@/lib/claude");
@@ -2097,7 +2279,8 @@ describe("conversationalRefine", () => {
       expect.objectContaining({ type: "web_search_20260209", name: "web_search" })
     );
     expect(call.tools.map((t: { name: string }) => t.name)).not.toContain("code_execution");
-    expect(call).not.toHaveProperty("betas");
+    // A3: betas now always present for context-management
+    expect(call.betas).toContain("context-management-2025-06-27");
   });
 
   it("enters tool loop when stop_reason is pause_turn (server-side web search)", async () => {
@@ -2128,7 +2311,7 @@ describe("conversationalRefine", () => {
         stop_reason: "end_turn",
         content: [
           { type: "text", text: "Based on the nutrition info..." },
-          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: rawToolInput },
         ],
         usage: { input_tokens: 2500, output_tokens: 300, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       }
@@ -2182,7 +2365,7 @@ describe("conversationalRefine", () => {
         model: "claude-sonnet-4-6",
         stop_reason: "end_turn",
         content: [
-          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: rawToolInput },
         ],
         usage: { input_tokens: 3000, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       }
@@ -2256,7 +2439,7 @@ describe("conversationalRefine", () => {
       }
     ));
     // Tool loop iteration 1: report_nutrition (tool_use → stores pending, continues)
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
     // Tool loop iteration 2: end_turn (uses pending analysis)
     mockStream.mockReturnValueOnce(makeTextStream("Done."));
 
@@ -2295,18 +2478,18 @@ describe("editAnalysis", () => {
     sugarsG: null,
     caloriesFromFat: null,
     amount: 150,
-    unitId: 147,
+    unitId: "g",
     mealTypeId: 5,
     date: "2026-02-15",
     time: "20:00:00",
-    fitbitLogId: 12345,
-    fitbitFoodId: null,
+    healthLogId: null,
     confidence: "high",
     isFavorite: false,
     keywords: ["empanada", "carne"],
   };
 
   it("yields analysis event when Claude calls report_nutrition", async () => {
+    const updatedRawInput = { ...rawToolInput, calories: 280, amount: 130 };
     const updatedAnalysis = { ...validAnalysis, calories: 280, amount: 130 };
     mockStream.mockReturnValueOnce(createMockStream(
       [
@@ -2320,7 +2503,7 @@ describe("editAnalysis", () => {
         stop_reason: "end_turn",
         content: [
           { type: "text", text: "I've updated the calorie count to 280" },
-          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: updatedAnalysis },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: updatedRawInput },
         ],
         usage: { input_tokens: 1800, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       }
@@ -2395,21 +2578,27 @@ describe("editAnalysis", () => {
     expect(systemText).toContain(String(validEntry.calories));
   });
 
-  it("includes current date in system prompt", async () => {
+  it("date appears in messages (last content block of leading user msg), not in system prompt (A2)", async () => {
     mockStream.mockReturnValueOnce(makeTextStream("OK"));
 
     const { editAnalysis } = await import("@/lib/claude");
+    // Use a different currentDate than validEntry.date (2026-02-15) to distinguish them
     await collectEvents(
       editAnalysis(
         [{ role: "user", content: "Fix this" }],
         validEntry,
         "user-123",
-        "2026-02-15"
+        "2026-03-01" // currentDate differs from validEntry.date (2026-02-15)
       )
     );
 
     const call = mockStream.mock.calls[0][0];
-    expect(call.system[0].text).toContain("2026-02-15");
+    // currentDate "2026-03-01" must NOT be in system prompt (entry.date "2026-02-15" is OK there)
+    expect(call.system[0].text).not.toContain("2026-03-01");
+    // IS in last content block of first user message
+    const content = call.messages[0].content;
+    const lastBlock = content[content.length - 1];
+    expect(lastBlock.text).toContain("2026-03-01");
   });
 
   it("records usage with operation food-edit", async () => {
@@ -2494,7 +2683,7 @@ describe("editAnalysis", () => {
     expect(systemText).not.toContain("Sugars:");
   });
 
-  it("edit system prompt says 'Save Changes' not 'Log to Fitbit' (FOO-737)", async () => {
+  it("edit system prompt says 'Save Changes' not 'Log to Fitbit' or 'Log to Google Health' (FOO-737)", async () => {
     mockStream.mockReturnValueOnce(makeTextStream("OK"));
 
     const { editAnalysis } = await import("@/lib/claude");
@@ -2506,6 +2695,7 @@ describe("editAnalysis", () => {
     const systemText = call.system[0].text;
     expect(systemText).toContain("Save Changes");
     expect(systemText).not.toContain("Log to Fitbit");
+    expect(systemText).not.toContain("Log to Google Health");
   });
 
   it("edit system prompt mentions data tools (FOO-736)", async () => {
@@ -2597,133 +2787,14 @@ describe("editAnalysis", () => {
 });
 
 // =============================================================================
-// truncateConversation — unchanged from existing tests
+// (truncateConversation deleted in Task 25 — server-side context management replaces it)
 // =============================================================================
 
-describe("truncateConversation", () => {
-  afterEach(() => { vi.resetModules(); });
-
-  it("returns messages unchanged when under token limit", async () => {
-    const { truncateConversation } = await import("@/lib/claude");
-    const messages: Anthropic.MessageParam[] = [
-      { role: "user", content: "Hi" },
-      { role: "assistant", content: "Hello" },
-    ];
-
-    const result = truncateConversation(messages, 150000);
-    expect(result).toEqual(messages);
-  });
-
-  it("keeps first message + last 4, deduplicating at junction", async () => {
-    const { truncateConversation } = await import("@/lib/claude");
-    const messages = Array.from({ length: 10 }, (_, i) => ({
-      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
-      content: "x".repeat(100000),
-    }));
-
-    const result = truncateConversation(messages, 150000);
-    // first=messages[0](user), last4=[msg6(user), msg7(asst), msg8(user), msg9(asst)]
-    // Junction dedup: msg6 dropped (same role as first), result = [msg0, msg7, msg8, msg9]
-    expect(result).toHaveLength(4);
-    expect(result[0]).toBe(messages[0]); // Original first message preserved
-    expect(result[1]).toBe(messages[7]);
-    expect(result[3]).toBe(messages[9]);
-  });
-
-  it("includes tool_use and tool_result blocks in token estimate", async () => {
-    const { truncateConversation } = await import("@/lib/claude");
-    // Build messages with tool_use and tool_result blocks that are large
-    const toolInput = { query: "x".repeat(40000) }; // ~10K tokens at ~4 chars/token
-    const toolResultContent = "y".repeat(40000); // ~10K tokens
-    const messages: Anthropic.MessageParam[] = [
-      { role: "user", content: "Short user message" },
-      {
-        role: "assistant",
-        content: [
-          { type: "tool_use", id: "t1", name: "search_food_log", input: toolInput },
-        ] as Anthropic.ContentBlock[],
-      },
-      {
-        role: "user",
-        content: [
-          { type: "tool_result", tool_use_id: "t1", content: toolResultContent },
-        ] as Anthropic.ToolResultBlockParam[],
-      },
-      { role: "assistant", content: "Short response" },
-      { role: "user", content: "Follow up" },
-      { role: "assistant", content: "Answer" },
-    ];
-
-    // With tool blocks properly counted (~20K+ tokens), this should trigger truncation at 15K limit
-    const result = truncateConversation(messages, 15000);
-    // If tool blocks are counted, 6 messages totaling ~20K+ tokens exceeds 15K → truncated
-    expect(result.length).toBeLessThan(messages.length);
-  });
-
-  it("preserves original first message when it shares role with first of last-4", async () => {
-    const { truncateConversation } = await import("@/lib/claude");
-    // 6-message conversation: first (user) and third-from-end (user) share role
-    // first=[user₀], last4=[user₂, asst₃, user₄, asst₅]
-    // Bug: dedup replaces user₀ with user₂, losing original context
-    const messages: Anthropic.MessageParam[] = [
-      { role: "user", content: "Original food photo request" }, // user₀
-      { role: "assistant", content: "x".repeat(100000) },      // asst₁ (large, to trigger truncation)
-      { role: "user", content: "Follow up question" },         // user₂
-      { role: "assistant", content: "x".repeat(100000) },      // asst₃
-      { role: "user", content: "Another question" },           // user₄
-      { role: "assistant", content: "Final response" },         // asst₅
-    ];
-
-    // Use a threshold lower than total (~50K tokens) to force truncation
-    const result = truncateConversation(messages, 40000);
-
-    // Original first message must be preserved
-    expect(result[0].content).toBe("Original food photo request");
-    // Result must start with user₀
-    expect(result[0].role).toBe("user");
-  });
-
-  it("ensures no consecutive same-role messages after truncation", async () => {
-    const { truncateConversation } = await import("@/lib/claude");
-    const messages = Array.from({ length: 8 }, (_, i) => ({
-      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
-      content: "x".repeat(100000),
-    }));
-
-    const result = truncateConversation(messages, 150000);
-
-    for (let i = 1; i < result.length; i++) {
-      expect(result[i].role).not.toBe(result[i - 1].role);
-    }
-  });
-
-  // Task 1 (FOO-781): short conversation over token limit should log warning
-  it("short conversation over token limit: logs warning with truncate_skip_short action", async () => {
-    const { truncateConversation } = await import("@/lib/claude");
-    const mockLog = {
-      warn: vi.fn(),
-      debug: vi.fn(),
-      info: vi.fn(),
-      error: vi.fn(),
-    } as unknown as Logger;
-
-    // 3 messages with large content to exceed a small token limit
-    const messages: Anthropic.MessageParam[] = [
-      { role: "user", content: "x".repeat(50000) },
-      { role: "assistant", content: "x".repeat(50000) },
-      { role: "user", content: "x".repeat(50000) },
-    ];
-
-    // With maxTokens=1000, estimated tokens (~37500) far exceed limit
-    const result = truncateConversation(messages, 1000, mockLog);
-
-    // Should return messages as-is (can't truncate a short conversation meaningfully)
-    expect(result).toEqual(messages);
-    // But must log a warning so operators know about the overload
-    expect(mockLog.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "truncate_skip_short" }),
-      expect.any(String),
-    );
+// Placeholder so the section header is preserved
+describe("(formerly truncateConversation — deleted in Task 25)", () => {
+  it("truncateConversation is removed (server-side context management replaces client-side truncation)", async () => {
+    const claudeModule = await import("@/lib/claude");
+    expect((claudeModule as Record<string, unknown>).truncateConversation).toBeUndefined();
   });
 });
 
@@ -2861,9 +2932,9 @@ describe("Task 5: CHAT_SYSTEM_PROMPT anti-confirmation rules (FOO-645)", () => {
     expect(CHAT_SYSTEM_PROMPT).toMatch(/UI card/i);
   });
 
-  it("explains that user confirms via Log to Fitbit button, not text", async () => {
+  it("explains that user confirms via Log to Google Health button, not text", async () => {
     const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
-    expect(CHAT_SYSTEM_PROMPT).toMatch(/Log to Fitbit.*button|button.*Log to Fitbit/i);
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/Log to Google Health.*button|button.*Log to Google Health/i);
   });
 
   it("has blanket anti-confirmation rule: never ask 'should I log/register this?'", async () => {
@@ -2888,9 +2959,9 @@ describe("Task 5: ANALYSIS_SYSTEM_PROMPT anti-confirmation rules (FOO-645)", () 
     expect(ANALYSIS_SYSTEM_PROMPT).toMatch(/UI card/i);
   });
 
-  it("explains that user confirms via Log to Fitbit button", async () => {
+  it("explains that user confirms via Log to Google Health button", async () => {
     const { ANALYSIS_SYSTEM_PROMPT } = await import("@/lib/claude");
-    expect(ANALYSIS_SYSTEM_PROMPT).toMatch(/Log to Fitbit.*button|button.*Log to Fitbit/i);
+    expect(ANALYSIS_SYSTEM_PROMPT).toMatch(/Log to Google Health.*button|button.*Log to Google Health/i);
   });
 });
 
@@ -3196,7 +3267,7 @@ describe("analyzeFood overload retry", () => {
     const APIError = await getMockAPIErrorCtor();
     mockStream
       .mockImplementationOnce(() => { throw new APIError(529, "Overloaded"); })
-      .mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+      .mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     const eventsPromise = collectEvents(
@@ -3855,7 +3926,7 @@ describe("analyzeFood profile integration", () => {
 
   it("includes user profile in system prompt when available", async () => {
     mockBuildUserProfile.mockResolvedValue("User profile: Targets 2200 cal/day.");
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], undefined, "user-123", "2026-03-09"));
@@ -3866,7 +3937,7 @@ describe("analyzeFood profile integration", () => {
 
   it("uses base prompt without profile for new user", async () => {
     mockBuildUserProfile.mockResolvedValue(null);
-    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
 
     const { analyzeFood, ANALYSIS_SYSTEM_PROMPT } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], undefined, "user-123", "2026-03-09"));
@@ -3919,12 +3990,12 @@ describe("editAnalysis profile integration", () => {
     mockStream.mockReturnValueOnce(makeTextStream("Updated!"));
 
     const entry: FoodLogEntryDetail = {
-      id: 1, customFoodId: 1, foodName: "Empanada", amount: 150, unitId: 147,
-      description: null, fitbitFoodId: null, isFavorite: false, keywords: [],
+      id: 1, customFoodId: 1, foodName: "Empanada", amount: 150, unitId: "g",
+      description: null, healthLogId: null, isFavorite: false, keywords: [],
       calories: 320, proteinG: 12, carbsG: 28, fatG: 18, fiberG: 2, sodiumMg: 450,
       saturatedFatG: null, transFatG: null, sugarsG: null, caloriesFromFat: null,
       confidence: "high", notes: null, date: "2026-03-09", time: "12:00",
-      mealTypeId: 3, fitbitLogId: null,
+      mealTypeId: 3,
     };
 
     const { editAnalysis } = await import("@/lib/claude");
@@ -4065,5 +4136,314 @@ describe("validateFoodAnalysis — keywords coercion", () => {
     const { validateFoodAnalysis } = await import("@/lib/claude");
     const result = validateFoodAnalysis({ ...validAnalysis, keywords: ["cerveza", "sin-alcohol"] });
     expect(result.keywords).toEqual(["cerveza", "sin-alcohol"]);
+  });
+});
+
+// =============================================================================
+// REPORT_NUTRITION_TOOL — serving_unit schema migration (Task 21)
+// =============================================================================
+
+describe("REPORT_NUTRITION_TOOL — serving_unit schema (Task 21)", () => {
+  afterEach(() => { vi.resetModules(); });
+
+  it("schema has serving_unit string property, not unit_id", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+    const props = REPORT_NUTRITION_TOOL.input_schema.properties as Record<string, Record<string, unknown>>;
+    expect(props).toHaveProperty("serving_unit");
+    expect(props).not.toHaveProperty("unit_id");
+  });
+
+  it("serving_unit has type 'string' with enum of 8 members", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+    const props = REPORT_NUTRITION_TOOL.input_schema.properties as Record<string, Record<string, unknown>>;
+    expect(props.serving_unit.type).toBe("string");
+    const enumValues = props.serving_unit.enum as string[];
+    expect(enumValues).toEqual(expect.arrayContaining(["g", "oz", "cup", "tbsp", "tsp", "ml", "slice", "serving"]));
+    expect(enumValues).toHaveLength(8);
+  });
+
+  it("required includes serving_unit, not unit_id", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+    expect(REPORT_NUTRITION_TOOL.input_schema.required).toContain("serving_unit");
+    expect(REPORT_NUTRITION_TOOL.input_schema.required).not.toContain("unit_id");
+  });
+
+  it("input_examples use serving_unit strings, not numeric unit_ids", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+    const examples = REPORT_NUTRITION_TOOL.input_examples as Array<Record<string, unknown>>;
+    expect(examples).toBeDefined();
+    expect(examples.length).toBeGreaterThan(0);
+    for (const ex of examples) {
+      expect(ex).toHaveProperty("serving_unit");
+      expect(typeof ex.serving_unit).toBe("string");
+      expect(ex).not.toHaveProperty("unit_id");
+    }
+  });
+});
+
+// =============================================================================
+// REPORT_SESSION_ITEMS_TOOL — serving_unit schema migration (Task 21)
+// =============================================================================
+
+describe("REPORT_SESSION_ITEMS_TOOL — serving_unit schema (Task 21)", () => {
+  afterEach(() => { vi.resetModules(); });
+
+  it("items sub-schema has serving_unit property, not unit_id", async () => {
+    const { REPORT_SESSION_ITEMS_TOOL } = await import("@/lib/claude");
+    const itemsArraySchema = (REPORT_SESSION_ITEMS_TOOL.input_schema.properties as Record<string, Record<string, unknown>>)
+      .items as Record<string, unknown>;
+    const itemProps = (itemsArraySchema.items as Record<string, unknown>).properties as Record<string, unknown>;
+    expect(itemProps).toHaveProperty("serving_unit");
+    expect(itemProps).not.toHaveProperty("unit_id");
+  });
+
+  it("items required includes serving_unit, not unit_id", async () => {
+    const { REPORT_SESSION_ITEMS_TOOL } = await import("@/lib/claude");
+    const itemsArraySchema = (REPORT_SESSION_ITEMS_TOOL.input_schema.properties as Record<string, Record<string, unknown>>)
+      .items as Record<string, unknown>;
+    const itemRequired = (itemsArraySchema.items as Record<string, unknown>).required as string[];
+    expect(itemRequired).toContain("serving_unit");
+    expect(itemRequired).not.toContain("unit_id");
+  });
+});
+
+// =============================================================================
+// validateFoodAnalysis — serving_unit coercion (Task 21)
+// =============================================================================
+
+describe("validateFoodAnalysis — serving_unit coercion (Task 21)", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("serving_unit 'cup' → result.unit_id === 'cup'", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, serving_unit: "cup" });
+    expect(result.unit_id).toBe("cup");
+  });
+
+  it("missing serving_unit falls back to unit_id when present (no throw)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    // validAnalysis has unit_id: 'g' but no serving_unit — falls back to unit_id
+    const result = validateFoodAnalysis({ ...validAnalysis });
+    expect(result.unit_id).toBe("g");
+  });
+
+  it("missing serving_unit AND missing unit_id coerces to 'serving' (no throw)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    // No serving_unit, no unit_id — defaults to 'serving'
+    const withoutUnit: Record<string, unknown> = { ...validAnalysis };
+    delete withoutUnit.unit_id;
+    const result = validateFoodAnalysis({ ...withoutUnit });
+    expect(result.unit_id).toBe("serving");
+  });
+
+  it("invalid serving_unit 'bogus' coerces to 'serving' (no throw)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, serving_unit: "bogus" });
+    expect(result.unit_id).toBe("serving");
+  });
+
+  it("numeric serving_unit (legacy 147) coerces to 'g' (no throw)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, serving_unit: 147 });
+    expect(result.unit_id).toBe("g");
+  });
+
+  it("accepts all 8 valid ServingUnit string members", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const units = ["g", "oz", "cup", "tbsp", "tsp", "ml", "slice", "serving"];
+    for (const unit of units) {
+      const result = validateFoodAnalysis({ ...validAnalysis, serving_unit: unit });
+      expect(result.unit_id).toBe(unit);
+    }
+  });
+});
+
+// =============================================================================
+// validateSessionItems — serving_unit passthrough (Task 21)
+// =============================================================================
+
+describe("validateSessionItems — serving_unit passthrough (Task 21)", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("item with serving_unit 'oz' → unit_id === 'oz'", async () => {
+    const { validateSessionItems } = await import("@/lib/claude");
+    const items = [{ ...validAnalysis, serving_unit: "oz" }];
+    const results = validateSessionItems(items);
+    expect(results).toHaveLength(1);
+    expect(results[0].unit_id).toBe("oz");
+  });
+
+  it("filters out null items, keeps valid ones with serving_unit", async () => {
+    const { validateSessionItems } = await import("@/lib/claude");
+    const items = [
+      { ...validAnalysis, serving_unit: "g" },
+      null,
+      { ...validAnalysis, serving_unit: "slice" },
+    ];
+    const results = validateSessionItems(items);
+    expect(results).toHaveLength(2);
+    expect(results[0].unit_id).toBe("g");
+    expect(results[1].unit_id).toBe("slice");
+  });
+});
+
+// =============================================================================
+// A3: beta context-management stream (Task 25)
+// =============================================================================
+
+describe("A3: beta context-management stream (Task 25)", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("A3: analyzeFood calls beta.messages.stream with betas including context-management-2025-06-27", async () => {
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await collectEvents(analyzeFood([], "empanada", "user-123", "2026-02-15"));
+
+    const call = mockStream.mock.calls[0][0];
+    expect(call.betas).toBeDefined();
+    expect(call.betas).toContain("context-management-2025-06-27");
+  });
+
+  it("A3: analyzeFood carries context_management.edits with clear_tool_uses_20250919 excluding web_search", async () => {
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(rawToolInput));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await collectEvents(analyzeFood([], "empanada", "user-123", "2026-02-15"));
+
+    const call = mockStream.mock.calls[0][0];
+    expect(call.context_management).toBeDefined();
+    const edit = call.context_management?.edits?.[0];
+    expect(edit?.type).toBe("clear_tool_uses_20250919");
+    expect(edit?.exclude_tools).toContain("web_search");
+  });
+
+  it("A3: conversationalRefine carries betas and context_management", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await collectEvents(conversationalRefine([{ role: "user", content: "test" }], "user-123", "2026-02-15"));
+
+    const call = mockStream.mock.calls[0][0];
+    expect(call.betas).toContain("context-management-2025-06-27");
+    expect(call.context_management?.edits?.[0]?.type).toBe("clear_tool_uses_20250919");
+  });
+
+  it("A3: triageRefine carries betas and context_management", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { triageRefine } = await import("@/lib/claude");
+    await collectEvents(triageRefine([{ role: "user", content: "test" }], "user-123"));
+
+    const call = mockStream.mock.calls[0][0];
+    expect(call.betas).toContain("context-management-2025-06-27");
+    expect(call.context_management?.edits?.[0]?.type).toBe("clear_tool_uses_20250919");
+  });
+
+  it("A3: 40-message conversation passes all messages (no client-side truncation)", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    // Build 40 alternating user/assistant messages
+    const messages = Array.from({ length: 40 }, (_, i) =>
+      i % 2 === 0
+        ? { role: "user" as const, content: `user turn ${i}` }
+        : { role: "assistant" as const, content: `assistant turn ${i}` }
+    );
+    await collectEvents(conversationalRefine(messages, "user-123", "2026-02-15"));
+
+    const call = mockStream.mock.calls[0][0];
+    // All 40 messages should be in the request (no truncation)
+    expect(call.messages).toHaveLength(40);
+  });
+
+  it("A3: truncateConversation is not exported from claude module", async () => {
+    const claudeModule = await import("@/lib/claude");
+    expect((claudeModule as Record<string, unknown>).truncateConversation).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// Task 26: role-prompt decoupling (characterization tests — pass before and after)
+// =============================================================================
+
+describe("Task 26: role-instructions characterization", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("ANALYSIS_ROLE_INSTRUCTIONS is exported and non-empty", async () => {
+    const { ANALYSIS_ROLE_INSTRUCTIONS } = await import("@/lib/claude");
+    expect(typeof ANALYSIS_ROLE_INSTRUCTIONS).toBe("string");
+    expect(ANALYSIS_ROLE_INSTRUCTIONS.length).toBeGreaterThan(0);
+  });
+
+  it("CHAT_ROLE_INSTRUCTIONS is exported and non-empty", async () => {
+    const { CHAT_ROLE_INSTRUCTIONS } = await import("@/lib/claude");
+    expect(typeof CHAT_ROLE_INSTRUCTIONS).toBe("string");
+    expect(CHAT_ROLE_INSTRUCTIONS.length).toBeGreaterThan(0);
+  });
+
+  it("EDIT_ROLE_INSTRUCTIONS is exported and non-empty", async () => {
+    const { EDIT_ROLE_INSTRUCTIONS } = await import("@/lib/claude");
+    expect(typeof EDIT_ROLE_INSTRUCTIONS).toBe("string");
+    expect(EDIT_ROLE_INSTRUCTIONS.length).toBeGreaterThan(0);
+  });
+
+  it("ANALYSIS_SYSTEM_PROMPT equals SYSTEM_PROMPT + ANALYSIS_ROLE_INSTRUCTIONS", async () => {
+    const { ANALYSIS_SYSTEM_PROMPT, SYSTEM_PROMPT, ANALYSIS_ROLE_INSTRUCTIONS } = await import("@/lib/claude");
+    expect(ANALYSIS_SYSTEM_PROMPT).toBe(`${SYSTEM_PROMPT}${ANALYSIS_ROLE_INSTRUCTIONS}`);
+  });
+
+  it("CHAT_SYSTEM_PROMPT equals SYSTEM_PROMPT + CHAT_ROLE_INSTRUCTIONS", async () => {
+    const { CHAT_SYSTEM_PROMPT, SYSTEM_PROMPT, CHAT_ROLE_INSTRUCTIONS } = await import("@/lib/claude");
+    expect(CHAT_SYSTEM_PROMPT).toBe(`${SYSTEM_PROMPT}${CHAT_ROLE_INSTRUCTIONS}`);
+  });
+
+  it("EDIT_SYSTEM_PROMPT equals SYSTEM_PROMPT + EDIT_ROLE_INSTRUCTIONS", async () => {
+    const { EDIT_SYSTEM_PROMPT, SYSTEM_PROMPT, EDIT_ROLE_INSTRUCTIONS } = await import("@/lib/claude");
+    expect(EDIT_SYSTEM_PROMPT).toBe(`${SYSTEM_PROMPT}${EDIT_ROLE_INSTRUCTIONS}`);
+  });
+});
+
+// =============================================================================
+// Task 26: mapStopReasonToError helper
+// =============================================================================
+
+describe("Task 26: mapStopReasonToError", () => {
+  afterEach(() => { vi.resetModules(); });
+
+  it("returns non-null message for model_context_window_exceeded", async () => {
+    const { mapStopReasonToError } = await import("@/lib/claude");
+    const result = mapStopReasonToError("model_context_window_exceeded");
+    expect(result).not.toBeNull();
+    expect(typeof result).toBe("string");
+    expect(result!.length).toBeGreaterThan(0);
+  });
+
+  it("returns non-null message for refusal", async () => {
+    const { mapStopReasonToError } = await import("@/lib/claude");
+    const result = mapStopReasonToError("refusal");
+    expect(result).not.toBeNull();
+    expect(typeof result).toBe("string");
+  });
+
+  it("returns non-null message for max_tokens", async () => {
+    const { mapStopReasonToError } = await import("@/lib/claude");
+    const result = mapStopReasonToError("max_tokens");
+    expect(result).not.toBeNull();
+    expect(typeof result).toBe("string");
+  });
+
+  it("returns null for end_turn", async () => {
+    const { mapStopReasonToError } = await import("@/lib/claude");
+    expect(mapStopReasonToError("end_turn")).toBeNull();
+  });
+
+  it("returns null for tool_use", async () => {
+    const { mapStopReasonToError } = await import("@/lib/claude");
+    expect(mapStopReasonToError("tool_use")).toBeNull();
   });
 });

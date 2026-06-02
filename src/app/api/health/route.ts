@@ -9,7 +9,7 @@ export async function GET() {
 
   const appUrl = process.env.APP_URL ?? "";
   const environment = appUrl.includes("food-test") ? "Staging" : "Production";
-  const fitbitMode = process.env.FITBIT_DRY_RUN === "true" ? "Dry Run" : "Live";
+  const healthMode = process.env.HEALTH_DRY_RUN === "true" ? "Dry Run" : "Live";
   const commitHash = process.env.COMMIT_SHA ?? "";
   const version =
     environment === "Staging" && commitHash
@@ -20,7 +20,7 @@ export async function GET() {
     status: "ok",
     version,
     environment,
-    fitbitMode,
+    healthMode,
     claudeModel: CLAUDE_MODEL,
     commitHash,
   });
