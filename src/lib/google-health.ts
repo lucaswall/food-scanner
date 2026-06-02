@@ -485,19 +485,20 @@ function buildInterval(timing: HealthLogTiming): Record<string, unknown> | undef
 }
 
 /**
- * Map the app's internal mealTypeId (1..7) to the Google Health v4 `MealType` enum.
- * Enum values inferred from the v4 discovery doc (BEFORE_BREAKFAST, BREAKFAST,
- * BEFORE_LUNCH, LUNCH, BEFORE_DINNER, DINNER, AFTER_DINNER, SNACK, ANYTIME) —
- * pending live validation (FOO-1115).
+ * Map the app's internal mealTypeId to the Google Health v4 `MealType` enum.
+ * App ids (MEAL_TYPE_LABELS): 1 Breakfast, 2 Morning Snack, 3 Lunch, 4 Afternoon Snack,
+ * 5 Dinner, 7 Anytime. The v4 enum descriptions (verified against the discovery doc) map
+ * "morning snack"→BEFORE_LUNCH, "afternoon snack"→BEFORE_DINNER, "any time"→ANYTIME, so
+ * each app id maps to its exact semantic enum value (all valid `MealType` members).
  */
 function mapMealType(mealTypeId: number): string {
   switch (mealTypeId) {
-    case 1: return "BREAKFAST";  // Breakfast
-    case 2: return "SNACK";      // Morning snack
-    case 3: return "LUNCH";      // Lunch
-    case 4: return "SNACK";      // Afternoon snack
-    case 5: return "DINNER";     // Dinner
-    default: return "ANYTIME";   // 7 = Anytime
+    case 1: return "BREAKFAST";    // Breakfast
+    case 2: return "BEFORE_LUNCH"; // Morning snack
+    case 3: return "LUNCH";        // Lunch
+    case 4: return "BEFORE_DINNER"; // Afternoon snack
+    case 5: return "DINNER";       // Dinner
+    default: return "ANYTIME";     // 7 = Anytime (and any unmapped id)
   }
 }
 
@@ -961,9 +962,11 @@ export async function getHealthLatestWeightKg(
  * Returns { caloriesOut: number } summed from the v4 daily roll-up's `kcalSum`, or
  * { caloriesOut: null } if the roll-up is empty (no throw).
  *
- * NOTE: roll-up response shape (rollupDataPoints[] / kcalSum), request body, and the
- * "total-calories" data-type id are inferred from the v4 discovery schema — pending live
- * validation against the staging API (FOO-1115).
+ * Request/response shape verified against the v4 discovery doc: POST `:dailyRollUp` with
+ * { range: CivilTimeInterval, windowSizeDays } → { rollupDataPoints: DailyRollupDataPoint[] },
+ * each carrying `totalCalories: TotalCaloriesRollupValue { kcalSum }` for the `total-calories`
+ * data type. Whether live data is actually present/populated is gated on the smoke test
+ * (FOO-1115).
  */
 export async function getHealthActivitySummary(
   accessToken: string,
@@ -1013,21 +1016,14 @@ export async function getHealthActivitySummary(
     ? (data.rollupDataPoints as Array<Record<string, unknown>>)
     : [];
 
-  /** Recursively find the first numeric `kcalSum` in a rollup point's value union. */
-  function findKcalSum(node: unknown): number | null {
-    if (!node || typeof node !== "object") return null;
-    const obj = node as Record<string, unknown>;
-    if (typeof obj.kcalSum === "number") return obj.kcalSum;
-    for (const v of Object.values(obj)) {
-      const found = findKcalSum(v);
-      if (found !== null) return found;
-    }
-    return null;
-  }
-
+  // Read the calories-out total explicitly from each point's `totalCalories.kcalSum`
+  // (TotalCaloriesRollupValue). A DailyRollupDataPoint can carry several other `kcalSum`
+  // fields (activeEnergyBurned, nutritionLog.energy, …), so we must NOT first-match any
+  // kcalSum — only the totalCalories leaf is the calories-out figure.
   let kcal: number | null = null;
   for (const point of rollupPoints) {
-    const k = findKcalSum(point);
+    const totalCalories = point.totalCalories as Record<string, unknown> | undefined;
+    const k = totalCalories && typeof totalCalories.kcalSum === "number" ? totalCalories.kcalSum : null;
     if (k !== null) kcal = (kcal ?? 0) + k;
   }
 

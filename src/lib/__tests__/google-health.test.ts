@@ -598,6 +598,19 @@ describe("google-health", () => {
       expect(nutritionLog.mealType).toBe("BREAKFAST"); // mealTypeId 1
     });
 
+    it("maps snack meal types to their exact v4 enum values (morning→BEFORE_LUNCH, afternoon→BEFORE_DINNER)", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "op/1" }));
+
+      await createNutritionLog("token", sampleFood, { date: "2026-02-08", time: "10:30", mealTypeId: 2 }, fakeLog, "user-1");
+      let body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body.nutritionLog.mealType).toBe("BEFORE_LUNCH"); // 2 = Morning Snack
+
+      fetchMock.mockClear();
+      await createNutritionLog("token", sampleFood, { date: "2026-02-08", time: "16:30", mealTypeId: 4 }, fakeLog, "user-1");
+      body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body.nutritionLog.mealType).toBe("BEFORE_DINNER"); // 4 = Afternoon Snack
+    });
+
     it("omits interval and mealType when timing has no time or meal", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({ name: "op/1" }));
 
@@ -980,6 +993,25 @@ describe("google-health", () => {
 
       const result = await getHealthActivitySummary("token", "2026-05-31", fakeLog, "user-1");
       expect(result.caloriesOut).toBe(2345); // Math.round
+    });
+
+    it("reads ONLY totalCalories.kcalSum, not other kcalSum fields on the same point", async () => {
+      // A DailyRollupDataPoint can carry several kcalSum leaves; calories-out is strictly
+      // totalCalories.kcalSum — never activeEnergyBurned or nutritionLog.energy.
+      fetchMock.mockResolvedValue(
+        makeJsonResponse({
+          rollupDataPoints: [
+            {
+              activeEnergyBurned: { kcalSum: 99 },
+              nutritionLog: { energy: { kcalSum: 1800 } },
+              totalCalories: { kcalSum: 2500 },
+            },
+          ],
+        }),
+      );
+
+      const result = await getHealthActivitySummary("token", "2026-05-31", fakeLog, "user-1");
+      expect(result.caloriesOut).toBe(2500);
     });
 
     it("sums kcalSum across multiple rollup points", async () => {
