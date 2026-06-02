@@ -484,4 +484,35 @@ describe("PATCH /api/daily-goals-settings", () => {
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
   });
+
+  // FOO-1131: sex and activityLevel are required — null is not accepted
+  it("returns 400 VALIDATION_ERROR when sex is explicitly null", async () => {
+    const response = await PATCH(
+      new Request("http://localhost/api/daily-goals-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sex: null }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(mockUpdateUserGoalSettings).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 VALIDATION_ERROR when activityLevel is explicitly null", async () => {
+    const response = await PATCH(
+      new Request("http://localhost/api/daily-goals-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activityLevel: null }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(mockUpdateUserGoalSettings).not.toHaveBeenCalled();
+  });
 });

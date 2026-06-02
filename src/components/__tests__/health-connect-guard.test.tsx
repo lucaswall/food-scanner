@@ -96,4 +96,45 @@ describe("HealthConnectGuard", () => {
     );
     expect(mockUseSWR).toHaveBeenCalledWith("/api/auth/session", expect.anything());
   });
+
+  // FOO-1132: error state — no blank page on /api/auth/session error
+  it("shows error state with retry button when SWR errors (no blank page)", () => {
+    mockUseSWR.mockReturnValue({
+      data: undefined,
+      error: new Error("network error"),
+      isLoading: false,
+      mutate: vi.fn(),
+    });
+
+    const { container } = render(
+      <HealthConnectGuard>
+        <div data-testid="child-content">Protected content</div>
+      </HealthConnectGuard>,
+    );
+
+    // Not blank
+    expect(container.innerHTML).not.toBe("");
+    expect(screen.queryByTestId("child-content")).not.toBeInTheDocument();
+    // Should show a retry button
+    expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+  });
+
+  it("shows a distinct timeout message when SWR errors with TimeoutError", () => {
+    const timeoutError = new DOMException("Timeout", "TimeoutError");
+    mockUseSWR.mockReturnValue({
+      data: undefined,
+      error: timeoutError,
+      isLoading: false,
+      mutate: vi.fn(),
+    });
+
+    render(
+      <HealthConnectGuard>
+        <div>Protected content</div>
+      </HealthConnectGuard>,
+    );
+
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toMatch(/timed? ?out/i);
+  });
 });

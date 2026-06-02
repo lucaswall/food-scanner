@@ -672,6 +672,8 @@ export interface NutritionGoals {
     | "scope_mismatch"
     | "invalid_profile"
     | "goals_not_set";
+  /** Actionable hint for the UI when status is "blocked" — e.g. directs the user to settings. */
+  hint?: string;
   audit?: NutritionGoalsAudit;
   /** True when the health weight log used was logged > 7 days before the target date (FOO-1010). */
   weightStale?: boolean;

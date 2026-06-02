@@ -102,17 +102,17 @@ export async function PATCH(request: Request) {
     weightGoalType?: WeightGoalType | null;
   } = {};
 
-  // Validate activityLevel if provided
+  // Validate activityLevel if provided — required when present (null is rejected, FOO-1131)
   if ("activityLevel" in raw) {
     const v = raw.activityLevel;
-    if (v !== null && v !== undefined && !isActivityLevel(v)) {
+    if (v === null || !isActivityLevel(v)) {
       return errorResponse(
         "VALIDATION_ERROR",
         `activityLevel must be one of: ${ACTIVITY_LEVEL_VALUES.join(", ")}`,
         400,
       );
     }
-    update.activityLevel = v === undefined ? null : (v as ActivityLevel | null);
+    update.activityLevel = v;
   }
 
   // Validate goalWeightKg if provided
@@ -149,13 +149,13 @@ export async function PATCH(request: Request) {
     }
   }
 
-  // Validate sex if provided (local macro-engine input — Google Health v4 omits it)
+  // Validate sex if provided — required when present (null is rejected, FOO-1131)
   if ("sex" in raw) {
     const v = raw.sex;
-    if (v !== null && v !== undefined && !isSex(v)) {
+    if (v === null || !isSex(v)) {
       return errorResponse("VALIDATION_ERROR", `sex must be one of: ${SEX_VALUES.join(", ")}`, 400);
     }
-    update.sex = v === undefined ? null : (v as Sex | null);
+    update.sex = v;
   }
 
   // Validate weightGoalType if provided (display-only goal direction)

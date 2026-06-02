@@ -57,7 +57,9 @@ export function DailyGoalsCard() {
 
   const {
     data: profileData,
+    error: profileError,
     isLoading: profileLoading,
+    mutate: mutateProfile,
   } = useSWR<HealthProfileData>("/api/health-profile", apiFetcher, HEALTH_BACKED_SWR_CONFIG);
 
   // Local form state
@@ -199,6 +201,28 @@ export function DailyGoalsCard() {
     );
   }
 
+  if (profileError) {
+    const isTimeout =
+      profileError instanceof DOMException &&
+      (profileError.name === "TimeoutError" || profileError.name === "AbortError");
+    return (
+      <div className="flex flex-col gap-4 rounded-xl border bg-card p-6" role="alert">
+        <h2 className="text-lg font-semibold">Daily Goals</h2>
+        <p className="text-sm text-destructive">
+          {isTimeout
+            ? "Request timed out. Please try again."
+            : "Could not load health profile. Try again."}
+        </p>
+        <Button variant="outline" className="min-h-[44px]" onClick={() => mutateProfile()}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  // FOO-1131: sex and activityLevel are required for the macro engine to compute goals.
+  const isRequiredFieldsMissing = sex === null || activityLevel === null;
+
   return (
     <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
       <h2 className="text-lg font-semibold">Daily Goals</h2>
@@ -206,6 +230,12 @@ export function DailyGoalsCard() {
       {saveError && (
         <p className="text-sm text-destructive" role="alert">
           {saveError}
+        </p>
+      )}
+
+      {isRequiredFieldsMissing && !saveError && (
+        <p className="text-sm text-destructive" role="alert">
+          Biological sex and activity level are required to save.
         </p>
       )}
 
@@ -358,7 +388,7 @@ export function DailyGoalsCard() {
       <Button
         className="w-full min-h-[44px]"
         onClick={handleSave}
-        disabled={saving}
+        disabled={saving || isRequiredFieldsMissing}
       >
         {saving ? "Saving…" : "Save"}
       </Button>
