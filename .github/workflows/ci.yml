@@ -125,7 +125,7 @@ jobs:
           GOOGLE_CLIENT_ID: test-client-id
           GOOGLE_CLIENT_SECRET: test-client-secret
           ANTHROPIC_API_KEY: test-anthropic-key
-          FITBIT_DRY_RUN: "true"
+          HEALTH_DRY_RUN: "true"
           ENABLE_TEST_AUTH: "true"
           PORT: "3001"
 

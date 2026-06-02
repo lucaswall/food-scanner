@@ -2,8 +2,12 @@ import { defineConfig } from '@playwright/test';
 import { config } from 'dotenv';
 import { STORAGE_STATE_PATH } from './e2e/fixtures/auth';
 
-// Load test environment variables (override ensures .env.local doesn't take precedence)
-config({ path: '.env.test', override: true });
+// Load test environment variables. Locally, override so a developer's .env.local
+// can't take precedence. In CI, do NOT override: the workflow supplies env vars
+// explicitly (notably DATABASE_URL, which points at the Postgres *service host*,
+// not localhost, when the job runs in a container) and .env.test only fills gaps
+// (e.g. HEALTH_DRY_RUN).
+config({ path: '.env.test', override: !process.env.CI });
 
 export default defineConfig({
   testDir: './e2e/tests',
