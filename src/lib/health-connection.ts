@@ -8,7 +8,7 @@ import type { HealthConnectionStatus } from "@/types";
  * Check the Google Health connection status for a user.
  * Local DB reads only — no API calls.
  *
- * Collapses checkFitbitHealth's 4 states to 3:
+ * Three possible states:
  *   - needs_reconnect: token row missing (no separate "credentials" step for Google OAuth)
  *   - scope_mismatch:  token exists but required scopes are not all granted
  *   - healthy:         token exists and all GOOGLE_HEALTH_SCOPES are granted

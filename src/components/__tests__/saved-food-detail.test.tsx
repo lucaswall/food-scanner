@@ -537,7 +537,7 @@ describe("SavedFoodDetail", () => {
         text: async () =>
           JSON.stringify({
             success: false,
-            error: { code: "FITBIT_API_ERROR", message: "Fitbit logging failed" },
+            error: { code: "HEALTH_API_ERROR", message: "Health logging failed" },
           }),
       });
 
@@ -549,7 +549,7 @@ describe("SavedFoodDetail", () => {
 
       await waitFor(() => {
         expect(screen.getByTestId("log-error")).toBeInTheDocument();
-        expect(screen.getByTestId("log-error")).toHaveTextContent("Fitbit logging failed");
+        expect(screen.getByTestId("log-error")).toHaveTextContent("Health logging failed");
       });
     });
   });

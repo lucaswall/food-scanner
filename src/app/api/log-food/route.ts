@@ -20,9 +20,16 @@ const VALID_MEAL_TYPE_IDS = [
 ];
 
 /**
- * Per-user clientToken idempotency cache.
+ * Per-user clientToken idempotency cache (in-memory, single-instance).
  * Keyed by "userId:clientToken" → cached result.
- * TTL: 5 minutes per entry (resets on deploy — acceptable for a 2-user app).
+ *
+ * This path is active only when the caller provides a `clientToken` field in the
+ * request body (currently used by the pending-submission retry flow). Without a
+ * clientToken the dedup check is bypassed and the request proceeds normally.
+ *
+ * Single-instance note: Railway deploys a single container, so in-memory dedup
+ * is sufficient — no distributed cache needed. TTL resets on deploy, which is
+ * acceptable (5-min window; deploys clear any in-flight retries).
  * Expired entries are swept on each write to prevent unbounded growth.
  */
 const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000;

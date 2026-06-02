@@ -1,7 +1,6 @@
 /**
- * Provider-neutral HTTP helpers shared by the Fitbit/Google Health transport
- * modules and the Google OAuth flow (auth.ts). Extracted from fitbit.ts so auth.ts
- * and google-health.ts have a provider-neutral home with no Fitbit dependency.
+ * Provider-neutral HTTP helpers shared by the Google Health transport module
+ * and the Google OAuth flow (auth.ts).
  */
 
 /** Response body read timeout (ms). */

@@ -5,6 +5,7 @@ import { getHealthTokens, upsertHealthTokens } from "@/lib/health-tokens";
 import {
   assertRateLimitAllowed,
   recordRateLimitHeaders,
+  recordResourceExhaustedCooldown,
   type HealthCallCriticality,
 } from "@/lib/google-health-rate-limit";
 import {
@@ -25,9 +26,21 @@ const RATE_LIMIT_NO_HEADER_DELAY_MS = 1_000;
 
 /**
  * If the token expires within this window, we treat it as near-expired and
- * proactively refresh it. Mirrors the 1-hour window used by fitbit.ts.
+ * proactively refresh it. Uses a 1-hour skew window to pre-empt near-expiry.
  */
 const TOKEN_EXPIRY_SKEW_MS = 60 * 60 * 1000;
+
+/**
+ * Returns true if a parsed 403 response body signals Google Cloud quota exhaustion.
+ * Quota-403 shape: `{ error: { status: "RESOURCE_EXHAUSTED" } }`.
+ * Scope-403 (PERMISSION_DENIED etc.) is NOT quota exhaustion and must map differently.
+ */
+function isResourceExhaustedBody(body: unknown): boolean {
+  if (!body || typeof body !== "object") return false;
+  const err = (body as Record<string, unknown>).error;
+  if (!err || typeof err !== "object") return false;
+  return (err as Record<string, unknown>).status === "RESOURCE_EXHAUSTED";
+}
 
 /**
  * Parse a Retry-After header value (RFC 7231 — integer seconds OR HTTP-date)
@@ -108,6 +121,19 @@ export async function fetchWithRetry(
     }
 
     if (response.status === 403) {
+      // Read body once to distinguish quota-403 from scope-403.
+      // Google Cloud quota exhaustion: { error: { status: "RESOURCE_EXHAUSTED" } }
+      // Scope/permission error: { error: { status: "PERMISSION_DENIED" } } or similar.
+      const rawBody = await parseErrorBody(response);
+      if (isResourceExhaustedBody(rawBody)) {
+        // Treat like 429: record a cooldown so the breaker blocks cheap calls.
+        if (userId) recordResourceExhaustedCooldown(userId, l);
+        l.warn(
+          { action: "health_403_resource_exhausted", userId },
+          "403 RESOURCE_EXHAUSTED — recording cooldown, throwing HEALTH_RATE_LIMIT",
+        );
+        throw new Error("HEALTH_RATE_LIMIT");
+      }
       throw new Error("HEALTH_SCOPE_MISSING");
     }
 
@@ -429,7 +455,7 @@ function isHealthDryRun(): boolean {
 /**
  * Timing + meal context for a nutrition-log write. The Google Health entry must be
  * stamped with the meal date/time the user selected (not the current instant), and
- * carry the meal-type context — mirroring the data the old Fitbit path sent.
+ * carry the meal-type context for the Google Health nutrition log entry.
  */
 export interface HealthLogTiming {
   date: string;              // YYYY-MM-DD (meal wall-clock date)
@@ -462,8 +488,9 @@ function buildInterval(timing: HealthLogTiming): Record<string, unknown> | undef
 
 /**
  * Map the app's internal mealTypeId (1..7) to the Google Health v4 `MealType` enum.
- * Enum values confirmed from the v4 discovery doc (BEFORE_BREAKFAST, BREAKFAST,
- * BEFORE_LUNCH, LUNCH, BEFORE_DINNER, DINNER, AFTER_DINNER, SNACK, ANYTIME).
+ * Enum values inferred from the v4 discovery doc (BEFORE_BREAKFAST, BREAKFAST,
+ * BEFORE_LUNCH, LUNCH, BEFORE_DINNER, DINNER, AFTER_DINNER, SNACK, ANYTIME) —
+ * pending live validation (FOO-1115).
  */
 function mapMealType(mealTypeId: number): string {
   switch (mealTypeId) {
@@ -479,8 +506,8 @@ function mapMealType(mealTypeId: number): string {
 /**
  * Build a Google Health **v4** nutrition-log DataPoint body.
  *
- * Schema confirmed against the v4 discovery document
- * (health.googleapis.com/$discovery/rest?version=v4):
+ * Schema inferred from the v4 discovery document
+ * (health.googleapis.com/$discovery/rest?version=v4; pending live validation — FOO-1115):
  *   - DataPoint = { name, nutritionLog: NutritionLog }. `name` is the client-provided
  *     resource name (so we know the id without parsing the async create Operation).
  *   - NutritionLog has TOP-LEVEL `foodDisplayName`, `energy`/`energyFromFat`
@@ -529,23 +556,20 @@ function buildNutritionLogBody(name: string, food: FoodAnalysis, timing: HealthL
 /**
  * Create a single anonymous nutrition-log dataPoint in Google Health.
  *
- * Collapses Fitbit's two-step createFood + logFood into one API call.
  * Anonymous logs are not editable in place — the app always does
  * delete-old + create-new on edit.
  *
- * Writes are `PATCH …/dataPoints/{id}` (id in the URL path — the v4 API has no
- * POST-to-collection create). We CLIENT-PROVIDE the dataPoint id (4–63 lowercase
- * letters/numbers/hyphens — a UUID fits), but the stored healthLogId is taken from the
- * PARSED response (the server-confirmed dataPoint name, or an Operation's wrapped name),
- * falling back to the PATCHed id only when the body carries no resource name. The stored
- * id is later turned back into a resource name for batchDelete.
+ * Writes use `PATCH …/dataPoints/{id}` (client-provided id in the URL path — the v4 API
+ * has no POST-to-collection create). The stored healthLogId is taken from the PARSED
+ * response (the server-confirmed dataPoint name, or an Operation-wrapped name), falling
+ * back to the PATCHed id only when the body carries no resource name. The stored id is
+ * later turned back into a resource name for batchDelete.
  *
  * Returns { healthLogId } — the server-confirmed dataPoint id.
- * Throws HEALTH_API_ERROR on non-ok response.
+ * Throws HEALTH_BAD_REQUEST on 4xx, HEALTH_API_ERROR on 5xx.
  *
- * NOTE: endpoint, method, envelope, and the NutritionLog body schema are confirmed
- * against the v4 discovery document. Final empirical confirmation still happens against
- * the live API on staging with HEALTH_DRY_RUN off (FOO-1115).
+ * NOTE: endpoint, method, envelope, and the NutritionLog body schema are inferred from
+ * the v4 discovery document — pending live validation against the staging API (FOO-1115).
  */
 export async function createNutritionLog(
   accessToken: string,
@@ -588,7 +612,7 @@ export async function createNutritionLog(
       { action: "health_create_nutrition_log_failed", status: response.status, errorBody },
       "nutrition log creation failed",
     );
-    throw new Error("HEALTH_API_ERROR");
+    throw new Error(response.status < 500 ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR");
   }
 
   // Prefer the server-confirmed dataPoint id from the response (DataPoint name or an
@@ -608,8 +632,8 @@ export async function createNutritionLog(
 /**
  * Delete one or more Google Health nutrition-log dataPoints by id.
  *
- * Replaces Fitbit's deleteFoodLog (single) — batchDelete handles multi-delete
- * and makes compensation simpler (one call for edit-old-delete).
+ * Uses v4 batchDelete to handle multi-delete in one call, simplifying
+ * compensation (edit-old-delete pattern).
  *
  * `mode` controls 404 handling:
  *   - `"cleanup"` (default) — compensation/rollback delete; a 404 means the entry is
@@ -673,7 +697,7 @@ export async function deleteNutritionLogs(
       { action: "health_delete_nutrition_logs_failed", status: response.status, errorBody },
       "nutrition log deletion failed",
     );
-    throw new Error("HEALTH_API_ERROR");
+    throw new Error(response.status < 500 ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR");
   }
 
   l.info({ action: "health_delete_nutrition_logs_success", idCount: ids.length }, "nutrition logs deleted");
@@ -695,8 +719,23 @@ function addDays(dateStr: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** Build a v4 CivilDateTime `{ date: { year, month, day } }` from a YYYY-MM-DD string. */
-function civilDateTime(dateStr: string): { date: { year: number; month: number; day: number } } {
+/**
+ * Build a v4 CivilDateTime from a YYYY-MM-DD string.
+ *
+ * When `zoneOffset` (±HH:MM) is provided the resulting object includes a
+ * `utcOffset` duration field so Google Health interprets the civil day in the
+ * user's timezone rather than UTC. This aligns the rollup window with the
+ * write instant produced by `buildInterval` (which also embeds the zone offset),
+ * preventing a date-boundary mismatch for late-night meals (e.g. 23:30 at −03:00
+ * is next-day UTC but same civil day locally — FOO-1134).
+ *
+ * NOTE: the `utcOffset` field on CivilDateTime is inferred — pending live
+ * validation against the v4 API (FOO-1115).
+ */
+function civilDateTime(
+  dateStr: string,
+  zoneOffset?: string | null,
+): Record<string, unknown> {
   const parts = dateStr.split("-").map(Number);
   // Fail fast on a malformed date rather than POSTing { year: NaN, … } and getting an
   // opaque upstream 400.
@@ -704,7 +743,11 @@ function civilDateTime(dateStr: string): { date: { year: number; month: number; 
     throw new Error(`Invalid YYYY-MM-DD date for Google Health civil interval: ${dateStr}`);
   }
   const [year, month, day] = parts;
-  return { date: { year, month, day } };
+  const result: Record<string, unknown> = { date: { year, month, day } };
+  if (zoneOffset) {
+    result.utcOffset = zoneOffsetToDuration(zoneOffset);
+  }
+  return result;
 }
 
 /**
@@ -763,7 +806,7 @@ async function getHealthHeightCm(
   if (!response.ok) {
     const errorBody = sanitizeErrorBody(await parseErrorBody(response));
     l.error({ action: "health_get_height_failed", status: response.status, errorBody }, "height fetch failed");
-    throw new Error("HEALTH_API_ERROR");
+    throw new Error(response.status < 500 ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR");
   }
   const data = await jsonWithTimeout<Record<string, unknown>>(response);
   const points = Array.isArray(data.dataPoints) ? (data.dataPoints as Array<Record<string, unknown>>) : [];
@@ -786,8 +829,8 @@ async function getHealthHeightCm(
  * from the separate `height` data type — which many users will not have, so heightCm is
  * `null` (NOT a throw) when absent; the goals layer degrades gracefully with a fallback.
  *
- * NOTE: endpoints confirmed (v4 /users/me/profile + /dataTypes/height/dataPoints); the
- * height value shape is best-effort — validate against the live API (FOO-1115).
+ * NOTE: endpoints and response shapes are inferred from the v4 discovery document —
+ * pending live validation against the staging API (FOO-1115).
  */
 export async function getHealthProfile(
   accessToken: string,
@@ -811,7 +854,7 @@ export async function getHealthProfile(
     const rawBody = await parseErrorBody(response);
     const errorBody = sanitizeErrorBody(rawBody);
     l.error({ action: "health_get_profile_failed", status: response.status, errorBody }, "profile fetch failed");
-    throw new Error("HEALTH_API_ERROR");
+    throw new Error(response.status < 500 ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR");
   }
 
   const data = await jsonWithTimeout<Record<string, unknown>>(response);
@@ -874,7 +917,7 @@ export async function getHealthLatestWeightKg(
     const rawBody = await parseErrorBody(response);
     const errorBody = sanitizeErrorBody(rawBody);
     l.error({ action: "health_get_weight_failed", status: response.status, errorBody }, "weight fetch failed");
-    throw new Error("HEALTH_API_ERROR");
+    throw new Error(response.status < 500 ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR");
   }
 
   const data = await jsonWithTimeout<Record<string, unknown>>(response);
@@ -909,9 +952,9 @@ export async function getHealthLatestWeightKg(
  * Returns { caloriesOut: number } summed from the v4 daily roll-up's `kcalSum`, or
  * { caloriesOut: null } if the roll-up is empty (no throw).
  *
- * NOTE: the roll-up RESPONSE shape (rollupDataPoints[] / kcalSum) is confirmed from the
- * v4 schema; the dailyRollUp REQUEST body + the exact "total-calories" data-type id are
- * the remaining live-validation items for this optional, non-blocking read (FOO-1115).
+ * NOTE: roll-up response shape (rollupDataPoints[] / kcalSum), request body, and the
+ * "total-calories" data-type id are inferred from the v4 discovery schema — pending live
+ * validation against the staging API (FOO-1115).
  */
 export async function getHealthActivitySummary(
   accessToken: string,
@@ -919,6 +962,7 @@ export async function getHealthActivitySummary(
   log?: Logger,
   userId?: string,
   criticality: HealthCallCriticality = "optional",
+  zoneOffset?: string | null,
 ): Promise<ActivitySummary> {
   const l = log ?? logger;
   l.debug({ action: "health_get_activity_summary", date }, "fetching activity summary from Google Health");
@@ -935,7 +979,10 @@ export async function getHealthActivitySummary(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        range: { start: civilDateTime(date), end: civilDateTime(addDays(date, 1)) },
+        range: {
+          start: civilDateTime(date, zoneOffset),
+          end: civilDateTime(addDays(date, 1), zoneOffset),
+        },
         windowSizeDays: 1,
       }),
     },
@@ -946,7 +993,7 @@ export async function getHealthActivitySummary(
     const rawBody = await parseErrorBody(response);
     const errorBody = sanitizeErrorBody(rawBody);
     l.error({ action: "health_get_activity_summary_failed", status: response.status, errorBody }, "activity summary fetch failed");
-    throw new Error("HEALTH_API_ERROR");
+    throw new Error(response.status < 500 ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR");
   }
 
   const data = await jsonWithTimeout<Record<string, unknown>>(response);

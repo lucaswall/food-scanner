@@ -9,7 +9,11 @@ export interface HealthRateLimitSnapshot {
 // Per-user 429 cooldown state: userId → cooldownUntil epoch ms
 const cooldowns = new Map<string, number>();
 
-/** Default cooldown when no Retry-After header is present. */
+/**
+ * Default cooldown (ms) when no Retry-After header is present (429) or when a
+ * 403 RESOURCE_EXHAUSTED has no backoff hint. 60s is a conservative floor that
+ * protects quota without blocking the user for too long on a transient spike.
+ */
 const DEFAULT_COOLDOWN_MS = 60_000;
 
 /**
@@ -34,6 +38,31 @@ function parseCooldownMs(response: Response): number {
     }
   }
   return DEFAULT_COOLDOWN_MS;
+}
+
+/**
+ * Record a 403 RESOURCE_EXHAUSTED cooldown.
+ *
+ * Google Cloud APIs signal quota exhaustion with 403 + a body containing
+ * `{ error: { status: "RESOURCE_EXHAUSTED" } }` (no Retry-After header).
+ * Uses DEFAULT_COOLDOWN_MS since no backoff hint is available.
+ * No-ops when userId is undefined.
+ */
+export function recordResourceExhaustedCooldown(userId: string, log?: Logger): void {
+  if (!userId) return;
+  const cooldownMs = DEFAULT_COOLDOWN_MS;
+  const cooldownUntil = Date.now() + cooldownMs;
+  cooldowns.set(userId, cooldownUntil);
+
+  (log ?? defaultLogger).warn(
+    {
+      action: "health_resource_exhausted_cooldown",
+      userId,
+      cooldownMs,
+      cooldownUntil,
+    },
+    `Google Health API 403 RESOURCE_EXHAUSTED; cooling down for ${cooldownMs}ms`,
+  );
 }
 
 /**
@@ -67,13 +96,17 @@ export function recordRateLimitHeaders(
 /**
  * Returns the current rate-limit snapshot for a user, or null if no active cooldown.
  * A cooldown is active only when cooldownUntil > Date.now().
+ * Evicts stale (expired) entries on access so the map does not grow unboundedly.
  */
 export function getRateLimitSnapshot(
   userId: string,
 ): HealthRateLimitSnapshot | null {
   const cooldownUntil = cooldowns.get(userId);
   if (cooldownUntil === undefined) return null;
-  if (cooldownUntil <= Date.now()) return null;
+  if (cooldownUntil <= Date.now()) {
+    cooldowns.delete(userId); // single-pass eviction
+    return null;
+  }
   return { cooldownUntil };
 }
 

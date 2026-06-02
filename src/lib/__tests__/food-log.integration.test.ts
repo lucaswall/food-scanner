@@ -259,5 +259,58 @@ describe.skipIf(!INTEGRATION_DATABASE_URL)(
       expect(entry!.foodName).toBe("UserA Banana");
       expect(entry!.date).toBe("2030-01-01");
     });
+
+    // ─── healthLogId round-trip: create → persist → retrieve → delete ─────────
+
+    it("healthLogId is persisted on insert, readable, and returned on delete", async () => {
+      const db = getDb();
+
+      // Insert a custom food for user A with a healthLogId
+      const food = await insertCustomFood(userAId, {
+        foodName: "Health Log Round-trip Food",
+        amount: 100,
+        unitId: "g",
+        calories: 100,
+        proteinG: 5,
+        carbsG: 10,
+        fatG: 2,
+        fiberG: 1,
+        sodiumMg: 50,
+        confidence: "high",
+        notes: null,
+      });
+
+      const HEALTH_LOG_ID = "rl-test-datapoint-id-001";
+
+      // Insert a food log entry with the healthLogId
+      const entry = await insertFoodLogEntry(userAId, {
+        customFoodId: food.id,
+        mealTypeId: 1,
+        amount: 100,
+        unitId: "g",
+        date: "2030-06-15",
+        time: "08:00:00",
+        healthLogId: HEALTH_LOG_ID,
+      });
+      expect(entry.id).toBeGreaterThan(0);
+
+      // Retrieve and verify healthLogId is stored
+      const detail = await getFoodLogEntryDetail(userAId, entry.id);
+      expect(detail).not.toBeNull();
+      expect(detail!.healthLogId).toBe(HEALTH_LOG_ID);
+
+      // Delete the entry and verify healthLogId is returned (needed by caller to delete from Health API)
+      const deleted = await deleteFoodLogEntry(userAId, entry.id);
+      expect(deleted).not.toBeNull();
+      expect(deleted!.healthLogId).toBe(HEALTH_LOG_ID);
+
+      // Confirm the entry is truly gone
+      const gone = await getFoodLogEntry(userAId, entry.id);
+      expect(gone).toBeNull();
+
+      // Cleanup: remove the custom food (orphan cleanup is transactional in deleteFoodLogEntry,
+      // but this food may not be orphaned if the test food has other log entries — delete directly)
+      await db.delete(schema.customFoods).where(eq(schema.customFoods.id, food.id));
+    });
   }
 );
