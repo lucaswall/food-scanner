@@ -417,18 +417,16 @@ function dataPointName(dataType: string, id: string): string {
   return `users/me/dataTypes/${dataType}/dataPoints/${id}`;
 }
 
-/** URL of a single dataPoint (id in the path) — the v4 PATCH (create/update) target. */
-function dataPointUrl(dataType: string, id: string): string {
-  return `${GOOGLE_HEALTH_API_BASE}/users/me/dataTypes/${dataType}/dataPoints/${id}`;
-}
-
 /**
- * Extract the server-confirmed dataPoint id from a PATCH response. The body is either
- * the DataPoint itself (`{ name: "users/.../dataPoints/{id}", … }`) or a long-running
- * Operation wrapping it (`{ name: "operations/…", response: { name } }`). Falls back to
- * the id we PATCHed — authoritative for a PATCH-by-id — when no dataPoint name is present.
+ * Extract the server-assigned dataPoint id from a `create` (POST) response. Per the v4
+ * discovery doc, `create` returns a long-running `Operation` ({ name: "operations/…",
+ * done, response }); the created DataPoint (with its server-assigned `name`) is in
+ * `response`. A done-inline create may instead return the DataPoint directly
+ * (`{ name: "users/.../dataPoints/{id}", … }`). Returns the dataPoint id, or null when
+ * the response carries no dataPoint name (e.g. an Operation still in progress) — the
+ * server assigns the id, so there is no client fallback.
  */
-function parsePatchedDataPointId(data: unknown, fallbackId: string): string {
+function parseCreatedDataPointId(data: unknown): string | null {
   const idFromName = (name: unknown): string | null => {
     if (typeof name !== "string") return null;
     const m = /\/dataPoints\/([^/]+)$/.exec(name);
@@ -444,7 +442,7 @@ function parsePatchedDataPointId(data: unknown, fallbackId: string): string {
       if (fromResp) return fromResp;
     }
   }
-  return fallbackId;
+  return null;
 }
 
 /** Module-level dry-run gate — single source of truth for both write functions. */
@@ -504,12 +502,12 @@ function mapMealType(mealTypeId: number): string {
 }
 
 /**
- * Build a Google Health **v4** nutrition-log DataPoint body.
+ * Build a Google Health **v4** nutrition-log DataPoint body for a `create` (POST).
  *
- * Schema inferred from the v4 discovery document
- * (health.googleapis.com/$discovery/rest?version=v4; pending live validation — FOO-1115):
- *   - DataPoint = { name, nutritionLog: NutritionLog }. `name` is the client-provided
- *     resource name (so we know the id without parsing the async create Operation).
+ * Schema verified against the v4 discovery document
+ * (health.googleapis.com/$discovery/rest?version=v4):
+ *   - DataPoint = { nutritionLog: NutritionLog }. `create` is POST-to-collection and the
+ *     server assigns the dataPoint name/id — the client does NOT supply a `name`.
  *   - NutritionLog has TOP-LEVEL `foodDisplayName`, `energy`/`energyFromFat`
  *     (EnergyQuantity {kcal}), `totalCarbohydrate`/`totalFat` (WeightQuantity {grams}),
  *     `serving` (Serving {amount, foodMeasurementUnit}), `mealType`, `interval`
@@ -518,7 +516,7 @@ function mapMealType(mealTypeId: number): string {
  *     (PROTEIN, DIETARY_FIBER, SODIUM, SATURATED_FAT, TRANS_FAT, SUGAR). WeightQuantity
  *     `grams` is the canonical mass, so sodium mg is converted to grams.
  */
-function buildNutritionLogBody(name: string, food: FoodAnalysis, timing: HealthLogTiming): Record<string, unknown> {
+function buildNutritionLogBody(food: FoodAnalysis, timing: HealthLogTiming): Record<string, unknown> {
   const nutrients: Array<Record<string, unknown>> = [
     { nutrient: "PROTEIN", quantity: { grams: food.protein_g } },
     { nutrient: "DIETARY_FIBER", quantity: { grams: food.fiber_g } },
@@ -550,7 +548,7 @@ function buildNutritionLogBody(name: string, food: FoodAnalysis, timing: HealthL
     nutritionLog.mealType = mapMealType(timing.mealTypeId);
   }
 
-  return { name, nutritionLog };
+  return { nutritionLog };
 }
 
 /**
@@ -559,17 +557,21 @@ function buildNutritionLogBody(name: string, food: FoodAnalysis, timing: HealthL
  * Anonymous logs are not editable in place — the app always does
  * delete-old + create-new on edit.
  *
- * Writes use `PATCH …/dataPoints/{id}` (client-provided id in the URL path — the v4 API
- * has no POST-to-collection create). The stored healthLogId is taken from the PARSED
- * response (the server-confirmed dataPoint name, or an Operation-wrapped name), falling
- * back to the PATCHed id only when the body carries no resource name. The stored id is
- * later turned back into a resource name for batchDelete.
+ * Create is `POST …/dataTypes/nutrition-log/dataPoints` (POST-to-collection, per the v4
+ * discovery `create` method); the SERVER assigns the dataPoint id and returns a
+ * long-running `Operation` whose `response` carries the created DataPoint's resource
+ * name. The stored healthLogId is parsed from that name and is later turned back into a
+ * resource name for batchDelete. If the response carries no dataPoint name (e.g. an
+ * Operation still in progress), healthLogId is null — the write succeeded, but the local
+ * row can't reference it (matches the dry-run null contract; the partial unique index
+ * tolerates null).
  *
- * Returns { healthLogId } — the server-confirmed dataPoint id.
+ * Returns { healthLogId } — the server-assigned dataPoint id, or null if unresolved.
  * Throws HEALTH_BAD_REQUEST on 4xx, HEALTH_API_ERROR on 5xx.
  *
- * NOTE: endpoint, method, envelope, and the NutritionLog body schema are inferred from
- * the v4 discovery document — pending live validation against the staging API (FOO-1115).
+ * NOTE: method/path/envelope/enums/field names verified against the v4 discovery doc.
+ * The one unverified behavior is whether create completes synchronously (done + inline
+ * response) or requires polling the Operation — gated on the live smoke test (FOO-1115).
  */
 export async function createNutritionLog(
   accessToken: string,
@@ -587,15 +589,13 @@ export async function createNutritionLog(
     return { healthLogId: null };
   }
 
-  // Client-generated dataPoint id (lowercase hex + hyphens, 36 chars — within the
-  // 4–63 char constraint) used as the PATCH path id.
-  const dataPointId = crypto.randomUUID();
-  const body = buildNutritionLogBody(dataPointName(NUTRITION_LOG_DATA_TYPE, dataPointId), food, timing);
+  // create is POST-to-collection; the server assigns the dataPoint id (no client id).
+  const body = buildNutritionLogBody(food, timing);
 
   const response = await fetchWithRetry(
-    dataPointUrl(NUTRITION_LOG_DATA_TYPE, dataPointId),
+    dataPointsUrl(NUTRITION_LOG_DATA_TYPE),
     {
-      method: "PATCH",
+      method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
@@ -615,17 +615,26 @@ export async function createNutritionLog(
     throw new Error(response.status < 500 ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR");
   }
 
-  // Prefer the server-confirmed dataPoint id from the response (DataPoint name or an
-  // Operation's wrapped name); fall back to the id we PATCHed when the body has none.
+  // Read the server-assigned dataPoint id from the Operation/DataPoint response.
   let parsed: unknown = null;
   try {
     parsed = await response.json();
   } catch {
     parsed = null;
   }
-  const healthLogId = parsePatchedDataPointId(parsed, dataPointId);
+  const healthLogId = parseCreatedDataPointId(parsed);
 
-  l.info({ action: "health_create_nutrition_log_success", healthLogId }, "nutrition log created");
+  if (healthLogId === null) {
+    // Write succeeded (2xx) but no dataPoint name came back — likely an Operation still
+    // in progress. Don't throw (the entry exists server-side); record null so the row is
+    // saved, and surface it for the live-validation follow-up (FOO-1115).
+    l.warn(
+      { action: "health_create_nutrition_log_no_id" },
+      "nutrition log created but no dataPoint id in response (operation may be async) — storing null healthLogId",
+    );
+  } else {
+    l.info({ action: "health_create_nutrition_log_success", healthLogId }, "nutrition log created");
+  }
   return { healthLogId };
 }
 

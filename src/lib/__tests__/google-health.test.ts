@@ -365,28 +365,27 @@ describe("google-health", () => {
   // ─── createNutritionLog ─────────────────────────────────────────────────────
 
   describe("createNutritionLog", () => {
-    it("makes exactly ONE PATCH to nutrition-log/dataPoints/{id} (id in path, not POST-to-collection)", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-abc-123" }));
+    it("makes exactly ONE POST to the nutrition-log/dataPoints collection (server assigns the id)", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "operations/abc" }));
 
       await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      expect(init.method).toBe("PATCH");
-      // id is in the URL path, not a POST to the bare collection
-      expect(url).toMatch(/\/dataTypes\/nutrition-log\/dataPoints\/[a-z0-9-]{4,63}$/);
+      expect(init.method).toBe("POST");
+      // POST to the bare collection — no client-supplied id in the path.
+      expect(url).toMatch(/\/dataTypes\/nutrition-log\/dataPoints$/);
     });
 
-    it("PATCHes a v4 DataPoint with the {name, nutritionLog} envelope", async () => {
+    it("POSTs a v4 DataPoint with the { nutritionLog } envelope and NO client name", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({ name: "operations/abc" }));
 
       await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
-      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      const body = JSON.parse(init.body as string) as { name: string; nutritionLog: Record<string, unknown> };
-      expect(body.name).toMatch(/^users\/me\/dataTypes\/nutrition-log\/dataPoints\/[a-z0-9-]{4,63}$/);
-      // the PATCH URL path id matches the envelope name id
-      expect(url.endsWith(body.name.split("/").pop()!)).toBe(true);
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as { name?: string; nutritionLog: Record<string, unknown> };
+      // create is POST-to-collection: the server assigns the name, client must not send one.
+      expect(body.name).toBeUndefined();
       expect(body.nutritionLog).toBeDefined();
     });
 
@@ -467,7 +466,7 @@ describe("google-health", () => {
       expect(nutritionLog.energy).toEqual({ kcal: 251 });
     });
 
-    it("returns the SERVER-confirmed dataPoint id parsed from the response (not the local UUID)", async () => {
+    it("returns the SERVER-assigned dataPoint id parsed from a done-inline DataPoint response", async () => {
       fetchMock.mockResolvedValue(
         makeJsonResponse({
           name: "users/me/dataTypes/nutrition-log/dataPoints/server-assigned-77",
@@ -477,13 +476,10 @@ describe("google-health", () => {
 
       const result = await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
-      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(result.healthLogId).toBe("server-assigned-77");
-      // the URL carried the client UUID; the stored id came from the parsed response instead
-      expect(url.endsWith("server-assigned-77")).toBe(false);
     });
 
-    it("extracts the dataPoint id from a long-running Operation response", async () => {
+    it("extracts the dataPoint id from a long-running Operation's response", async () => {
       fetchMock.mockResolvedValue(
         makeJsonResponse({
           name: "operations/op-123",
@@ -496,15 +492,14 @@ describe("google-health", () => {
       expect(result.healthLogId).toBe("op-result-9");
     });
 
-    it("falls back to the PATCHed id when the response carries no dataPoint name", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({ name: "operations/op-only" }));
+    it("returns null healthLogId when the response carries no dataPoint name (async Operation, no fallback)", async () => {
+      // The server assigns the id, so there is no client id to fall back to — the only
+      // honest result is null (write succeeded; the dataPoint name isn't known yet).
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "operations/op-only", done: false }));
 
       const result = await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
-      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
-      expect(typeof result.healthLogId).toBe("string");
-      // no server id available → use the client id from the PATCH URL path
-      expect(url.endsWith(result.healthLogId!)).toBe(true);
+      expect(result.healthLogId).toBeNull();
     });
 
     it("throws HEALTH_BAD_REQUEST on 4xx response (400) — raw body never in thrown error", async () => {
