@@ -117,6 +117,12 @@ export async function fetchWithRetry(
     }
 
     if (response.status === 401) {
+      // Log the upstream body before throwing — otherwise a 401 surfaces as a bare code
+      // with no clue (expired token vs revoked grant vs wrong audience).
+      l.warn(
+        { action: "health_401_unauthorized", url, errorBody: sanitizeErrorBody(await parseErrorBody(response)) },
+        "401 from Google Health — token invalid/expired",
+      );
       throw new Error("HEALTH_TOKEN_INVALID");
     }
 
@@ -134,6 +140,12 @@ export async function fetchWithRetry(
         );
         throw new Error("HEALTH_RATE_LIMIT");
       }
+      // Scope/permission 403: log Google's body (already parsed above) so the reason is
+      // visible — the most likely first-write failure is a scope grant issue.
+      l.warn(
+        { action: "health_403_scope", url, errorBody: sanitizeErrorBody(rawBody) },
+        "403 from Google Health — scope/permission denied",
+      );
       throw new Error("HEALTH_SCOPE_MISSING");
     }
 
@@ -610,7 +622,9 @@ export async function createNutritionLog(
     const rawBody = await parseErrorBody(response);
     const errorBody = sanitizeErrorBody(rawBody);
     l.error(
-      { action: "health_create_nutrition_log_failed", status: response.status, errorBody },
+      // Log the request body too so a field-level rejection can be diagnosed against what
+      // we sent (nutritionLog carries no tokens/PII beyond the food name + macros).
+      { action: "health_create_nutrition_log_failed", status: response.status, errorBody, requestBody: body },
       "nutrition log creation failed",
     );
     throw new Error(response.status < 500 ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR");
@@ -628,13 +642,17 @@ export async function createNutritionLog(
   if (healthLogId === null) {
     // Write succeeded (2xx) but no dataPoint name came back — likely an Operation still
     // in progress. Don't throw (the entry exists server-side); record null so the row is
-    // saved, and surface it for the live-validation follow-up (FOO-1115).
+    // saved, and log the raw response so the live sync-vs-async behavior (FOO-1115) is
+    // visible from the first real write.
     l.warn(
-      { action: "health_create_nutrition_log_no_id" },
+      { action: "health_create_nutrition_log_no_id", rawResponse: parsed },
       "nutrition log created but no dataPoint id in response (operation may be async) — storing null healthLogId",
     );
   } else {
-    l.info({ action: "health_create_nutrition_log_success", healthLogId }, "nutrition log created");
+    // Include the response key shape so the first live write reveals whether create returns
+    // a DataPoint inline or an Operation wrapper (resolves the one remaining live unknown).
+    const responseKeys = parsed && typeof parsed === "object" ? Object.keys(parsed as Record<string, unknown>) : [];
+    l.info({ action: "health_create_nutrition_log_success", healthLogId, responseKeys }, "nutrition log created");
   }
   return { healthLogId };
 }

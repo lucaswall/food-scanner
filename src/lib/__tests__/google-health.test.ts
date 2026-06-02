@@ -274,6 +274,13 @@ describe("google-health", () => {
         fetchWithRetry("https://example.com", {}, 0, Date.now(), fakeLog, "user-a"),
       ).rejects.toThrow("HEALTH_SCOPE_MISSING");
 
+      // The scope-403 path must log Google's body so the reason is visible (not a bare code).
+      const scopeLog = warnMock.mock.calls.find(
+        (c) => (c[0] as { action?: string })?.action === "health_403_scope",
+      );
+      expect(scopeLog).toBeDefined();
+      expect((scopeLog![0] as { errorBody: unknown }).errorBody).toEqual({ error: { status: "PERMISSION_DENIED", code: 403 } });
+
       expect(recordResourceExhaustedCooldownMock).not.toHaveBeenCalled();
     });
 
@@ -520,6 +527,29 @@ describe("google-health", () => {
       expect(thrown!.message).toBe("HEALTH_BAD_REQUEST");
       // Raw upstream body must never appear in the thrown Error.message
       expect(thrown!.message).not.toContain("raw upstream 400 detail");
+    });
+
+    it("logs the upstream error body AND the request body on a failed write (for field-level debugging)", async () => {
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ error: { message: "Invalid value at 'nutrition_log.meal_type'" } }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      await expect(
+        createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1"),
+      ).rejects.toThrow("HEALTH_BAD_REQUEST");
+
+      const logged = errorMock.mock.calls.find(
+        (c) => (c[0] as { action?: string })?.action === "health_create_nutrition_log_failed",
+      );
+      expect(logged).toBeDefined();
+      const ctx = logged![0] as { status: number; errorBody: unknown; requestBody: { nutritionLog: unknown } };
+      expect(ctx.status).toBe(400);
+      expect(ctx.errorBody).toEqual({ error: { message: "Invalid value at 'nutrition_log.meal_type'" } });
+      // The request body we sent must be logged so a rejected field can be diagnosed.
+      expect(ctx.requestBody.nutritionLog).toBeDefined();
     });
 
     it("throws HEALTH_API_ERROR on 5xx response (after retries) — raw body never in thrown error", async () => {
