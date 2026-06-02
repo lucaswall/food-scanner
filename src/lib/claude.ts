@@ -1587,13 +1587,33 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         containerId: response.container?.id,
       });
       let sawRefineAnalysis = false;
+      // Mirror analyzeFood: a sourceCustomFoodId is only trustworthy if search_food_log ran;
+      // otherwise Claude can't know a valid id and it must be stripped before reaching the UI.
+      let sawSearchFoodLogRefine = dataToolUseBlocks.some((b) => b.name === "search_food_log");
       for await (const event of refineToolLoop) {
-        if (event.type === "analysis") {
+        if (event.type === "tool_start") {
+          if (event.tool === "search_food_log") sawSearchFoodLogRefine = true;
+          yield event;
+        } else if (event.type === "analysis") {
+          if (event.analysis.sourceCustomFoodId != null && !sawSearchFoodLogRefine) {
+            l.warn(
+              { action: "conversational_refine_strip_source_id", sourceCustomFoodId: event.analysis.sourceCustomFoodId, foodName: event.analysis.food_name },
+              "stripping hallucinated sourceCustomFoodId from refine analysis (no search_food_log was called)"
+            );
+            delete event.analysis.sourceCustomFoodId;
+          }
           sawRefineAnalysis = true;
           yield event;
         } else if (event.type === "done") {
           // Fall back to analysis captured from the initial response if the loop didn't yield one
           if (!sawRefineAnalysis && refineSlowPathPendingAnalysis) {
+            if (refineSlowPathPendingAnalysis.sourceCustomFoodId != null && !sawSearchFoodLogRefine) {
+              l.warn(
+                { action: "conversational_refine_strip_source_id", sourceCustomFoodId: refineSlowPathPendingAnalysis.sourceCustomFoodId, foodName: refineSlowPathPendingAnalysis.food_name },
+                "stripping hallucinated sourceCustomFoodId from refine slow-path fallback analysis (no search_food_log was called)"
+              );
+              delete refineSlowPathPendingAnalysis.sourceCustomFoodId;
+            }
             yield { type: "analysis", analysis: refineSlowPathPendingAnalysis };
           }
           yield event;
@@ -1619,6 +1639,15 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     let analysis: FoodAnalysis | undefined;
     if (reportNutritionBlock) {
       analysis = validateFoodAnalysis(reportNutritionBlock.input);
+      // Fast path: no data tools were called, so sourceCustomFoodId is always a
+      // hallucination — strip it (mirrors analyzeFood's fast-path safeguard).
+      if (analysis.sourceCustomFoodId != null) {
+        l.warn(
+          { action: "conversational_refine_strip_source_id", sourceCustomFoodId: analysis.sourceCustomFoodId, foodName: analysis.food_name },
+          "stripping hallucinated sourceCustomFoodId from refine fast-path analysis (no search_food_log was called)"
+        );
+        delete analysis.sourceCustomFoodId;
+      }
       l.info(
         { action: "conversational_refine_with_analysis", foodName: analysis.food_name, confidence: analysis.confidence, durationMs: elapsed() },
         "conversational refinement with analysis completed"

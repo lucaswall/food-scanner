@@ -2694,6 +2694,94 @@ describe("conversationalRefine", () => {
     expect(analysisEvent?.analysis).toEqual(validAnalysis);
     expect(events[events.length - 1]).toEqual({ type: "done" });
   });
+
+  it("slow path fallback: strips hallucinated sourceCustomFoodId when search_food_log never ran (Codex P2)", async () => {
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "tool_use",
+        content: [
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: { ...rawToolInput, source_custom_food_id: 999 } },
+          { type: "tool_use", id: "t_sum", name: "get_nutrition_summary", input: { date: "2026-02-15" } },
+        ],
+        usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+    mockExecuteTool.mockResolvedValueOnce("Totals: 1800 cal");
+    mockStream.mockReturnValueOnce(makeTextStream("Update applied."));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    const events = await collectEvents(
+      conversationalRefine(
+        [
+          { role: "user", content: "Update the analysis" },
+          { role: "assistant", content: "Got it", analysis: validAnalysis },
+          { role: "user", content: "Actually make it 200g" },
+        ],
+        "user-123",
+        "2026-02-15",
+      )
+    );
+
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent).toBeDefined();
+    expect(analysisEvent?.analysis.sourceCustomFoodId).toBeUndefined();
+  });
+
+  it("slow path fallback: preserves sourceCustomFoodId when search_food_log DID run", async () => {
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "tool_use",
+        content: [
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: { ...rawToolInput, source_custom_food_id: 999 } },
+          { type: "tool_use", id: "t_search", name: "search_food_log", input: { query: "empanada" } },
+        ],
+        usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+    mockExecuteTool.mockResolvedValueOnce("Found: id 999");
+    mockStream.mockReturnValueOnce(makeTextStream("Update applied."));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    const events = await collectEvents(
+      conversationalRefine(
+        [
+          { role: "user", content: "Update the analysis" },
+          { role: "assistant", content: "Got it", analysis: validAnalysis },
+          { role: "user", content: "Actually make it 200g" },
+        ],
+        "user-123",
+        "2026-02-15",
+      )
+    );
+
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent?.analysis.sourceCustomFoodId).toBe(999);
+  });
+
+  it("fast path: strips hallucinated sourceCustomFoodId (no data tools → search_food_log never ran)", async () => {
+    mockStream.mockReturnValueOnce(makeReportNutritionStream({ ...rawToolInput, source_custom_food_id: 999 }));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    const events = await collectEvents(
+      conversationalRefine(
+        [
+          { role: "user", content: "Update the analysis" },
+          { role: "assistant", content: "Got it", analysis: validAnalysis },
+          { role: "user", content: "Make it 200g" },
+        ],
+        "user-123",
+        "2026-02-15",
+      )
+    );
+
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent).toBeDefined();
+    expect(analysisEvent?.analysis.sourceCustomFoodId).toBeUndefined();
+  });
 });
 
 // =============================================================================
