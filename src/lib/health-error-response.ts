@@ -96,6 +96,12 @@ export function mapHealthError(error: unknown): Response {
         "Google Health API error.",
         502,
       );
+    case "HEALTH_BAD_REQUEST":
+      return errorResponse(
+        "HEALTH_BAD_REQUEST",
+        "Google Health rejected the request. Please try again or reconnect your account.",
+        400,
+      );
     default:
       return errorResponse(
         "INTERNAL_ERROR",

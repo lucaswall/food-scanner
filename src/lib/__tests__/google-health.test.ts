@@ -45,11 +45,13 @@ vi.mock("@/lib/health-tokens", () => ({
 const assertRateLimitAllowedMock = vi.fn();
 const recordRateLimitHeadersMock = vi.fn();
 const getRateLimitSnapshotMock = vi.fn().mockReturnValue(null);
+const recordResourceExhaustedCooldownMock = vi.fn();
 
 vi.mock("@/lib/google-health-rate-limit", () => ({
   assertRateLimitAllowed: (...args: unknown[]) => assertRateLimitAllowedMock(...args),
   recordRateLimitHeaders: (...args: unknown[]) => recordRateLimitHeadersMock(...args),
   getRateLimitSnapshot: (...args: unknown[]) => getRateLimitSnapshotMock(...args),
+  recordResourceExhaustedCooldown: (...args: unknown[]) => recordResourceExhaustedCooldownMock(...args),
 }));
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -244,6 +246,61 @@ describe("google-health", () => {
       // No actual fetch should happen — breaker fires before the request
       expect(fetchMock).not.toHaveBeenCalled();
     });
+
+    it("throws HEALTH_RATE_LIMIT on 403 RESOURCE_EXHAUSTED and records cooldown via recordResourceExhaustedCooldown", async () => {
+      fetchMock.mockResolvedValue(
+        new Response(
+          JSON.stringify({ error: { status: "RESOURCE_EXHAUSTED" } }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+      await expect(
+        fetchWithRetry("https://example.com", {}, 0, Date.now(), fakeLog, "user-a"),
+      ).rejects.toThrow("HEALTH_RATE_LIMIT");
+
+      expect(recordResourceExhaustedCooldownMock).toHaveBeenCalledWith("user-a", fakeLog);
+    });
+
+    it("throws HEALTH_SCOPE_MISSING on 403 with non-RESOURCE_EXHAUSTED body (scope error — not quota)", async () => {
+      fetchMock.mockResolvedValue(
+        new Response(
+          JSON.stringify({ error: { status: "PERMISSION_DENIED", code: 403 } }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+      await expect(
+        fetchWithRetry("https://example.com", {}, 0, Date.now(), fakeLog, "user-a"),
+      ).rejects.toThrow("HEALTH_SCOPE_MISSING");
+
+      expect(recordResourceExhaustedCooldownMock).not.toHaveBeenCalled();
+    });
+
+    it("throws HEALTH_SCOPE_MISSING on empty-body 403 (scope error — cannot be RESOURCE_EXHAUSTED)", async () => {
+      fetchMock.mockResolvedValue(new Response(null, { status: 403 }));
+
+      await expect(
+        fetchWithRetry("https://example.com", {}, 0, Date.now(), fakeLog, "user-a"),
+      ).rejects.toThrow("HEALTH_SCOPE_MISSING");
+
+      expect(recordResourceExhaustedCooldownMock).not.toHaveBeenCalled();
+    });
+
+    it("does not call recordResourceExhaustedCooldown when userId is undefined on 403 RESOURCE_EXHAUSTED", async () => {
+      fetchMock.mockResolvedValue(
+        new Response(
+          JSON.stringify({ error: { status: "RESOURCE_EXHAUSTED" } }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+      await expect(
+        fetchWithRetry("https://example.com", {}, 0, Date.now(), fakeLog),
+      ).rejects.toThrow("HEALTH_RATE_LIMIT");
+
+      expect(recordResourceExhaustedCooldownMock).not.toHaveBeenCalled();
+    });
   });
 
   // ─── refreshGoogleHealthToken ────────────────────────────────────────────────
@@ -308,26 +365,28 @@ describe("google-health", () => {
   // ─── createNutritionLog ─────────────────────────────────────────────────────
 
   describe("createNutritionLog", () => {
-    it("makes exactly ONE POST to nutrition-log/dataPoints (not two)", async () => {
+    it("makes exactly ONE PATCH to nutrition-log/dataPoints/{id} (id in path, not POST-to-collection)", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({ id: "log-abc-123" }));
 
       await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-      expect(url).toContain("nutrition-log/dataPoints");
-      expect(init.method).toBe("POST");
+      expect(init.method).toBe("PATCH");
+      // id is in the URL path, not a POST to the bare collection
+      expect(url).toMatch(/\/dataTypes\/nutrition-log\/dataPoints\/[a-z0-9-]{4,63}$/);
     });
 
-    it("posts a v4 DataPoint with a client-provided name; healthLogId is that name's id", async () => {
+    it("PATCHes a v4 DataPoint with the {name, nutritionLog} envelope", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({ name: "operations/abc" }));
 
-      const result = await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
+      await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
-      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(init.body as string) as { name: string; nutritionLog: Record<string, unknown> };
       expect(body.name).toMatch(/^users\/me\/dataTypes\/nutrition-log\/dataPoints\/[a-z0-9-]{4,63}$/);
-      expect(body.name.endsWith(result.healthLogId)).toBe(true);
+      // the PATCH URL path id matches the envelope name id
+      expect(url.endsWith(body.name.split("/").pop()!)).toBe(true);
       expect(body.nutritionLog).toBeDefined();
     });
 
@@ -408,30 +467,90 @@ describe("google-health", () => {
       expect(nutritionLog.energy).toEqual({ kcal: 251 });
     });
 
-    it("returns the client-generated dataPoint id as healthLogId (create returns an async Operation)", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({ name: "operations/xyz" }));
+    it("returns the SERVER-confirmed dataPoint id parsed from the response (not the local UUID)", async () => {
+      fetchMock.mockResolvedValue(
+        makeJsonResponse({
+          name: "users/me/dataTypes/nutrition-log/dataPoints/server-assigned-77",
+          nutritionLog: {},
+        }),
+      );
 
       const result = await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(result.healthLogId).toBe("server-assigned-77");
+      // the URL carried the client UUID; the stored id came from the parsed response instead
+      expect(url.endsWith("server-assigned-77")).toBe(false);
+    });
+
+    it("extracts the dataPoint id from a long-running Operation response", async () => {
+      fetchMock.mockResolvedValue(
+        makeJsonResponse({
+          name: "operations/op-123",
+          response: { name: "users/me/dataTypes/nutrition-log/dataPoints/op-result-9" },
+        }),
+      );
+
+      const result = await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
+
+      expect(result.healthLogId).toBe("op-result-9");
+    });
+
+    it("falls back to the PATCHed id when the response carries no dataPoint name", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "operations/op-only" }));
+
+      const result = await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
+
+      const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(typeof result.healthLogId).toBe("string");
-      expect(result.healthLogId.length).toBeGreaterThan(0);
+      // no server id available → use the client id from the PATCH URL path
+      expect(url.endsWith(result.healthLogId!)).toBe(true);
     });
 
-    it("throws HEALTH_API_ERROR on non-ok response (400 — no retry)", async () => {
-      // Use 400 (not retried by fetchWithRetry) to avoid slow real-timer retries
-      fetchMock.mockResolvedValue(new Response(null, { status: 400 }));
+    it("throws HEALTH_BAD_REQUEST on 4xx response (400) — raw body never in thrown error", async () => {
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ message: "raw upstream 400 detail" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
 
-      await expect(
-        createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1"),
-      ).rejects.toThrow("HEALTH_API_ERROR");
+      let thrown: Error | null = null;
+      try {
+        await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
+      } catch (e) {
+        thrown = e as Error;
+      }
+      expect(thrown).not.toBeNull();
+      expect(thrown!.message).toBe("HEALTH_BAD_REQUEST");
+      // Raw upstream body must never appear in the thrown Error.message
+      expect(thrown!.message).not.toContain("raw upstream 400 detail");
     });
 
-    it("does not call fetch when HEALTH_DRY_RUN=true", async () => {
+    it("throws HEALTH_API_ERROR on 5xx response (after retries) — raw body never in thrown error", async () => {
+      vi.useFakeTimers();
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ message: "raw 500 server detail" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      const promise = createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
+      const rejection = expect(promise).rejects.toThrow("HEALTH_API_ERROR");
+      // MAX_RETRIES=3, exp backoff: 1s+2s+4s = 7s total
+      await vi.advanceTimersByTimeAsync(10_000);
+      await rejection;
+    });
+
+    it("returns { healthLogId: null } and does not call fetch when HEALTH_DRY_RUN=true", async () => {
       vi.stubEnv("HEALTH_DRY_RUN", "true");
 
-      await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
+      const result = await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
 
       expect(fetchMock).not.toHaveBeenCalled();
+      // null (not the "dry-run" sentinel) so the partial unique index never collides
+      expect(result).toEqual({ healthLogId: null });
       vi.stubEnv("HEALTH_DRY_RUN", ""); // reset for next tests
     });
 
@@ -521,21 +640,33 @@ describe("google-health", () => {
       ]);
     });
 
-    it("resolves without throwing on 404 (already-deleted)", async () => {
+    it("resolves without throwing on 404 by default / cleanup mode (already-deleted idempotency)", async () => {
       fetchMock.mockResolvedValue(new Response(null, { status: 404 }));
 
       await expect(
         deleteNutritionLogs("token", ["id-gone"], fakeLog, "user-1"),
       ).resolves.toBeUndefined();
+
+      fetchMock.mockResolvedValue(new Response(null, { status: 404 }));
+      await expect(
+        deleteNutritionLogs("token", ["id-gone"], fakeLog, "user-1", "cleanup"),
+      ).resolves.toBeUndefined();
     });
 
-    it("throws HEALTH_API_ERROR on server error (400 — no retry)", async () => {
-      // Use 400 (not retried by fetchWithRetry) to avoid slow real-timer retries in 5xx path
+    it("throws HEALTH_LOG_NOT_FOUND on 404 for a user-initiated delete (drift must surface, not be swallowed)", async () => {
+      fetchMock.mockResolvedValue(new Response(null, { status: 404 }));
+
+      await expect(
+        deleteNutritionLogs("token", ["id-gone"], fakeLog, "user-1", "user"),
+      ).rejects.toThrow("HEALTH_LOG_NOT_FOUND");
+    });
+
+    it("throws HEALTH_BAD_REQUEST on 4xx non-404 response", async () => {
       fetchMock.mockResolvedValue(new Response(null, { status: 400 }));
 
       await expect(
         deleteNutritionLogs("token", ["id-1"], fakeLog, "user-1"),
-      ).rejects.toThrow("HEALTH_API_ERROR");
+      ).rejects.toThrow("HEALTH_BAD_REQUEST");
     });
 
     it("does not call fetch when HEALTH_DRY_RUN=true", async () => {
@@ -709,13 +840,21 @@ describe("google-health", () => {
       ).rejects.toThrow("HEALTH_API_ERROR");
     });
 
-    it("throws HEALTH_API_ERROR when height is unavailable (404 on the height data type)", async () => {
+    it("returns heightCm: null when height is unavailable (404 on the height data type, no throw)", async () => {
       fetchMock
         .mockResolvedValueOnce(makeJsonResponse({ age: 30 }))
         .mockResolvedValueOnce(new Response(null, { status: 404 }));
-      await expect(
-        getHealthProfile("token", fakeLog, "user-1"),
-      ).rejects.toThrow("HEALTH_API_ERROR");
+      const result = await getHealthProfile("token", fakeLog, "user-1");
+      expect(result).toEqual({ ageYears: 30, sex: "NA", heightCm: null });
+    });
+
+    it("returns heightCm: null when the height data type has no dataPoints (no throw)", async () => {
+      fetchMock
+        .mockResolvedValueOnce(makeJsonResponse({ age: 42 }))
+        .mockResolvedValueOnce(makeJsonResponse({ dataPoints: [] }));
+      const result = await getHealthProfile("token", fakeLog, "user-1");
+      expect(result.heightCm).toBeNull();
+      expect(result.ageYears).toBe(42);
     });
 
     it("throws HEALTH_TOKEN_INVALID on 401", async () => {
@@ -725,11 +864,11 @@ describe("google-health", () => {
       ).rejects.toThrow("HEALTH_TOKEN_INVALID");
     });
 
-    it("throws HEALTH_API_ERROR on non-ok (400)", async () => {
+    it("throws HEALTH_BAD_REQUEST on 4xx non-ok (400)", async () => {
       fetchMock.mockResolvedValue(new Response(null, { status: 400 }));
       await expect(
         getHealthProfile("token", fakeLog, "user-1"),
-      ).rejects.toThrow("HEALTH_API_ERROR");
+      ).rejects.toThrow("HEALTH_BAD_REQUEST");
     });
   });
 
@@ -820,7 +959,7 @@ describe("google-health", () => {
   // ─── getHealthActivitySummary ─────────────────────────────────────────────────
 
   describe("getHealthActivitySummary", () => {
-    it("POSTs a dailyRollUp with a CivilTimeInterval range body (not startDate/endDate)", async () => {
+    it("POSTs a dailyRollUp with range.start/range.end (closed-open, end = next civil day) + windowSizeDays", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({ rollupDataPoints: [{ totalCalories: { kcalSum: 2345 } }] }));
 
       await getHealthActivitySummary("token", "2026-05-31", fakeLog, "user-1");
@@ -831,9 +970,11 @@ describe("google-health", () => {
       const body = JSON.parse(init.body as string);
       expect(body).toEqual({
         range: {
-          startTime: { date: { year: 2026, month: 5, day: 31 } },
-          endTime: { date: { year: 2026, month: 5, day: 31 } },
+          start: { date: { year: 2026, month: 5, day: 31 } },
+          // exclusive end → the next civil day (crosses the month boundary correctly)
+          end: { date: { year: 2026, month: 6, day: 1 } },
         },
+        windowSizeDays: 1,
       });
     });
 
@@ -879,11 +1020,68 @@ describe("google-health", () => {
       ).rejects.toThrow("HEALTH_TOKEN_INVALID");
     });
 
-    it("throws HEALTH_API_ERROR on non-ok (400)", async () => {
+    it("throws HEALTH_BAD_REQUEST on 4xx non-ok (400)", async () => {
       fetchMock.mockResolvedValue(new Response(null, { status: 400 }));
       await expect(
         getHealthActivitySummary("token", "2026-05-31", fakeLog, "user-1"),
-      ).rejects.toThrow("HEALTH_API_ERROR");
+      ).rejects.toThrow("HEALTH_BAD_REQUEST");
+    });
+
+    it("includes utcOffset in CivilDateTime range when zoneOffset is provided", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ rollupDataPoints: [] }));
+
+      await getHealthActivitySummary("token", "2026-02-08", fakeLog, "user-1", "optional", "-03:00");
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string);
+      // Civil day 2026-02-08 in -03:00 timezone: utcOffset = "-10800s" (−3h in seconds)
+      expect(body.range.start).toEqual({ date: { year: 2026, month: 2, day: 8 }, utcOffset: "-10800s" });
+      expect(body.range.end).toEqual({ date: { year: 2026, month: 2, day: 9 }, utcOffset: "-10800s" });
+    });
+
+    it("omits utcOffset when no zoneOffset is provided (backward-compatible)", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ rollupDataPoints: [] }));
+
+      await getHealthActivitySummary("token", "2026-05-31", fakeLog, "user-1");
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string);
+      expect(body.range.start).not.toHaveProperty("utcOffset");
+      expect(body.range.end).not.toHaveProperty("utcOffset");
+    });
+  });
+
+  // ─── timezone alignment (round-trip date-boundary test) ───────────────────
+
+  describe("timezone alignment: meal-write instant and rollup query agree on civil day", () => {
+    it("23:30 meal at -03:00 — write instant on 2026-02-08 and rollup range covers the same civil day", async () => {
+      // Step 1: Create a nutrition log at 23:30 local time in -03:00 timezone
+      // UTC instant: 2026-02-09T02:30:00Z (next-day UTC), but LOCAL date = 2026-02-08
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "op/1" }));
+      const lateBoundaryTiming = {
+        date: "2026-02-08",
+        time: "23:30:00",
+        zoneOffset: "-03:00",
+        mealTypeId: 5,
+      };
+      await createNutritionLog("token", sampleFood, lateBoundaryTiming, fakeLog, "user-1");
+
+      const [, writeInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const writeBody = JSON.parse(writeInit.body as string);
+      // Write instant must use the LOCAL date (2026-02-08) with the zone offset
+      expect(writeBody.nutritionLog.interval.startTime).toBe("2026-02-08T23:30:00-03:00");
+
+      // Step 2: Query activity rollup for the same local date with zone offset
+      fetchMock.mockResolvedValue(makeJsonResponse({ rollupDataPoints: [] }));
+      await getHealthActivitySummary("token", "2026-02-08", fakeLog, "user-1", "optional", "-03:00");
+
+      const [, rollupInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+      const rollupBody = JSON.parse(rollupInit.body as string);
+      // Rollup range for civil day 2026-02-08 in -03:00:
+      //   UTC coverage = [2026-02-08T03:00Z, 2026-02-09T03:00Z)
+      //   The meal UTC instant 2026-02-09T02:30Z falls WITHIN this range ✓
+      expect(rollupBody.range.start).toEqual({ date: { year: 2026, month: 2, day: 8 }, utcOffset: "-10800s" });
+      expect(rollupBody.range.end).toEqual({ date: { year: 2026, month: 2, day: 9 }, utcOffset: "-10800s" });
     });
   });
 });

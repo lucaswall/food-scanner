@@ -84,6 +84,14 @@ jobs:
   e2e:
     needs: [lint-typecheck, unit-tests, build]
     runs-on: ubuntu-latest
+    # Run inside the official Playwright image (tag pinned to the @playwright/test
+    # version in package.json): browsers + system deps are pre-baked, eliminating the
+    # `playwright install` browser download/extraction step that deadlocked on
+    # cache-miss runs and hung the job for hours.
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
+    # Backstop so a hung step can never block merges for GitHub's 6h default.
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:17-alpine
@@ -91,8 +99,6 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: food_scanner
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -106,33 +112,20 @@ jobs:
           cache: npm
       - run: npm ci
 
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ hashFiles('package-lock.json') }}
-
-      - name: Install Playwright browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium
-
-      - name: Install Playwright system dependencies
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium
-
       - name: Run E2E tests
         run: npx playwright test
         env:
           CI: true
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/food_scanner
+          # In a container job the postgres service is reachable by its service name
+          # on the job network (NOT localhost, which the runner-host mapping used).
+          DATABASE_URL: postgresql://postgres:postgres@postgres:5432/food_scanner
           SESSION_SECRET: test-session-secret-min-32-chars-required-for-iron-session
           APP_URL: http://localhost:3001
           ALLOWED_EMAILS: test@example.com
           GOOGLE_CLIENT_ID: test-client-id
           GOOGLE_CLIENT_SECRET: test-client-secret
           ANTHROPIC_API_KEY: test-anthropic-key
-          FITBIT_DRY_RUN: "true"
+          HEALTH_DRY_RUN: "true"
           ENABLE_TEST_AUTH: "true"
           PORT: "3001"
 

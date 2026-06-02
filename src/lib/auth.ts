@@ -204,10 +204,12 @@ export async function getGoogleHealthIdentity(accessToken: string): Promise<stri
     }
 
     const data = await jsonWithTimeout<Record<string, unknown>>(response);
-    if (typeof data.userId !== "string") {
-      throw new Error("Invalid Google Health identity response: missing userId");
+    // Real v4 getIdentity shape is { name, legacyUserId, healthUserId } — there is
+    // no `userId` field. healthUserId is the stable identity we persist.
+    if (typeof data.healthUserId !== "string") {
+      throw new Error("Invalid Google Health identity response: missing healthUserId");
     }
-    return data.userId;
+    return data.healthUserId;
   } finally {
     clearTimeout(timeoutId);
   }

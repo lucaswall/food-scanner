@@ -60,7 +60,42 @@ describe("GET /api/v1/activity-summary", () => {
       "2026-02-11",
       expect.any(Object),
       "important",
+      null,
     );
+  });
+
+  it("passes a valid zoneOffset query param through to the cache layer", async () => {
+    const mockActivity: ActivitySummary = { caloriesOut: 2500 };
+    mockGetCachedHealthActivitySummary.mockResolvedValue(mockActivity);
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/activity-summary?date=2026-02-11&zoneOffset=-03:00",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(mockGetCachedHealthActivitySummary).toHaveBeenCalledWith(
+      "user-123",
+      "2026-02-11",
+      expect.any(Object),
+      "important",
+      "-03:00",
+    );
+  });
+
+  it("returns 400 for an invalid zoneOffset format", async () => {
+    const request = createRequest(
+      "http://localhost:3000/api/v1/activity-summary?date=2026-02-11&zoneOffset=bad",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.error.code).toBe("VALIDATION_ERROR");
+    expect(data.error.message).toMatch(/zoneOffset/i);
+    expect(mockGetCachedHealthActivitySummary).not.toHaveBeenCalled();
   });
 
   it("returns 401 for invalid API key", async () => {

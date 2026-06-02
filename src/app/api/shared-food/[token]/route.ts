@@ -3,6 +3,7 @@ import { successResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getCustomFoodByShareToken } from "@/lib/food-log";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { coerceServingUnit } from "@/types";
 
 const RATE_LIMIT_MAX = 50;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
@@ -32,10 +33,12 @@ export async function GET(
 
   log.info({ action: "shared_food_fetched", foodId: food.id }, "shared food fetched");
 
-  return successResponse({
+  const response = successResponse({
     food_name: food.foodName,
     amount: Number(food.amount),
-    unit_id: food.unitId,
+    // Defensive coercion: legacy rows may still carry a numeric unit_id; never
+    // surface a non-ServingUnit value to clients (find-matches/log-food 400 on it).
+    unit_id: coerceServingUnit(food.unitId),
     calories: food.calories,
     protein_g: Number(food.proteinG),
     carbs_g: Number(food.carbsG),
@@ -51,4 +54,7 @@ export async function GET(
     description: food.description ?? "",
     keywords: food.keywords ?? [],
   });
+  // User-specific data behind auth — keep it fresh, never cached (CLAUDE.md GET convention).
+  response.headers.set("Cache-Control", "private, no-cache");
+  return response;
 }

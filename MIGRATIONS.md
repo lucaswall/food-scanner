@@ -13,8 +13,8 @@ This release promotes the entire Fitbit→Google Health cutover. **Classificatio
 **Drizzle migration file:** `drizzle/0027_google_health_migration.sql` is generated and committed (Task 29 — done). It is **correct for a fresh/empty DB** (CI, E2E, local) — the app's startup-migrate builds the full current schema by running `0001…0027`, verified green by the unit, integration (20), and E2E (135) suites.
 
 **🔴 What WILL FAIL if `0027` is applied verbatim to PRODUCTION (populated tables) — the manual migration MUST override these:**
-1. **`unit_id` integer→text has NO `USING` clause** (`0027` lines 17–18: `ALTER COLUMN unit_id SET DATA TYPE text;`). On populated `custom_foods`/`food_log_entries` this **errors** (`column cannot be cast automatically to type text`) and, even if forced with a bare `::text`, would store `"147"`/`"91"` instead of the `ServingUnit` strings `'g'`/`'cup'`. → Use the **`USING` cast + legacy-ID backfill** in the Task 7 entry below for BOTH tables.
-2. **`saved_analyses.food_analysis` JSONB carries an embedded numeric `unit_id`** that Drizzle cannot see (it's inside a `jsonb` column) and `0027` does not touch. → The render path coerces legacy numeric IDs via `coerceServingUnit`, so saved analyses will display correctly without a migration. A JSONB remap is **optional** (only needed if you want the stored values normalised to text for other consumers); if you skip it, no user-visible breakage occurs.
+1. ~~**`unit_id` integer→text has NO `USING` clause**~~ **RESOLVED (FOO-1117):** `0027` lines 17–18 now carry the full `ALTER COLUMN "unit_id" SET DATA TYPE text USING (CASE … END)` legacy-ID→`ServingUnit` backfill (147→'g', 226→'oz', 91→'cup', 349→'tbsp', 364→'tsp', 209→'ml', 311→'slice', 304→'serving', ELSE 'serving') for BOTH `custom_foods` and `food_log_entries`. The committed file is now correct for populated tables too — the value backfill no longer needs a separate manual override. A **startup boot guard** (`assertUnitIdConverted` in `src/db/migrate.ts`) FATAL-fails the boot if 0027 is journaled but either `unit_id` column is still `integer`, so a skipped/botched conversion can never run silently.
+2. ~~**`saved_analyses.food_analysis` JSONB carries an embedded numeric `unit_id`** that `0027` does not touch.~~ **RESOLVED (FOO-1118):** `0027` now includes a `jsonb_set` UPDATE that remaps `food_analysis.unit_id` for `saved_analyses` rows whose value is a JSON number (same legacy map), normalising the stored values to `ServingUnit` strings. Additionally, the read boundaries (`getSavedAnalysis`, `GET /api/shared-food/[token]`) defensively `coerceServingUnit` so any residual numeric/numeric-string value never reaches `find-matches`/`log-food` (which 400 on a non-`ServingUnit`). No manual override needed — the remap is in the committed file.
 3. **`0027` emits non-`CONCURRENT` `CREATE INDEX`** (lines 22–25). On live tables, substitute `CREATE INDEX CONCURRENTLY` to avoid long write locks.
 4. **`0027` does `DROP TABLE fitbit_tokens`/`fitbit_credentials`** — intended (tokens are cleared at release anyway; per-user credentials are obsolete). `health_tokens` is created empty, which is the desired end state (forces re-consent). No rename needed; the end state is an empty `health_tokens`.
 
@@ -45,7 +45,7 @@ The Google Health REST request/response shapes are now **confirmed against the v
 1. **Nutrition WRITE end-to-end (the core gate).** Temporarily set `HEALTH_DRY_RUN=false` on staging, connect Google Health, then log → edit → delete a food. Confirm the dataPoint is created with correct nutrients/time/meal-type (check via the Google Health app or a direct `GET .../dataTypes/nutrition-log/dataPoints`), and that `batchDelete` removes it. If a field is rejected, correct ONLY the isolated `buildNutritionLogBody`/parser helpers in `google-health.ts`. Re-enable `HEALTH_DRY_RUN=true` on staging afterward.
 2. **`getHealthActivitySummary` dailyRollUp range body** (`/api/v1/activity-summary`, optional/non-blocking — degrades to null). The `CivilTimeInterval` field names (`start`/`end` vs `startTime`/`endTime`, exclusive-end) and the `total-calories` data-type id are unconfirmed; validate live if/when the external activity API is needed. (Codex finding, deferred.)
 
-**🔴 POST-CUTOVER USER ACTION (or daily goals stay blocked):** both Lucas and Mariana must, after re-consenting, **set their biological sex** in Settings → Daily Goals (FOO-1116 — the v4 profile does not expose sex). Until set, `getOrComputeDailyGoals` returns `goals_not_set` and the home banner shows.
+**🔴 POST-CUTOVER USER ACTION (or daily goals stay blocked):** both Lucas and Mariana must, after re-consenting, **set their biological sex AND activity level** in Settings → Daily Goals (FOO-1116/FOO-1131 — the v4 profile does not expose sex; activity level is required by the macro engine). Until both are set, `getOrComputeDailyGoals` returns `goals_not_set`, the save button is disabled in the UI, and the home banner shows. Neither field has a default — each user must explicitly choose.
 
 ---
 
@@ -196,3 +196,17 @@ docker stop pg-integration
 
 ### Task 21 — Claude tool schema (FOO-1091)
 **No data migration.** The Claude tool-schema property `unit_id` → `serving_unit` (string enum) is an LLM-contract change only; the internal parsed field stays `unit_id` carrying a `ServingUnit` string. The legacy numeric→string `unit_id` DB backfill is already covered by the Task 7 deploy note.
+
+---
+
+## Post-review fixes (FOO-1129..1133, fix/google-health-migration-review-fixes)
+
+### FOO-1130 — HEALTH_DRY_RUN boot invariant
+**No SQL.** New `validateHealthDryRunEnv()` in `src/lib/env.ts` enforces at boot that:
+- Staging (APP_URL contains `food-test`): `HEALTH_DRY_RUN` must be `"true"`.
+- Production (APP_URL contains `food.lucaswall.me`): `HEALTH_DRY_RUN` must be `"true"` or `"false"` explicitly.
+- Unrecognized values (`"TRUE"`, `"1"`, etc.) abort the boot on every environment.
+
+**Deployment action required:**
+- **Staging** (`food-test.lucaswall.me`): Set `HEALTH_DRY_RUN=true` before deploying this change (already noted in the main runbook; now boot-enforced).
+- **Production** (`food.lucaswall.me`): Set `HEALTH_DRY_RUN=false` (or `HEALTH_DRY_RUN=true` for a pre-production test). The env var must be present — the server will not start without it.

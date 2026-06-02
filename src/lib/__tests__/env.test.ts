@@ -125,4 +125,97 @@ describe("env", () => {
       expect(isEmailAllowed("test@example.com")).toBe(true);
     });
   });
+
+  // ── FOO-1130: HEALTH_DRY_RUN boot invariant ──────────────────────────────────
+
+  describe("validateHealthDryRunEnv", () => {
+    // STAGING — must be "true" (never write live on staging)
+    it("staging APP_URL + HEALTH_DRY_RUN unset → throws (FOO-1130)", async () => {
+      process.env.APP_URL = "https://food-test.lucaswall.me";
+      delete process.env.HEALTH_DRY_RUN;
+      const { validateHealthDryRunEnv } = await import("@/lib/env");
+      expect(() => validateHealthDryRunEnv()).toThrow(/HEALTH_DRY_RUN/);
+    });
+
+    it("staging APP_URL + HEALTH_DRY_RUN='FALSE' (typo) → throws (FOO-1130)", async () => {
+      process.env.APP_URL = "https://food-test.lucaswall.me";
+      process.env.HEALTH_DRY_RUN = "FALSE";
+      const { validateHealthDryRunEnv } = await import("@/lib/env");
+      expect(() => validateHealthDryRunEnv()).toThrow(/HEALTH_DRY_RUN/);
+    });
+
+    it("staging APP_URL + HEALTH_DRY_RUN='false' → throws (staging must be dry-run) (FOO-1130)", async () => {
+      process.env.APP_URL = "https://food-test.lucaswall.me";
+      process.env.HEALTH_DRY_RUN = "false";
+      const { validateHealthDryRunEnv } = await import("@/lib/env");
+      expect(() => validateHealthDryRunEnv()).toThrow(/HEALTH_DRY_RUN/);
+    });
+
+    it("staging APP_URL + HEALTH_DRY_RUN='true' → passes (FOO-1130)", async () => {
+      process.env.APP_URL = "https://food-test.lucaswall.me";
+      process.env.HEALTH_DRY_RUN = "true";
+      const { validateHealthDryRunEnv } = await import("@/lib/env");
+      expect(() => validateHealthDryRunEnv()).not.toThrow();
+    });
+
+    // PRODUCTION — must be explicit "true" or "false"
+    it("production APP_URL + HEALTH_DRY_RUN unset → throws (FOO-1130)", async () => {
+      process.env.APP_URL = "https://food.lucaswall.me";
+      delete process.env.HEALTH_DRY_RUN;
+      const { validateHealthDryRunEnv } = await import("@/lib/env");
+      expect(() => validateHealthDryRunEnv()).toThrow(/HEALTH_DRY_RUN/);
+    });
+
+    it("production APP_URL + HEALTH_DRY_RUN='false' → passes (explicit live mode) (FOO-1130)", async () => {
+      process.env.APP_URL = "https://food.lucaswall.me";
+      process.env.HEALTH_DRY_RUN = "false";
+      const { validateHealthDryRunEnv } = await import("@/lib/env");
+      expect(() => validateHealthDryRunEnv()).not.toThrow();
+    });
+
+    it("production APP_URL + HEALTH_DRY_RUN='true' → passes (explicit dry-run on prod allowed) (FOO-1130)", async () => {
+      process.env.APP_URL = "https://food.lucaswall.me";
+      process.env.HEALTH_DRY_RUN = "true";
+      const { validateHealthDryRunEnv } = await import("@/lib/env");
+      expect(() => validateHealthDryRunEnv()).not.toThrow();
+    });
+
+    // UNRECOGNIZED VALUES — reject on any environment
+    it("HEALTH_DRY_RUN='TRUE' (typo, any env) → throws unrecognized value (FOO-1130)", async () => {
+      process.env.APP_URL = "http://localhost:3000";
+      process.env.HEALTH_DRY_RUN = "TRUE";
+      const { validateHealthDryRunEnv } = await import("@/lib/env");
+      expect(() => validateHealthDryRunEnv()).toThrow(/unrecognized/i);
+    });
+
+    it("HEALTH_DRY_RUN='1' (typo, any env) → throws unrecognized value (FOO-1130)", async () => {
+      process.env.APP_URL = "http://localhost:3000";
+      process.env.HEALTH_DRY_RUN = "1";
+      const { validateHealthDryRunEnv } = await import("@/lib/env");
+      expect(() => validateHealthDryRunEnv()).toThrow(/unrecognized/i);
+    });
+
+    // LOCAL / DEV — no staging/production constraint
+    it("local APP_URL + HEALTH_DRY_RUN unset → passes (FOO-1130)", async () => {
+      process.env.APP_URL = "http://localhost:3000";
+      delete process.env.HEALTH_DRY_RUN;
+      const { validateHealthDryRunEnv } = await import("@/lib/env");
+      expect(() => validateHealthDryRunEnv()).not.toThrow();
+    });
+
+    it("local APP_URL + HEALTH_DRY_RUN='true' → passes (FOO-1130)", async () => {
+      process.env.APP_URL = "http://localhost:3000";
+      process.env.HEALTH_DRY_RUN = "true";
+      const { validateHealthDryRunEnv } = await import("@/lib/env");
+      expect(() => validateHealthDryRunEnv()).not.toThrow();
+    });
+
+    // MISSING APP_URL — fail fast instead of silently skipping the staging/production checks
+    it("unset APP_URL → throws (must not silently bypass the dry-run guard) (FOO-1130)", async () => {
+      delete process.env.APP_URL;
+      delete process.env.HEALTH_DRY_RUN;
+      const { validateHealthDryRunEnv } = await import("@/lib/env");
+      expect(() => validateHealthDryRunEnv()).toThrow(/APP_URL/);
+    });
+  });
 });

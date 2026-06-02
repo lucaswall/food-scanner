@@ -380,6 +380,19 @@ describe("getOrComputeDailyGoals — fresh compute path", () => {
       expect(result.audit!.goalRateKgPerWeek).toBe(0.3);
     }
   });
+
+  it("computes goals with a fallback height when the profile has no height (no block)", async () => {
+    const customSettings = { activityLevel: "light", goalWeightKg: "75", goalRateKgPerWeek: "0.3" };
+    mockSelectOnce([customSettings]);
+    mockSelectOnce([]);
+    // null height (user has no Google Health height dataPoint) → fallback, not a block
+    mockGetCachedHealthProfile.mockResolvedValueOnce({ sex: "MALE", ageYears: 30, heightCm: null });
+    mockGetCachedHealthWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
+    mockUpsertOnce([customSettings]);
+
+    const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
+    expect(result.status).toBe("ok");
+  });
 });
 
 describe("getOrComputeDailyGoals — blocked reasons", () => {

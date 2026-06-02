@@ -115,6 +115,43 @@ describe("HealthProfileCard", () => {
     );
   });
 
+  it("shows distinct timeout message when SWR errors with TimeoutError", async () => {
+    const timeoutError = new DOMException("Timeout", "TimeoutError");
+    mockUseSWRImplementation.mockImplementation((key: string) => {
+      if (key === "/api/health-profile") {
+        return { data: null, error: timeoutError, isLoading: false, mutate: mockMutate };
+      }
+      return { data: null, error: null, isLoading: false };
+    });
+
+    const { HealthProfileCard } = await import("@/components/health-profile-card");
+    render(<HealthProfileCard />);
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toMatch(/timed? ?out/i);
+  });
+
+  it("renders height unavailable state accessibly when heightCm is null", async () => {
+    const noHeightData: HealthProfileData = {
+      ...mockProfileData,
+      heightCm: null,
+    };
+    mockUseSWRImplementation.mockImplementation((key: string) => {
+      if (key === "/api/health-profile") {
+        return { data: noHeightData, error: null, isLoading: false, mutate: mockMutate };
+      }
+      return { data: null, error: null, isLoading: false };
+    });
+
+    const { HealthProfileCard } = await import("@/components/health-profile-card");
+    render(<HealthProfileCard />);
+    // Should show a meaningful "unavailable" state, not crash or show blank
+    expect(screen.getByRole("heading", { name: /google health profile/i })).toBeInTheDocument();
+    const heightRow = screen.getByText(/height/i);
+    expect(heightRow).toBeInTheDocument();
+    // The height value cell should indicate unavailability
+    expect(screen.getByText(/unavailable|not set/i)).toBeInTheDocument();
+  });
+
   it("calls refresh fetch with AbortSignal timeout", async () => {
     mockUseSWRImplementation.mockImplementation((key: string) => {
       if (key === "/api/health-profile") {

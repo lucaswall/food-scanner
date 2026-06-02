@@ -50,7 +50,7 @@ describe("GET /api/search-foods", () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
       userId: "user-uuid-123",
-      fitbitConnected: true,
+      healthConnected: true,
     });
 
     mockSearchFoods.mockResolvedValue([
@@ -83,7 +83,7 @@ describe("GET /api/search-foods", () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
       userId: "user-uuid-123",
-      fitbitConnected: true,
+      healthConnected: true,
     });
 
     mockSearchFoods.mockResolvedValue([]);
@@ -97,7 +97,7 @@ describe("GET /api/search-foods", () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
       userId: "user-uuid-123",
-      fitbitConnected: true,
+      healthConnected: true,
     });
 
     const response = await GET(makeRequest());
@@ -112,7 +112,7 @@ describe("GET /api/search-foods", () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
       userId: "user-uuid-123",
-      fitbitConnected: true,
+      healthConnected: true,
     });
 
     const response = await GET(makeRequest({ q: "a" }));
@@ -126,7 +126,7 @@ describe("GET /api/search-foods", () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
       userId: "user-uuid-123",
-      fitbitConnected: true,
+      healthConnected: true,
     });
 
     const response = await GET(makeRequest({ q: "   " }));
@@ -156,7 +156,7 @@ describe("GET /api/search-foods", () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
       userId: "user-uuid-123",
-      fitbitConnected: true,
+      healthConnected: true,
     });
 
     mockSearchFoods.mockResolvedValue([]);
@@ -169,7 +169,7 @@ describe("GET /api/search-foods", () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
       userId: "user-uuid-123",
-      fitbitConnected: true,
+      healthConnected: true,
     });
 
     mockSearchFoods.mockRejectedValue(new Error("DB error"));

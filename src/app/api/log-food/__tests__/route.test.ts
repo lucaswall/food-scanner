@@ -22,6 +22,12 @@ vi.mock("@/lib/session", () => ({
         { status: 400 },
       );
     }
+    if (options?.requireHealth && session.healthScopeComplete === false) {
+      return Response.json(
+        { success: false, error: { code: "HEALTH_SCOPE_MISSING", message: "Google Health connection is missing required scopes" }, timestamp: Date.now() },
+        { status: 403 },
+      );
+    }
     return null;
   },
 }));
@@ -131,6 +137,26 @@ describe("POST /api/log-food", () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error.code).toBe("HEALTH_NOT_CONNECTED");
+  });
+
+  it("returns 403 HEALTH_SCOPE_MISSING when connected but scopes incomplete (FOO-1126 gate)", async () => {
+    // The session-level write gate must reject a partial-scope grant before any Health
+    // API call — not deep inside ensureFreshToken/createNutritionLog.
+    mockGetSession.mockResolvedValue({
+      ...validSession,
+      healthConnected: true,
+      healthScopeComplete: false,
+    });
+
+    const request = createMockRequest(validFoodLogRequest);
+    const response = await POST(request);
+
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_SCOPE_MISSING");
+    // Gate fires before any Google Health call.
+    expect(mockEnsureFreshToken).not.toHaveBeenCalled();
+    expect(mockCreateNutritionLog).not.toHaveBeenCalled();
   });
 
   it("returns 400 VALIDATION_ERROR for invalid mealTypeId", async () => {
@@ -783,6 +809,25 @@ describe("POST /api/log-food", () => {
       expect(body.data.success).toBe(true);
       expect(body.data.dryRun).toBe(true);
       expect(body.data.healthLogId).toBeUndefined();
+    });
+
+    it("logs two foods for the same user in dry-run with health_log_id null each time (no unique-index collision)", async () => {
+      vi.stubEnv("HEALTH_DRY_RUN", "true");
+      mockGetSession.mockResolvedValue(validSession);
+      mockInsertCustomFoodWithLogEntry
+        .mockResolvedValueOnce({ customFoodId: 1, foodLogId: 1 })
+        .mockResolvedValueOnce({ customFoodId: 2, foodLogId: 2 });
+
+      const first = await POST(createMockRequest(validFoodLogRequest));
+      const second = await POST(createMockRequest(validFoodLogRequest));
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      // both persisted health_log_id = null — never the "dry-run" sentinel that the
+      // partial unique index (user_id, health_log_id) would reject on the 2nd insert
+      for (const call of mockInsertCustomFoodWithLogEntry.mock.calls) {
+        expect(call[2]).toEqual(expect.objectContaining({ healthLogId: null }));
+      }
     });
 
     it("still calls insertCustomFoodWithLogEntry in new food flow with healthLogId: null", async () => {

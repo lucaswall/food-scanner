@@ -11,6 +11,8 @@ describe("mapHealthError", () => {
     expect(mapHealthError(new Error("HEALTH_REFRESH_TRANSIENT")).status).toBe(502);
     expect(mapHealthError(new Error("HEALTH_TOKEN_SAVE_FAILED")).status).toBe(500);
     expect(mapHealthError(new Error("HEALTH_API_ERROR")).status).toBe(502);
+    // 4xx upstream → HEALTH_BAD_REQUEST → 400 (not a transient 502)
+    expect(mapHealthError(new Error("HEALTH_BAD_REQUEST")).status).toBe(400);
   });
 
   it("falls back to 500 for unknown / non-Error values", () => {
@@ -39,6 +41,8 @@ describe("isExpectedHealthError", () => {
   it("returns false for genuine faults and unknown values (logged at error)", () => {
     expect(isExpectedHealthError(new Error("HEALTH_API_ERROR"))).toBe(false);
     expect(isExpectedHealthError(new Error("HEALTH_TOKEN_SAVE_FAILED"))).toBe(false);
+    // HEALTH_BAD_REQUEST is a genuine fault (we sent a bad request) — log at error
+    expect(isExpectedHealthError(new Error("HEALTH_BAD_REQUEST"))).toBe(false);
     expect(isExpectedHealthError(new Error("something unexpected"))).toBe(false);
     expect(isExpectedHealthError(undefined)).toBe(false);
   });

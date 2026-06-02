@@ -22,6 +22,12 @@ vi.mock("@/lib/session", () => ({
         { status: 400 },
       );
     }
+    if (options?.requireHealth && session.healthScopeComplete === false) {
+      return Response.json(
+        { success: false, error: { code: "HEALTH_SCOPE_MISSING", message: "Google Health connection is missing required scopes" }, timestamp: Date.now() },
+        { status: 403 },
+      );
+    }
     return null;
   },
 }));
@@ -115,6 +121,17 @@ describe("DELETE /api/food-history/[id]", () => {
     expect(body.error.code).toBe("HEALTH_NOT_CONNECTED");
   });
 
+  it("returns 403 HEALTH_SCOPE_MISSING when connected but scopes incomplete (FOO-1126 gate)", async () => {
+    // The DELETE write gate must reject a partial-scope grant before any Health API call.
+    mockGetSession.mockResolvedValue({ ...validSession, healthConnected: true, healthScopeComplete: false });
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_SCOPE_MISSING");
+    expect(mockEnsureFreshToken).not.toHaveBeenCalled();
+    expect(mockDeleteNutritionLogs).not.toHaveBeenCalled();
+  });
+
   it("returns 400 for invalid id", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "not-a-number" }) });
@@ -148,6 +165,7 @@ describe("DELETE /api/food-history/[id]", () => {
       ["health-log-id-789"],
       expect.any(Object),
       "user-uuid-123",
+      "user",
     );
     expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.any(Object));
 
@@ -203,6 +221,22 @@ describe("DELETE /api/food-history/[id]", () => {
     expect(response.status).toBe(502);
     const body = await response.json();
     expect(body.error.code).toBe("HEALTH_API_ERROR");
+  });
+
+  it("still deletes the local row (200) when Health reports the entry already gone (HEALTH_LOG_NOT_FOUND drift)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockDeleteNutritionLogs.mockRejectedValue(new Error("HEALTH_LOG_NOT_FOUND"));
+    mockDeleteFoodLogEntry.mockResolvedValue(undefined);
+
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
+
+    // drift is surfaced in logs, but the user is not stranded — local row is removed
+    expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.any(Object));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.deleted).toBe(true);
   });
 
   it("returns 503 HEALTH_RATE_LIMIT_LOW on rate limit", async () => {

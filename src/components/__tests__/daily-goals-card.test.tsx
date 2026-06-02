@@ -410,4 +410,153 @@ describe("DailyGoalsCard", () => {
       }
     });
   });
+
+  // FOO-1131: Save must be disabled when required fields are missing
+  describe("Required fields guard (FOO-1131)", () => {
+    it("disables Save when sex is null", () => {
+      mockUseSWR.mockImplementation((key: string) => {
+        if (key === "/api/daily-goals-settings") {
+          return {
+            data: { ...sampleSettings, sex: null },
+            error: null,
+            isLoading: false,
+            mutate: vi.fn(),
+          };
+        }
+        return { data: sampleProfile, error: null, isLoading: false, mutate: vi.fn() };
+      });
+
+      render(<DailyGoalsCard />);
+
+      const saveButton = screen.getByRole("button", { name: /^save$/i });
+      expect(saveButton).toBeDisabled();
+    });
+
+    it("disables Save when activityLevel is null", () => {
+      mockUseSWR.mockImplementation((key: string) => {
+        if (key === "/api/daily-goals-settings") {
+          return {
+            data: { ...sampleSettings, activityLevel: null },
+            error: null,
+            isLoading: false,
+            mutate: vi.fn(),
+          };
+        }
+        return { data: sampleProfile, error: null, isLoading: false, mutate: vi.fn() };
+      });
+
+      render(<DailyGoalsCard />);
+
+      const saveButton = screen.getByRole("button", { name: /^save$/i });
+      expect(saveButton).toBeDisabled();
+    });
+
+    it("shows accessible validation message when sex and activityLevel are both null", () => {
+      mockUseSWR.mockImplementation((key: string) => {
+        if (key === "/api/daily-goals-settings") {
+          return {
+            data: { activityLevel: null, goalWeightKg: null, goalRateKgPerWeek: null, sex: null, weightGoalType: null },
+            error: null,
+            isLoading: false,
+            mutate: vi.fn(),
+          };
+        }
+        return { data: sampleProfile, error: null, isLoading: false, mutate: vi.fn() };
+      });
+
+      render(<DailyGoalsCard />);
+
+      // Should show an accessible message about required fields
+      const message = screen.getByRole("alert");
+      expect(message.textContent).toMatch(/sex.*activity|activity.*sex|required/i);
+    });
+
+    it("enables Save when both sex and activityLevel are set", () => {
+      // Default mockUseSWR already has both set (sampleSettings has sex and activityLevel)
+      render(<DailyGoalsCard />);
+
+      const saveButton = screen.getByRole("button", { name: /^save$/i });
+      expect(saveButton).not.toBeDisabled();
+    });
+  });
+
+  // FOO-1132 / FOO-1141: a health-profile read failure must NOT blank the card.
+  // The goal inputs are local settings (independent of the Google Health profile);
+  // only the live target preview depends on the profile. So on profileError we
+  // render the full card and degrade ONLY the preview (non-blocking notice).
+  describe("Health profile error is non-blocking (FOO-1132 / FOO-1141)", () => {
+    function mockProfileError(error: unknown) {
+      mockUseSWR.mockImplementation((key: string) => {
+        if (key === "/api/daily-goals-settings") {
+          return { data: sampleSettings, error: null, isLoading: false, mutate: vi.fn() };
+        }
+        if (key === "/api/health-profile") {
+          return { data: undefined, error, isLoading: false, mutate: vi.fn() };
+        }
+        return { data: null, error: null, isLoading: true, mutate: vi.fn() };
+      });
+    }
+
+    it("renders all goal inputs and Save when the health-profile SWR errors", () => {
+      mockProfileError(new Error("fetch failed"));
+
+      render(<DailyGoalsCard />);
+
+      // The card is NOT replaced by a full-card error — inputs remain reachable.
+      expect(screen.getByRole("radio", { name: /^male$/i })).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: /^female$/i })).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: /sedentary/i })).toBeInTheDocument();
+      expect(screen.getByLabelText(/goal weight/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/goal rate/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^save$/i })).toBeInTheDocument();
+    });
+
+    it("shows a non-blocking preview-unavailable notice and hides the live preview", () => {
+      mockProfileError(new Error("fetch failed"));
+
+      render(<DailyGoalsCard />);
+
+      expect(screen.getByText(/preview unavailable/i)).toBeInTheDocument();
+      // The live target preview is suppressed because the profile is unavailable.
+      expect(screen.queryByText(/estimated daily target/i)).toBeNull();
+    });
+
+    it("keeps Save enabled when the profile errors but required fields are set", () => {
+      mockProfileError(new Error("fetch failed"));
+
+      render(<DailyGoalsCard />);
+
+      expect(screen.getByRole("button", { name: /^save$/i })).not.toBeDisabled();
+    });
+
+    it("stays non-blocking for a TimeoutError too", () => {
+      mockProfileError(new DOMException("Timeout", "TimeoutError"));
+
+      render(<DailyGoalsCard />);
+
+      expect(screen.getByText(/preview unavailable/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^save$/i })).toBeInTheDocument();
+    });
+  });
+
+  // settingsError genuinely gates the inputs (the local settings fetch failed),
+  // so it MUST still hard-error the whole card (unchanged by FOO-1141).
+  describe("Settings load error is blocking", () => {
+    it("replaces the card with an error + Retry when the settings SWR errors", () => {
+      mockUseSWR.mockImplementation((key: string) => {
+        if (key === "/api/daily-goals-settings") {
+          return { data: undefined, error: new Error("fetch failed"), isLoading: false, mutate: vi.fn() };
+        }
+        return { data: sampleProfile, error: null, isLoading: false, mutate: vi.fn() };
+      });
+
+      render(<DailyGoalsCard />);
+
+      const alert = screen.getByRole("alert");
+      expect(alert.textContent).toMatch(/could not load daily goal settings/i);
+      expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+      // Inputs are NOT rendered — the local settings failed to load.
+      expect(screen.queryByRole("radio", { name: /^male$/i })).toBeNull();
+    });
+  });
 });

@@ -16,7 +16,13 @@ export interface FullSession {
   sessionId: string;
   userId: string;
   expiresAt: number;
+  /** True when a health token row exists (connected, even if scopes are incomplete) */
   healthConnected: boolean;
+  /**
+   * True when the health connection is fully healthy (all GOOGLE_HEALTH_SCOPES granted).
+   * Undefined when not computed (e.g. in test mocks). Treat undefined as passing.
+   */
+  healthScopeComplete?: boolean;
   /** Call to destroy both cookie and DB session */
   destroy: () => Promise<void>;
 }
@@ -184,6 +190,7 @@ export type ErrorCode =
   | "HEALTH_REFRESH_TRANSIENT"
   | "HEALTH_TOKEN_SAVE_FAILED"
   | "HEALTH_API_ERROR"
+  | "HEALTH_BAD_REQUEST"
   | "NOT_FOUND"
   | "PARTIAL_ERROR"
   | "CLAUDE_API_ERROR"
@@ -591,7 +598,8 @@ export interface SavedAnalysisDetail extends SavedAnalysisListItem {
 export interface HealthProfileData {
   ageYears: number;
   sex: "MALE" | "FEMALE" | "NA";
-  heightCm: number;
+  /** null when the user has no height dataPoint in Google Health (height is its own data type). */
+  heightCm: number | null;
   weightKg: number | null;
   weightLoggedDate: string | null;
   goalType: "LOSE" | "MAINTAIN" | "GAIN" | null;
@@ -601,7 +609,8 @@ export interface HealthProfileData {
 export interface HealthProfile {
   ageYears: number;
   sex: "MALE" | "FEMALE" | "NA";
-  heightCm: number;
+  /** null when the user has no height dataPoint — the goals layer applies a fallback. */
+  heightCm: number | null;
 }
 
 export interface HealthWeightLog {
@@ -663,6 +672,8 @@ export interface NutritionGoals {
     | "scope_mismatch"
     | "invalid_profile"
     | "goals_not_set";
+  /** Actionable hint for the UI when status is "blocked" — e.g. directs the user to settings. */
+  hint?: string;
   audit?: NutritionGoalsAudit;
   /** True when the health weight log used was logged > 7 days before the target date (FOO-1010). */
   weightStale?: boolean;

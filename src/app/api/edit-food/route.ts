@@ -38,7 +38,7 @@ export function isNutritionUnchanged(analysis: FoodAnalysis, entry: FoodLogEntry
 }
 
 /** Build a FoodAnalysis from an existing entry's stored nutrients (for compensation/fast-path recreate). */
-function buildAnalysisFromEntry(entry: FoodLogEntryDetail): FoodAnalysis {
+export function buildAnalysisFromEntry(entry: FoodLogEntryDetail): FoodAnalysis {
   return {
     food_name: entry.foodName,
     amount: entry.amount,
@@ -163,14 +163,24 @@ export async function POST(request: Request) {
         return mapHealthError(tokenErr);
       }
 
-      // Delete old health log if exists
+      // Delete old health log if exists (user-initiated: 404 → HEALTH_LOG_NOT_FOUND, not silent)
       if (entry.healthLogId) {
         try {
-          await deleteNutritionLogs(accessToken, [entry.healthLogId], log, userId);
+          await deleteNutritionLogs(accessToken, [entry.healthLogId], log, userId, "user");
         } catch (deleteErr) {
           const errMsg = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
-          log.error({ action: "edit_food_fast_path_delete_failed", error: errMsg }, "failed to delete old health log");
-          return mapHealthError(deleteErr);
+          if (errMsg === "HEALTH_LOG_NOT_FOUND") {
+            // Data drift: the old Google Health entry is already gone. The delete's goal is
+            // achieved, so proceed with the re-create rather than failing the edit with a
+            // misleading 500 (mirrors food-history's drift handling — never strand the user).
+            log.error(
+              { action: "edit_food_fast_path_delete_drift", entryId, healthLogId: entry.healthLogId },
+              "CRITICAL: old Google Health entry already gone (data drift) — proceeding with re-create",
+            );
+          } else {
+            log.error({ action: "edit_food_fast_path_delete_failed", error: errMsg }, "failed to delete old health log");
+            return mapHealthError(deleteErr);
+          }
         }
       }
 
@@ -205,9 +215,14 @@ export async function POST(request: Request) {
             log.info({ action: "edit_food_fast_path_compensation_success" }, "fast path compensation succeeded");
           } catch (compensationErr) {
             log.error(
-              { action: "edit_food_fast_path_compensation_failed", error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr) },
-              "CRITICAL: fast path compensation failed after health log deleted"
+              {
+                action: "edit_food_fast_path_compensation_failed",
+                oldHealthLogId: entry.healthLogId,
+                error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr),
+              },
+              "CRITICAL: fast path compensation failed after health log deleted — original could not be restored"
             );
+            return errorResponse("PARTIAL_ERROR", "Health entry deleted but original could not be restored. Manual recovery needed.", 500);
           }
         }
 
@@ -253,7 +268,7 @@ export async function POST(request: Request) {
       if (!isDryRun && fastPathHealthLogId !== null && fastPathHealthLogId !== entry.healthLogId) {
         try {
           const freshToken = await ensureFreshToken(userId, log);
-          await deleteNutritionLogs(freshToken, [fastPathHealthLogId!], log, userId);
+          await deleteNutritionLogs(freshToken, [fastPathHealthLogId!], log, userId, "cleanup");
           const compensationResult = await createNutritionLog(freshToken, buildAnalysisFromEntry(entry), entryTiming, log, userId);
           const compensationHealthLogId = compensationResult.healthLogId;
           try {
@@ -273,9 +288,15 @@ export async function POST(request: Request) {
           log.info({ action: "edit_food_fast_path_db_compensation_success" }, "fast path DB compensation succeeded");
         } catch (compensationErr) {
           log.error(
-            { action: "edit_food_fast_path_db_compensation_failed", error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr) },
-            "CRITICAL: fast path health log compensation failed after DB error"
+            {
+              action: "edit_food_fast_path_db_compensation_failed",
+              healthLogId: fastPathHealthLogId,
+              oldHealthLogId: entry.healthLogId,
+              error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr),
+            },
+            "CRITICAL: fast path health log compensation failed after DB error — orphaned health log may exist"
           );
+          return errorResponse("PARTIAL_ERROR", "Food updated in Google Health but local save failed. Manual cleanup may be needed.", 500);
         }
       }
 
@@ -296,15 +317,25 @@ export async function POST(request: Request) {
       return mapHealthError(tokenErr);
     }
 
-    // Delete old health log if exists
+    // Delete old health log if exists (user-initiated: 404 → HEALTH_LOG_NOT_FOUND, not silent)
     if (entry.healthLogId) {
       try {
-        await deleteNutritionLogs(accessToken, [entry.healthLogId], log, userId);
+        await deleteNutritionLogs(accessToken, [entry.healthLogId], log, userId, "user");
         log.info({ action: "edit_food_old_health_deleted", healthLogId: entry.healthLogId }, "old health log deleted");
       } catch (deleteErr) {
         const errMsg = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
-        log.error({ action: "edit_food_delete_failed", error: errMsg }, "failed to delete old health log");
-        return mapHealthError(deleteErr);
+        if (errMsg === "HEALTH_LOG_NOT_FOUND") {
+          // Data drift: the old Google Health entry is already gone. Proceed with creating the
+          // new log instead of failing the edit with a misleading 500 (mirrors food-history's
+          // drift handling — never strand the user with an uneditable entry).
+          log.error(
+            { action: "edit_food_delete_drift", entryId, healthLogId: entry.healthLogId },
+            "CRITICAL: old Google Health entry already gone (data drift) — proceeding with create",
+          );
+        } else {
+          log.error({ action: "edit_food_delete_failed", error: errMsg }, "failed to delete old health log");
+          return mapHealthError(deleteErr);
+        }
       }
     }
 
@@ -317,7 +348,7 @@ export async function POST(request: Request) {
         log,
         userId,
       );
-      newHealthLogId = createResult.healthLogId;
+      newHealthLogId = createResult.healthLogId ?? undefined;
     } catch (logErr) {
       const errMsg = logErr instanceof Error ? logErr.message : String(logErr);
       log.error({ action: "edit_food_relog_failed", error: errMsg }, "failed to create new health log, attempting compensation");
@@ -345,9 +376,14 @@ export async function POST(request: Request) {
           log.info({ action: "edit_food_compensation_success" }, "original health log restored");
         } catch (compensationErr) {
           log.error(
-            { action: "edit_food_compensation_failed", error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr) },
-            "CRITICAL: compensation failed after health log deleted"
+            {
+              action: "edit_food_compensation_failed",
+              oldHealthLogId: entry.healthLogId,
+              error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr),
+            },
+            "CRITICAL: compensation failed after health log deleted — original could not be restored"
           );
+          return errorResponse("PARTIAL_ERROR", "Health entry deleted but original could not be restored. Manual recovery needed.", 500);
         }
       }
 
@@ -410,7 +446,7 @@ export async function POST(request: Request) {
     if (newHealthLogId !== undefined && !isDryRun) {
       try {
         const freshToken = await ensureFreshToken(userId, log);
-        await deleteNutritionLogs(freshToken, [newHealthLogId], log, userId);
+        await deleteNutritionLogs(freshToken, [newHealthLogId], log, userId, "cleanup");
         // Re-create the original health log from the entry's stored nutrients
         const compensationResult = await createNutritionLog(freshToken, buildAnalysisFromEntry(entry), entryTiming, log, userId);
         const compensationHealthLogId = compensationResult.healthLogId;

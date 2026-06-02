@@ -135,9 +135,13 @@ export async function getCachedHealthActivitySummary(
   targetDate: string,
   log?: Logger,
   criticality: HealthCallCriticality = "optional",
+  zoneOffset?: string | null,
 ): Promise<ActivitySummary> {
   const l = log ?? logger;
-  const key = `${userId}:${targetDate}`;
+  // zoneOffset selects which civil-day window the rollup covers, so it must be
+  // part of the cache key — otherwise a UTC-keyed value would be served for a
+  // zoned request (and vice versa) near date boundaries.
+  const key = `${userId}:${targetDate}:${zoneOffset ?? ""}`;
 
   const cached = activityCache.get(key);
   if (cached && cached.expiresAt > Date.now()) {
@@ -154,7 +158,7 @@ export async function getCachedHealthActivitySummary(
   promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
-      const activity = await getHealthActivitySummary(accessToken, targetDate, l, userId, criticality);
+      const activity = await getHealthActivitySummary(accessToken, targetDate, l, userId, criticality, zoneOffset);
       if (getUserGeneration(userId) === generationAtStart) {
         activityCache.set(key, { value: activity, expiresAt: Date.now() + TTL_5MIN });
       }

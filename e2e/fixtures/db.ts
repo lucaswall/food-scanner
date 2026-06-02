@@ -11,6 +11,7 @@ import {
 } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { encryptToken } from '@/lib/token-encryption';
+import { GOOGLE_HEALTH_SCOPES } from '@/lib/auth';
 
 /**
  * Tables in reverse-dependency order for safe truncation.
@@ -174,7 +175,9 @@ export async function seedTestData() {
     accessToken: encryptToken('TEST_ACCESS_TOKEN'),
     refreshToken: encryptToken('TEST_REFRESH_TOKEN'),
     expiresAt: oneYearFromNow,
-    scope: 'https://www.googleapis.com/auth/fitness.nutrition.write',
+    // Full Google Health scope set so checkHealthConnection reports `healthy`
+    // and the write-route scope gate (FOO-1126) admits the goals-UI reads.
+    scope: GOOGLE_HEALTH_SCOPES.join(' '),
   });
 
   // Seed Claude usage data for settings page display

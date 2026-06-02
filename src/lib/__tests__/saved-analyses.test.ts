@@ -188,6 +188,38 @@ describe("getSavedAnalysis", () => {
     expect(result?.foodAnalysis).toEqual(mockFoodAnalysis);
   });
 
+  it("coerces a legacy numeric unit_id in the stored JSONB to a ServingUnit string", async () => {
+    const row = {
+      id: 7,
+      description: "Legacy Food",
+      calories: 100,
+      createdAt: new Date("2026-04-08T10:00:00Z"),
+      foodAnalysis: { ...mockFoodAnalysis, unit_id: 147 },
+    };
+    mockWhere.mockResolvedValue([row]);
+
+    const result = await getSavedAnalysis("user-uuid-123", 7);
+
+    // 147 is the legacy Fitbit id for grams — read boundary must surface "g",
+    // not the raw number, or find-matches/log-food 400 on the saved analysis.
+    expect(result?.foodAnalysis.unit_id).toBe("g");
+  });
+
+  it("coerces a numeric-string unit_id in the stored JSONB", async () => {
+    const row = {
+      id: 8,
+      description: "Legacy Food 2",
+      calories: 120,
+      createdAt: new Date("2026-04-08T11:00:00Z"),
+      foodAnalysis: { ...mockFoodAnalysis, unit_id: "91" },
+    };
+    mockWhere.mockResolvedValue([row]);
+
+    const result = await getSavedAnalysis("user-uuid-123", 8);
+
+    expect(result?.foodAnalysis.unit_id).toBe("cup");
+  });
+
   it("returns null when id does not exist", async () => {
     mockWhere.mockResolvedValue([]);
 

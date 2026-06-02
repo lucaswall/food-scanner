@@ -3,8 +3,12 @@ import { config } from 'dotenv';
 import { STORAGE_STATE_PATH } from './fixtures/auth';
 import { truncateAllTables, seedTestData } from './fixtures/db';
 
-// Ensure .env.test values are loaded (override any .env.local values)
-config({ path: '.env.test', override: true });
+// Ensure .env.test values are loaded. Locally, override any .env.local values.
+// In CI, do NOT override: the workflow supplies DATABASE_URL pointing at the
+// Postgres service host (not localhost), and .env.test only fills gaps. Must match
+// the same conditional in playwright.config.ts so the seed/teardown DB connection
+// uses the right host.
+config({ path: '.env.test', override: !process.env.CI });
 
 /**
  * Global setup for Playwright E2E tests.

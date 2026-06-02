@@ -40,9 +40,10 @@ export async function GET(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Invalid OAuth state", 400);
   }
 
-  // Parse flow and returnTo from JSON state if present
+  // Parse flow, returnTo, and userId from JSON state if present
   let flow: string | null = null;
   let returnTo: string | null = null;
+  let stateUserId: string | null = null;
   try {
     const parsed = JSON.parse(state) as Record<string, unknown>;
     if (typeof parsed.flow === "string") {
@@ -51,8 +52,11 @@ export async function GET(request: Request) {
     if (typeof parsed.returnTo === "string" && parsed.returnTo.startsWith("/") && !parsed.returnTo.startsWith("//")) {
       returnTo = parsed.returnTo;
     }
+    if (typeof parsed.userId === "string") {
+      stateUserId = parsed.userId;
+    }
   } catch {
-    // Plain string state — no flow or returnTo
+    // Plain string state — no flow, returnTo, or userId
   }
 
   // Consume OAuth state immediately after validation
@@ -74,6 +78,16 @@ export async function GET(request: Request) {
     if (!dbSession) {
       log.warn({ action: "health_connect_invalid_session" }, "health connect session not found in DB");
       return errorResponse("AUTH_MISSING_SESSION", "No active session", 401);
+    }
+
+    // Verify the user who initiated health-connect is the same as the current session user.
+    // Prevents shared-device token misbinding: state includes userId set at initiation time.
+    if (stateUserId !== null && dbSession.userId !== stateUserId) {
+      log.warn(
+        { action: "health_connect_user_mismatch" },
+        "oauth state userId does not match current session userId",
+      );
+      return errorResponse("VALIDATION_ERROR", "Session user mismatch", 400);
     }
 
     let healthTokens: { access_token: string; refresh_token: string; expires_in?: number; scope?: string };

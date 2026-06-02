@@ -8,6 +8,8 @@ import type { ReactNode } from "react";
 
 interface SessionResponse {
   healthConnected: boolean;
+  // Omitted by older clients/sessions → treated as complete (back-compat).
+  healthScopeComplete?: boolean;
 }
 
 interface HealthConnectGuardProps {
@@ -15,7 +17,7 @@ interface HealthConnectGuardProps {
 }
 
 export function HealthConnectGuard({ children }: HealthConnectGuardProps) {
-  const { data, isLoading } = useSWR<SessionResponse>(
+  const { data, error, isLoading, mutate } = useSWR<SessionResponse>(
     "/api/auth/session",
     apiFetcher,
   );
@@ -24,19 +26,50 @@ export function HealthConnectGuard({ children }: HealthConnectGuardProps) {
     return <div className="h-48 rounded-lg bg-muted animate-pulse" />;
   }
 
+  if (error) {
+    const isTimeout =
+      error instanceof DOMException &&
+      (error.name === "TimeoutError" || error.name === "AbortError");
+    return (
+      <div
+        className="flex flex-col items-center justify-center py-12 space-y-4 text-center"
+        role="alert"
+      >
+        <p className="text-muted-foreground">
+          {isTimeout
+            ? "Request timed out. Please try again."
+            : "Could not connect to session. Please try again."}
+        </p>
+        <Button variant="outline" className="min-h-[44px]" onClick={() => mutate()}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   if (!data) return null;
 
-  if (data.healthConnected) {
+  // A scope_mismatch session reports healthConnected:true but healthScopeComplete:false.
+  // Every requireHealth route 403s such sessions, so rendering the normal flow would
+  // strand the user. Treat incomplete scopes as "needs reconnect". Undefined (older
+  // clients) is treated as complete for back-compat.
+  const scopeIncomplete = data.healthConnected && data.healthScopeComplete === false;
+
+  if (data.healthConnected && !scopeIncomplete) {
     return <>{children}</>;
   }
 
   return (
     <div className="flex flex-col items-center justify-center py-12 space-y-4 text-center">
       <p className="text-muted-foreground">
-        Connect Google Health to start logging food
+        {scopeIncomplete
+          ? "Your Google Health connection is missing required permissions. Reconnect to continue logging food."
+          : "Connect Google Health to start logging food"}
       </p>
       <Button asChild className="min-h-[44px]">
-        <Link href="/app/connect-health">Connect Google Health</Link>
+        <Link href="/app/connect-health">
+          {scopeIncomplete ? "Reconnect Google Health" : "Connect Google Health"}
+        </Link>
       </Button>
     </div>
   );

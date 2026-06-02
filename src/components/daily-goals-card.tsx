@@ -57,6 +57,7 @@ export function DailyGoalsCard() {
 
   const {
     data: profileData,
+    error: profileError,
     isLoading: profileLoading,
   } = useSWR<HealthProfileData>("/api/health-profile", apiFetcher, HEALTH_BACKED_SWR_CONFIG);
 
@@ -105,7 +106,8 @@ export function DailyGoalsCard() {
       const result = computeMacroTargets({
         sex,
         ageYears: profileData.ageYears,
-        heightCm: profileData.heightCm,
+        // null height → 0 makes the engine throw INVALID_PROFILE_DATA → preview shows "—"
+        heightCm: profileData.heightCm ?? 0,
         currentWeightKg: profileData.weightKg as number,
         activityLevel: activityLevel as ActivityLevel,
         goalWeightKg: goalWeightNum,
@@ -198,6 +200,16 @@ export function DailyGoalsCard() {
     );
   }
 
+  // FOO-1141: a health-profile read failure must NOT blank the card. The goal
+  // inputs below are local settings, independent of the Google Health profile —
+  // only the live target preview needs the profile. So we render the full card
+  // and degrade only the preview (non-blocking notice). `settingsError` above
+  // genuinely gates the inputs, so it stays a hard error.
+  const profileUnavailable = Boolean(profileError);
+
+  // FOO-1131: sex and activityLevel are required for the macro engine to compute goals.
+  const isRequiredFieldsMissing = sex === null || activityLevel === null;
+
   return (
     <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
       <h2 className="text-lg font-semibold">Daily Goals</h2>
@@ -205,6 +217,12 @@ export function DailyGoalsCard() {
       {saveError && (
         <p className="text-sm text-destructive" role="alert">
           {saveError}
+        </p>
+      )}
+
+      {isRequiredFieldsMissing && !saveError && (
+        <p className="text-sm text-destructive" role="alert">
+          Biological sex and activity level are required to save.
         </p>
       )}
 
@@ -346,6 +364,14 @@ export function DailyGoalsCard() {
         </div>
       )}
 
+      {/* FOO-1141: profile read failed → degrade only the preview, keep the inputs usable */}
+      {profileUnavailable && (
+        <p className="text-sm text-muted-foreground" role="status">
+          Couldn&apos;t load your Google Health profile — live preview unavailable. You can still
+          set and save your goals.
+        </p>
+      )}
+
       {/* Safety floor warning */}
       {showSafetyWarning && liveTargetKcal !== null && (
         <p role="alert" className="text-sm text-warning">
@@ -357,7 +383,7 @@ export function DailyGoalsCard() {
       <Button
         className="w-full min-h-[44px]"
         onClick={handleSave}
-        disabled={saving}
+        disabled={saving || isRequiredFieldsMissing}
       >
         {saving ? "Saving…" : "Save"}
       </Button>

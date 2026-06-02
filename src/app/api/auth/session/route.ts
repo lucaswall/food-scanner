@@ -17,6 +17,9 @@ export async function GET() {
   const response = successResponse({
     email: user?.email ?? null,
     healthConnected: session!.healthConnected,
+    // Surface scope completeness so the client can prompt a reconnect for
+    // scope_mismatch sessions instead of rendering health flows that 403.
+    healthScopeComplete: session!.healthScopeComplete,
     expiresAt: session!.expiresAt,
   });
   response.headers.set("Cache-Control", "private, no-cache");

@@ -234,6 +234,78 @@ describe("google-health-rate-limit", () => {
     });
   });
 
+  // (f) 403 RESOURCE_EXHAUSTED cooldown
+  describe("403 RESOURCE_EXHAUSTED cooldown", () => {
+    let recordResourceExhaustedCooldown: (userId: string, log?: Logger) => void;
+
+    beforeEach(async () => {
+      vi.clearAllMocks();
+      vi.resetModules();
+      const mod = await import("@/lib/google-health-rate-limit");
+      recordRateLimitHeaders = mod.recordRateLimitHeaders;
+      getRateLimitSnapshot = mod.getRateLimitSnapshot;
+      assertRateLimitAllowed = mod.assertRateLimitAllowed;
+      _resetForTests = mod._resetForTests;
+      recordResourceExhaustedCooldown = mod.recordResourceExhaustedCooldown;
+      _resetForTests();
+    });
+
+    it("recordResourceExhaustedCooldown records a default cooldown and blocks optional calls", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-05-04T12:00:00Z"));
+
+      recordResourceExhaustedCooldown("user-a", fakeLog);
+
+      const snap = getRateLimitSnapshot("user-a");
+      expect(snap).not.toBeNull();
+      expect(snap!.cooldownUntil).toBe(Date.now() + 60_000); // DEFAULT_COOLDOWN_MS
+
+      expect(() => assertRateLimitAllowed("user-a", "optional", fakeLog)).toThrow("HEALTH_RATE_LIMIT_LOW");
+    });
+
+    it("recordResourceExhaustedCooldown logs warn with health_resource_exhausted_cooldown action", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-05-04T12:00:00Z"));
+
+      recordResourceExhaustedCooldown("user-a", fakeLog);
+
+      expect(warnMock).toHaveBeenCalledWith(
+        expect.objectContaining({ action: "health_resource_exhausted_cooldown", userId: "user-a" }),
+        expect.any(String),
+      );
+    });
+
+    it("does NOT record a cooldown and does nothing when userId is undefined", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-05-04T12:00:00Z"));
+
+      // no-op: undefined userId
+      recordResourceExhaustedCooldown(undefined as unknown as string, fakeLog);
+
+      expect(warnMock).not.toHaveBeenCalled();
+    });
+  });
+
+  // (g) stale cooldown eviction
+  describe("stale cooldown eviction in getRateLimitSnapshot", () => {
+    it("evicts expired entries from the map so they do not reappear", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-05-04T12:00:00Z"));
+
+      recordRateLimitHeaders("user-a", make429Response({ "Retry-After": "60" }), fakeLog);
+      expect(getRateLimitSnapshot("user-a")).not.toBeNull();
+
+      // Advance past expiry
+      vi.setSystemTime(new Date("2026-05-04T12:01:01Z"));
+
+      // First call returns null AND evicts the entry
+      expect(getRateLimitSnapshot("user-a")).toBeNull();
+
+      // Entry is gone — assertRateLimitAllowed does not throw (cold start behaviour)
+      expect(() => assertRateLimitAllowed("user-a", "optional", fakeLog)).not.toThrow();
+    });
+  });
+
   // (e) _resetForTests clears all state
   describe("_resetForTests", () => {
     it("clears all cooldown state so subsequent calls behave as cold start", () => {

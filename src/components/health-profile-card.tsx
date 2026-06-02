@@ -69,10 +69,17 @@ export function HealthProfileCard() {
   }
 
   if (error) {
+    const isTimeout =
+      error instanceof DOMException &&
+      (error.name === "TimeoutError" || error.name === "AbortError");
     return (
       <div className="flex flex-col gap-4 rounded-xl border bg-card p-6" role="alert">
         <h2 className="text-lg font-semibold">Google Health Profile</h2>
-        <p className="text-sm text-destructive">Could not load Google Health profile</p>
+        <p className="text-sm text-destructive">
+          {isTimeout
+            ? "Request timed out. Please try again."
+            : "Could not load Google Health profile"}
+        </p>
         <Button
           variant="outline"
           className="min-h-[44px]"
@@ -115,7 +122,15 @@ export function HealthProfileCard() {
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Height</span>
-            <span>{data.heightCm} cm</span>
+            <span>
+              {data.heightCm != null ? (
+                `${data.heightCm} cm`
+              ) : (
+                <span className="text-muted-foreground italic" aria-label="Height unavailable">
+                  Unavailable
+                </span>
+              )}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Weight</span>

@@ -130,8 +130,8 @@ export type WeightGoalType = "LOSE" | "MAINTAIN" | "GAIN";
 const WEIGHT_GOAL_TYPES: readonly WeightGoalType[] = ["LOSE", "MAINTAIN", "GAIN"];
 
 /**
- * Read the local display-only weight-goal direction (replaces the former Fitbit
- * weight-goal read). Returns null when the user has not selected one.
+ * Read the local display-only weight-goal direction for the user.
+ * Returns null when the user has not selected one.
  */
 export async function getWeightGoalType(userId: string): Promise<WeightGoalType | null> {
   const db = getDb();

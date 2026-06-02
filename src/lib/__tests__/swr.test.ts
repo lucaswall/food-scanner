@@ -80,7 +80,7 @@ describe("apiFetcher", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json({
         success: false,
-        error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+        error: { code: "HEALTH_TOKEN_INVALID", message: "Token expired" },
       }),
     );
 
@@ -90,7 +90,7 @@ describe("apiFetcher", () => {
       expect(true).toBe(false);
     } catch (error) {
       expect(error).toBeInstanceOf(ApiError);
-      expect((error as ApiError).code).toBe("FITBIT_TOKEN_INVALID");
+      expect((error as ApiError).code).toBe("HEALTH_TOKEN_INVALID");
       expect((error as ApiError).message).toBe("Token expired");
     }
   });

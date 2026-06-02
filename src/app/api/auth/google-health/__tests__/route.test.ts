@@ -127,6 +127,15 @@ describe("POST /api/auth/google-health", () => {
       expect.stringContaining("/api/auth/google/callback"),
     );
   });
+
+  it("stores userId from the current session in the oauthState JSON", async () => {
+    mockGetSession.mockResolvedValue(validSession); // validSession.userId = "user-uuid-123"
+
+    await POST(makeRequest("POST"));
+
+    const parsed = JSON.parse(mockRawSession.oauthState as string);
+    expect(parsed.userId).toBe("user-uuid-123");
+  });
 });
 
 describe("GET /api/auth/google-health", () => {
@@ -167,5 +176,14 @@ describe("GET /api/auth/google-health", () => {
       expect.any(String),
       expect.stringContaining("/api/auth/google/callback"),
     );
+  });
+
+  it("stores userId from the current session in the oauthState JSON", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    await GET(makeRequest("GET"));
+
+    const parsed = JSON.parse(mockRawSession.oauthState as string);
+    expect(parsed.userId).toBe("user-uuid-123");
   });
 });

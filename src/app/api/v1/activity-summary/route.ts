@@ -8,6 +8,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 
 const RATE_LIMIT_MAX = 30;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const ZONE_OFFSET_RE = /^[+-]\d{2}:\d{2}$/;
 
 export async function GET(request: Request) {
   const log = createRequestLogger("GET", "/api/v1/activity-summary");
@@ -42,12 +43,20 @@ export async function GET(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Invalid date format. Use YYYY-MM-DD", 400);
   }
 
+  // Optional zoneOffset aligns the daily rollup window with the caller's civil day
+  // (matches the meal-write timezone handling, FOO-1134). Omitted → UTC civil day.
+  const zoneOffsetParam = searchParams.get("zoneOffset");
+  if (zoneOffsetParam !== null && !ZONE_OFFSET_RE.test(zoneOffsetParam)) {
+    return errorResponse("VALIDATION_ERROR", "Invalid zoneOffset format. Use ±HH:MM (e.g., -03:00, +05:30)", 400);
+  }
+
   try {
     const activitySummary = await getCachedHealthActivitySummary(
       authResult.userId,
       date,
       log,
       "important",
+      zoneOffsetParam,
     );
 
     log.debug(

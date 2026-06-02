@@ -36,3 +36,60 @@ export function isEmailAllowed(email: string): boolean {
   const allowed = getAllowedEmails();
   return allowed.some((a) => a.toLowerCase() === email.toLowerCase());
 }
+
+/**
+ * Validates HEALTH_DRY_RUN against the current environment (APP_URL).
+ *
+ * Rules:
+ * - Unrecognized values (not "true", "false", or unset/empty) are rejected on any environment.
+ * - Staging (APP_URL contains "food-test"): HEALTH_DRY_RUN must be "true".
+ *   A typo'd or missing flag would silently enable live writes against real user data.
+ * - Production (APP_URL contains "food.lucaswall.me" but not "food-test"):
+ *   HEALTH_DRY_RUN must be explicitly "true" or "false" (unset = ambiguous).
+ * - Local / dev (all other APP_URLs): no constraint.
+ *
+ * Call from instrumentation.ts at boot, alongside validateRequiredEnvVars().
+ */
+export function validateHealthDryRunEnv(): void {
+  const appUrl = process.env.APP_URL ?? "";
+  const rawValue = process.env.HEALTH_DRY_RUN;
+  // Normalise: treat empty string the same as unset
+  const effective = rawValue === "" ? undefined : rawValue;
+
+  // Reject unrecognized values on every environment — typos must never be silently ignored
+  if (effective !== undefined && effective !== "true" && effective !== "false") {
+    throw new Error(
+      `HEALTH_DRY_RUN has unrecognized value "${effective}". Must be "true" or "false".`,
+    );
+  }
+
+  // APP_URL is a required env var (see validateRequiredEnvVars). An empty value here means
+  // it was not set before this guard ran — fail fast rather than silently skipping the
+  // staging/production dry-run safety checks, which key off APP_URL.
+  if (!appUrl) {
+    throw new Error(
+      "APP_URL must be set before validating HEALTH_DRY_RUN (call validateRequiredEnvVars first).",
+    );
+  }
+
+  const isStaging = appUrl.includes("food-test");
+  const isProduction = appUrl.includes("food.lucaswall.me") && !isStaging;
+
+  if (isStaging) {
+    if (effective !== "true") {
+      throw new Error(
+        `HEALTH_DRY_RUN must be "true" on staging (APP_URL=${appUrl}). ` +
+        `Current: ${effective === undefined ? "unset" : `"${effective}"`}. ` +
+        `A missing or wrong flag enables live Google Health writes against real user data.`,
+      );
+    }
+  } else if (isProduction) {
+    if (effective !== "true" && effective !== "false") {
+      throw new Error(
+        `HEALTH_DRY_RUN must be explicitly "true" or "false" on production (APP_URL=${appUrl}). ` +
+        `Current: unset. Set HEALTH_DRY_RUN=false for live writes or HEALTH_DRY_RUN=true for dry-run.`,
+      );
+    }
+  }
+  // Local / dev: no constraint on HEALTH_DRY_RUN
+}
