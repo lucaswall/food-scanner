@@ -71,6 +71,22 @@ describe("GET /api/auth/session", () => {
     expect(body.data.healthConnected).toBe(true);
   });
 
+  it("serializes healthScopeComplete so the client can detect scope_mismatch", async () => {
+    mockGetSession.mockResolvedValue({
+      sessionId: "test-session",
+      userId: "user-uuid-123",
+      expiresAt: Date.now() + 86400000,
+      healthConnected: true,
+      healthScopeComplete: false,
+      destroy: vi.fn(),
+    });
+
+    const response = await GET();
+    const body = await response.json();
+    expect(body.data.healthConnected).toBe(true);
+    expect(body.data.healthScopeComplete).toBe(false);
+  });
+
   it("sets Cache-Control header to private no-cache", async () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",

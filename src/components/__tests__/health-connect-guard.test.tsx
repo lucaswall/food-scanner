@@ -38,6 +38,41 @@ describe("HealthConnectGuard", () => {
     expect(screen.getByTestId("child-content")).toBeInTheDocument();
   });
 
+  it("renders children when healthConnected and healthScopeComplete are both true", () => {
+    mockUseSWR.mockReturnValue({
+      data: { healthConnected: true, healthScopeComplete: true },
+      isLoading: false,
+    });
+
+    render(
+      <HealthConnectGuard>
+        <div data-testid="child-content">Protected content</div>
+      </HealthConnectGuard>,
+    );
+
+    expect(screen.getByTestId("child-content")).toBeInTheDocument();
+  });
+
+  it("shows a reconnect prompt (not children) when connected but scopes are incomplete", () => {
+    mockUseSWR.mockReturnValue({
+      data: { healthConnected: true, healthScopeComplete: false },
+      isLoading: false,
+    });
+
+    render(
+      <HealthConnectGuard>
+        <div data-testid="child-content">Protected content</div>
+      </HealthConnectGuard>,
+    );
+
+    // Must NOT render the protected UI — those routes would 403 with HEALTH_SCOPE_MISSING.
+    expect(screen.queryByTestId("child-content")).not.toBeInTheDocument();
+    // A reconnect affordance pointing at the OAuth re-init route.
+    const link = screen.getByRole("link", { name: /reconnect google health/i });
+    expect(link).toHaveAttribute("href", "/app/connect-health");
+    expect(screen.getByText(/missing required permissions/i)).toBeInTheDocument();
+  });
+
   it("shows connect prompt with Link to /app/connect-health when healthConnected is false", () => {
     mockUseSWR.mockReturnValue({
       data: { healthConnected: false },
