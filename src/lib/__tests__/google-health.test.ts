@@ -871,11 +871,18 @@ describe("google-health", () => {
       expect(heightUrl).toContain("dataTypes/height/dataPoints");
     });
 
-    it("throws HEALTH_API_ERROR when the profile has no age", async () => {
-      fetchMock.mockResolvedValue(makeJsonResponse({}));
+    it("throws HEALTH_API_ERROR when the profile has no age — and logs the raw shape", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ unexpectedField: "x" }));
       await expect(
         getHealthProfile("token", fakeLog, "user-1"),
       ).rejects.toThrow("HEALTH_API_ERROR");
+
+      // An unexpected live shape must be diagnosable, not a blind error.
+      const log = errorMock.mock.calls.find(
+        (c) => (c[0] as { action?: string })?.action === "health_get_profile_unparseable",
+      );
+      expect(log).toBeDefined();
+      expect((log![0] as { rawProfile: unknown }).rawProfile).toEqual({ unexpectedField: "x" });
     });
 
     it("returns heightCm: null when height is unavailable (404 on the height data type, no throw)", async () => {
@@ -1056,11 +1063,18 @@ describe("google-health", () => {
       expect(result.caloriesOut).toBe(2200);
     });
 
-    it("returns { caloriesOut: null } on empty roll-up (no throw)", async () => {
+    it("returns { caloriesOut: null } on empty roll-up (no throw) — and logs the raw response", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({ rollupDataPoints: [{}] }));
 
       const result = await getHealthActivitySummary("token", "2026-05-31", fakeLog, "user-1");
       expect(result.caloriesOut).toBeNull();
+
+      // Empty must be distinguishable from a shape mismatch — raw response is logged.
+      const log = debugMock.mock.calls.find(
+        (c) => (c[0] as { action?: string })?.action === "health_get_activity_summary_empty",
+      );
+      expect(log).toBeDefined();
+      expect((log![0] as { rawResponse: unknown }).rawResponse).toEqual({ rollupDataPoints: [{}] });
     });
 
     it("returns { caloriesOut: null } on absent roll-up", async () => {

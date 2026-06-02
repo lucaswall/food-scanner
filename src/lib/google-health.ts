@@ -845,6 +845,12 @@ async function getHealthHeightCm(
       if (cm !== null) return cm;
     }
   }
+  // No height parsed. Log the raw response so "genuinely no height" is distinguishable
+  // from a shape change (e.g. heightMillimeters renamed) during the smoke test.
+  l.debug(
+    { action: "health_get_height_not_found", dataPointCount: points.length, rawResponse: data },
+    "no parseable height dataPoint in response",
+  );
   return null;
 }
 
@@ -857,8 +863,8 @@ async function getHealthHeightCm(
  * from the separate `height` data type — which many users will not have, so heightCm is
  * `null` (NOT a throw) when absent; the goals layer degrades gracefully with a fallback.
  *
- * NOTE: endpoints and response shapes are inferred from the v4 discovery document —
- * pending live validation against the staging API (FOO-1115).
+ * Profile shape verified against the v4 discovery doc (`Profile` carries `age`, no
+ * sex/height). Whether the live account is populated is what the smoke test exercises.
  */
 export async function getHealthProfile(
   accessToken: string,
@@ -889,6 +895,12 @@ export async function getHealthProfile(
 
   // The v4 Profile exposes a derived integer `age`.
   if (typeof data.age !== "number") {
+    // Log the raw profile so an unexpected live shape (missing/renamed `age`) is
+    // diagnosable instead of a blind HEALTH_API_ERROR.
+    l.error(
+      { action: "health_get_profile_unparseable", profileKeys: Object.keys(data), rawProfile: data },
+      "profile response has no numeric `age` — unexpected shape",
+    );
     throw new Error("HEALTH_API_ERROR");
   }
   const ageYears = data.age;
@@ -900,7 +912,12 @@ export async function getHealthProfile(
   // Tolerate it (mirror the sex→NA tolerance); the goals layer applies a fallback.
   const heightCm = await getHealthHeightCm(accessToken, l, userId, criticality);
 
-  l.debug({ action: "health_get_profile_success", heightAvailable: heightCm !== null }, "profile fetched");
+  // Log the parsed fields + raw profile keys so a live shape change (e.g. sex ever
+  // appearing, or age in a different unit) is visible during testing.
+  l.debug(
+    { action: "health_get_profile_success", ageYears, sex, heightCm, profileKeys: Object.keys(data) },
+    "profile fetched",
+  );
   return { ageYears, sex, heightCm };
 }
 
@@ -962,7 +979,12 @@ export async function getHealthLatestWeightKg(
   }
 
   if (valid.length === 0) {
-    l.debug({ action: "health_get_weight_not_found", targetDate }, "no weight found in 14-day window");
+    // Include the raw response so an empty window is distinguishable from a shape change
+    // (e.g. weightGrams / sampleTime renamed) during the smoke test.
+    l.debug(
+      { action: "health_get_weight_not_found", targetDate, dataPointCount: points.length, rawResponse: data },
+      "no weight found in 14-day window",
+    );
     return null;
   }
 
@@ -1046,7 +1068,12 @@ export async function getHealthActivitySummary(
   }
 
   if (kcal === null) {
-    l.debug({ action: "health_get_activity_summary_empty", date }, "activity summary caloriesOut not yet available");
+    // Include the raw response so "no activity data yet" is distinguishable from a shape
+    // change (e.g. totalCalories.kcalSum nesting differs) during the smoke test.
+    l.debug(
+      { action: "health_get_activity_summary_empty", date, rollupPointCount: rollupPoints.length, rawResponse: data },
+      "activity summary caloriesOut not yet available",
+    );
     return { caloriesOut: null };
   }
 
