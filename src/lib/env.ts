@@ -63,6 +63,15 @@ export function validateHealthDryRunEnv(): void {
     );
   }
 
+  // APP_URL is a required env var (see validateRequiredEnvVars). An empty value here means
+  // it was not set before this guard ran — fail fast rather than silently skipping the
+  // staging/production dry-run safety checks, which key off APP_URL.
+  if (!appUrl) {
+    throw new Error(
+      "APP_URL must be set before validating HEALTH_DRY_RUN (call validateRequiredEnvVars first).",
+    );
+  }
+
   const isStaging = appUrl.includes("food-test");
   const isProduction = appUrl.includes("food.lucaswall.me") && !isStaging;
 

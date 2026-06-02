@@ -344,3 +344,68 @@
 ### Continuation Status
 Point budget reached at a clean phase boundary (BLOCKERS 1–5 + the two contiguous google-health read fixes 6–7). Tasks 8–19 remain — the next invocation resumes at Task 8 (FOO-1124).
 **Release gate unchanged:** the FOO-1115 staging smoke test (`HEALTH_DRY_RUN=false`, real round-trip) is still required before `push-to-production`.
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-06-02
+**Method:** Agent team (4 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- **Task 8 (FOO-1124):** Branch HEALTH errors by status — added `HEALTH_BAD_REQUEST` ErrorCode; all non-ok Google Health responses now throw 4xx→`HEALTH_BAD_REQUEST` (→400) vs 5xx→`HEALTH_API_ERROR` (→502) across `createNutritionLog`/`deleteNutritionLogs`/`getHealthProfile`/`getHealthLatestWeightKg`/`getHealthActivitySummary`/`getHealthHeightCm`; sanitization preserved. (worker-1)
+- **Task 9 (FOO-1125):** Rate-limit breaker — `recordResourceExhaustedCooldown()` records a cooldown for 403 RESOURCE_EXHAUSTED (distinguished from scope-403, which still maps to `HEALTH_SCOPE_MISSING`); single-pass stale-entry eviction in `getRateLimitSnapshot`. (worker-1)
+- **Task 18 (FOO-1134):** Meal-write timezone aligned with rollup — `civilDateTime()` accepts an optional `zoneOffset` (→ `utcOffset` duration); `getHealthActivitySummary` carries the zone so a 23:30 meal at −03:00 agrees with the rollup civil day. (worker-1)
+- **Task 19 (FOO-1135):** Tech-debt sweep — `healthLogId` create→persist→retrieve→delete round-trip added to `food-log.integration.test.ts` (skipIf no Postgres); stale `fitbitConnected`→`healthConnected`, `FITBIT_*`→`HEALTH_*` renames in mocks; "confirmed"→"inferred — pending live validation (FOO-1115)" comment downgrades; `DEFAULT_COOLDOWN_MS` rationale + inactive idempotency-path docs. (worker-1)
+- **Task 11 (FOO-1127):** Omitted OAuth `scope` treated as RFC 6749 all-granted — `checkHealthConnection` returns `healthy` for null scope; genuinely-partial scope still reports mismatch. (worker-2)
+- **Task 10 (FOO-1126):** Write-route scope gate — `FullSession.healthScopeComplete?`; `getSession` uses `checkHealthConnection` (single DB read); `validateSession({requireHealth})` returns `HEALTH_SCOPE_MISSING` (403) when tokens exist but scopes are incomplete. (worker-2)
+- **Task 12 (FOO-1128):** Token-user binding — `userId` embedded in the OAuth `state`; callback rejects (400 `VALIDATION_ERROR`) when state userId ≠ cookie-session userId; nonce validated. (worker-2)
+- **Task 13 (FOO-1129):** Edit-food compensation — fast & regular paths return `PARTIAL_ERROR` consistently on compensation failure; CRITICAL log with old (and new) healthLogIds; `buildAnalysisFromEntry` exported + unit-tested; user vs cleanup delete modes. (worker-3)
+- **Task 14 (FOO-1130):** `HEALTH_DRY_RUN` boot invariant — `validateHealthDryRunEnv()` in `env.ts` (staging requires `"true"`; production requires explicit `"true"`/`"false"`; typos rejected); wired into `instrumentation.ts`; `.env.sample` + `MIGRATIONS.md` updated. (worker-3)
+- **Task 17 (FOO-1133):** Claude slow-path tool_result pairing — `analyzeFood`/`conversationalRefine` push a synthetic `tool_result` per `report_nutrition` block and capture it as `pendingAnalysis`, so the next `runToolLoop` request has no unanswered `tool_use` (no Anthropic 400). (worker-3)
+- **Task 15 (FOO-1131):** Require sex + activity before save — Save disabled when `sex===null` OR `activityLevel===null` + accessible validation message; settings route 400s on null required fields; `goals_not_set` hint (`NutritionGoals.hint?`); MIGRATIONS.md post-cutover note. (worker-4)
+- **Task 16 (FOO-1132):** Health components error/timeout states — `health-connect-guard` renders an error/retry state (no blank page) on session error; `health-profile-card` distinguishes `TimeoutError` + renders accessible "height unavailable"; `daily-goals-card` handles the profile `error`. (worker-4)
+
+### Files Modified
+- `src/lib/google-health.ts` — error branching, 403 RESOURCE_EXHAUSTED mapping, `civilDateTime(zoneOffset)`, rollup zone; comment downgrades
+- `src/lib/health-error-response.ts` + `__tests__` — `HEALTH_BAD_REQUEST`→400
+- `src/lib/google-health-rate-limit.ts` + `__tests__` — `recordResourceExhaustedCooldown`, stale eviction, `DEFAULT_COOLDOWN_MS` doc
+- `src/types/index.ts` — `HEALTH_BAD_REQUEST` ErrorCode, `FullSession.healthScopeComplete?`, `NutritionGoals.hint?`
+- `src/lib/health-connection.ts` + `__tests__` — null scope = all granted; comment refresh
+- `src/lib/session.ts` + `__tests__` — `checkHealthConnection`-based scope gate, `HEALTH_SCOPE_MISSING`
+- `src/app/api/auth/google-health/route.ts` + `__tests__`, `src/app/api/auth/google/callback/route.ts` + `__tests__` — userId in state, cross-user rejection, nonce
+- `src/app/api/edit-food/route.ts` + `__tests__` — consistent `PARTIAL_ERROR` (both paths), CRITICAL logging, `buildAnalysisFromEntry`
+- `src/lib/env.ts` + `__tests__`, `src/instrumentation.ts` — `validateHealthDryRunEnv` boot guard
+- `src/lib/claude.ts` + `__tests__` — slow-path synthetic `tool_result` + `pendingAnalysis`
+- `src/components/daily-goals-card.tsx`, `health-connect-guard.tsx`, `health-profile-card.tsx` + `__tests__` — required-field gating + error/timeout states
+- `src/app/api/daily-goals-settings/route.ts` + `__tests__` — 400 on null sex/activityLevel
+- `src/lib/daily-goals.ts` — `goals_not_set` hint
+- `src/lib/http.ts`, `src/lib/users.ts`, `src/app/api/log-food/route.ts`, `src/app/api/search-foods/__tests__/route.test.ts`, `src/lib/__tests__/swr.test.ts`, `src/components/__tests__/saved-food-detail.test.tsx`, `src/lib/__tests__/food-log.integration.test.ts` — tech-debt sweep renames/comments/integration test
+- `.env.sample`, `MIGRATIONS.md` — `HEALTH_DRY_RUN` docs + post-cutover sex/activity note
+
+### Linear Updates
+- FOO-1124, FOO-1125, FOO-1126, FOO-1127, FOO-1128, FOO-1129, FOO-1130, FOO-1131, FOO-1132, FOO-1133, FOO-1134, FOO-1135: Todo → In Progress → Review
+
+### Pre-commit Verification
+- **bug-hunter:** Found 3 real bugs (1 HIGH, 1 MEDIUM, 1 LOW) + several self-retracted false positives. All fixed, each with a regression test:
+  - HIGH — edit-food fast-path DB-compensation `catch` returned generic `INTERNAL_ERROR` while the regular path returned `PARTIAL_ERROR` in the same orphaned-health-log scenario. Fixed: fast path now returns `PARTIAL_ERROR` + logs both old/new healthLogIds (matches Task 13's "both paths" contract).
+  - MEDIUM — `validateHealthDryRunEnv()` silently bypassed all checks when `APP_URL` was empty/unset. Fixed: fail-fast guard requiring `APP_URL`.
+  - LOW — edit-food test's inline `validateSession` mock didn't exercise the new `healthScopeComplete` scope gate. Fixed: mock updated + 403 `HEALTH_SCOPE_MISSING` test added.
+- **verifier:** 3,531 tests pass (193 files), lint clean, build clean — zero warnings.
+
+### Work Partition
+- Worker 1: Tasks 8, 9, 18, 19 (Google Health API contract + tech-debt — owns `google-health.ts`, `google-health-rate-limit.ts`)
+- Worker 2: Tasks 11→10, 12 (auth/session scope hardening — owns the auth cluster)
+- Worker 3: Tasks 13, 14, 17 (edit-food compensation + boot invariant + Claude)
+- Worker 4: Tasks 15, 16 (macro gating + UI error states)
+
+### Merge Summary
+- Worker 1: fast-forward (no conflicts)
+- Worker 2: merged via `ort` — `types/index.ts` + `health-connection.ts` auto-resolved (disjoint regions)
+- Worker 3: merged via `ort` (no conflicts)
+- Worker 4: merged via `ort` — `types/index.ts` + `MIGRATIONS.md` auto-resolved (disjoint regions)
+- Typecheck green after every merge; post-merge full suite green.
+
+### Continuation Status
+**All plan tasks complete (Tasks 1–19 across Iterations 1–2).** Plan implementation is done.
+**Release gate unchanged:** the FOO-1115 staging smoke test (`HEALTH_DRY_RUN=false`, real Google Health round-trip — create→read-back→edit→delete→confirm-gone) remains a hard manual gate before `push-to-production`, reconciling the live response shapes flagged in Tasks 4/6/9/18.

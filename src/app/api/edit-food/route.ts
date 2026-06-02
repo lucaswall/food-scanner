@@ -278,9 +278,15 @@ export async function POST(request: Request) {
           log.info({ action: "edit_food_fast_path_db_compensation_success" }, "fast path DB compensation succeeded");
         } catch (compensationErr) {
           log.error(
-            { action: "edit_food_fast_path_db_compensation_failed", error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr) },
-            "CRITICAL: fast path health log compensation failed after DB error"
+            {
+              action: "edit_food_fast_path_db_compensation_failed",
+              healthLogId: fastPathHealthLogId,
+              oldHealthLogId: entry.healthLogId,
+              error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr),
+            },
+            "CRITICAL: fast path health log compensation failed after DB error — orphaned health log may exist"
           );
+          return errorResponse("PARTIAL_ERROR", "Food updated in Google Health but local save failed. Manual cleanup may be needed.", 500);
         }
       }
 

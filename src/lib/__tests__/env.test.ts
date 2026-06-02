@@ -209,5 +209,13 @@ describe("env", () => {
       const { validateHealthDryRunEnv } = await import("@/lib/env");
       expect(() => validateHealthDryRunEnv()).not.toThrow();
     });
+
+    // MISSING APP_URL — fail fast instead of silently skipping the staging/production checks
+    it("unset APP_URL → throws (must not silently bypass the dry-run guard) (FOO-1130)", async () => {
+      delete process.env.APP_URL;
+      delete process.env.HEALTH_DRY_RUN;
+      const { validateHealthDryRunEnv } = await import("@/lib/env");
+      expect(() => validateHealthDryRunEnv()).toThrow(/APP_URL/);
+    });
   });
 });

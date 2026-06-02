@@ -22,6 +22,12 @@ vi.mock("@/lib/session", () => ({
         { status: 400 },
       );
     }
+    if (options?.requireHealth && session.healthScopeComplete === false) {
+      return Response.json(
+        { success: false, error: { code: "HEALTH_SCOPE_MISSING", message: "Missing required Google Health scopes" }, timestamp: Date.now() },
+        { status: 403 },
+      );
+    }
     return null;
   },
 }));
@@ -155,6 +161,16 @@ describe("POST /api/edit-food", () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error.code).toBe("HEALTH_NOT_CONNECTED");
+  });
+
+  it("returns 403 HEALTH_SCOPE_MISSING when connected but health scopes are incomplete", async () => {
+    // Write routes (requireHealth) must reject a partial-scope grant at the gate (FOO-1126),
+    // not deep inside createNutritionLog. healthScopeComplete === false → 403.
+    mockGetSession.mockResolvedValue({ ...validSession, healthConnected: true, healthScopeComplete: false });
+    const response = await POST(createMockRequest(validBody));
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_SCOPE_MISSING");
   });
 
   it("maps a token-refresh failure to 401 HEALTH_TOKEN_INVALID instead of an unhandled 500", async () => {
@@ -450,6 +466,30 @@ describe("POST /api/edit-food", () => {
       expect(body.error.code).toBe("PARTIAL_ERROR");
       // Compensation re-created the original log before the DB link failed
       expect(mockCreateNutritionLog).toHaveBeenCalledTimes(2);
+    });
+
+    it("fast path: DB failure + compensation re-create itself throws → PARTIAL_ERROR (not INTERNAL_ERROR)", async () => {
+      // Relog succeeds (new log created) → primary DB update fails → compensation attempts to
+      // delete the new log + re-create the original, but the re-create THROWS. The new health
+      // log is orphaned, so the client must see PARTIAL_ERROR consistent with the regular path
+      // (previously this fell through to a misleading INTERNAL_ERROR). (bug-hunter HIGH)
+      mockCreateNutritionLog
+        .mockResolvedValueOnce({ healthLogId: "fp-relog-orphan" }) // fast-path relog succeeds
+        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")); // compensation re-create throws
+      mockUpdateFoodLogEntryMetadata.mockRejectedValueOnce(new Error("DB error")); // primary DB update fails
+
+      const response = await POST(createMockRequest(unchangedBody));
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body.error.code).toBe("PARTIAL_ERROR");
+      // Compensation tried to clean up the orphaned new log
+      expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
+        expect.any(String),
+        ["fp-relog-orphan"],
+        expect.any(Object),
+        "user-uuid-123",
+        "cleanup",
+      );
     });
 
     it("fast path: delete failure with HEALTH_SCOPE_MISSING returns 403", async () => {
