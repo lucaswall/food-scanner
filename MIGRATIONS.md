@@ -196,3 +196,17 @@ docker stop pg-integration
 
 ### Task 21 — Claude tool schema (FOO-1091)
 **No data migration.** The Claude tool-schema property `unit_id` → `serving_unit` (string enum) is an LLM-contract change only; the internal parsed field stays `unit_id` carrying a `ServingUnit` string. The legacy numeric→string `unit_id` DB backfill is already covered by the Task 7 deploy note.
+
+---
+
+## Post-review fixes (FOO-1129..1133, fix/google-health-migration-review-fixes)
+
+### FOO-1130 — HEALTH_DRY_RUN boot invariant
+**No SQL.** New `validateHealthDryRunEnv()` in `src/lib/env.ts` enforces at boot that:
+- Staging (APP_URL contains `food-test`): `HEALTH_DRY_RUN` must be `"true"`.
+- Production (APP_URL contains `food.lucaswall.me`): `HEALTH_DRY_RUN` must be `"true"` or `"false"` explicitly.
+- Unrecognized values (`"TRUE"`, `"1"`, etc.) abort the boot on every environment.
+
+**Deployment action required:**
+- **Staging** (`food-test.lucaswall.me`): Set `HEALTH_DRY_RUN=true` before deploying this change (already noted in the main runbook; now boot-enforced).
+- **Production** (`food.lucaswall.me`): Set `HEALTH_DRY_RUN=false` (or `HEALTH_DRY_RUN=true` for a pre-production test). The env var must be present — the server will not start without it.

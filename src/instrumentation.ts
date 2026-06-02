@@ -36,8 +36,9 @@ export async function register() {
     });
   }
 
-  const { validateRequiredEnvVars } = await import("@/lib/env");
+  const { validateRequiredEnvVars, validateHealthDryRunEnv } = await import("@/lib/env");
   validateRequiredEnvVars();
+  validateHealthDryRunEnv();
 
   const { logger } = await import("@/lib/logger");
   const proc = globalThis.process;
@@ -47,6 +48,7 @@ export async function register() {
       nodeVersion: proc.version,
       nodeEnv: proc.env.NODE_ENV,
       logLevel: proc.env.LOG_LEVEL || (proc.env.NODE_ENV === "production" ? "info" : "debug"),
+      healthDryRun: proc.env.HEALTH_DRY_RUN === "true",
     },
     "server started",
   );
