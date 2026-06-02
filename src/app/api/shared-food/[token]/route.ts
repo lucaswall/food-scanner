@@ -33,7 +33,7 @@ export async function GET(
 
   log.info({ action: "shared_food_fetched", foodId: food.id }, "shared food fetched");
 
-  return successResponse({
+  const response = successResponse({
     food_name: food.foodName,
     amount: Number(food.amount),
     // Defensive coercion: legacy rows may still carry a numeric unit_id; never
@@ -54,4 +54,7 @@ export async function GET(
     description: food.description ?? "",
     keywords: food.keywords ?? [],
   });
+  // User-specific data behind auth — keep it fresh, never cached (CLAUDE.md GET convention).
+  response.headers.set("Cache-Control", "private, no-cache");
+  return response;
 }

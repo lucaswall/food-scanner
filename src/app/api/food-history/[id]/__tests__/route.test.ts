@@ -22,6 +22,12 @@ vi.mock("@/lib/session", () => ({
         { status: 400 },
       );
     }
+    if (options?.requireHealth && session.healthScopeComplete === false) {
+      return Response.json(
+        { success: false, error: { code: "HEALTH_SCOPE_MISSING", message: "Google Health connection is missing required scopes" }, timestamp: Date.now() },
+        { status: 403 },
+      );
+    }
     return null;
   },
 }));
@@ -113,6 +119,17 @@ describe("DELETE /api/food-history/[id]", () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error.code).toBe("HEALTH_NOT_CONNECTED");
+  });
+
+  it("returns 403 HEALTH_SCOPE_MISSING when connected but scopes incomplete (FOO-1126 gate)", async () => {
+    // The DELETE write gate must reject a partial-scope grant before any Health API call.
+    mockGetSession.mockResolvedValue({ ...validSession, healthConnected: true, healthScopeComplete: false });
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_SCOPE_MISSING");
+    expect(mockEnsureFreshToken).not.toHaveBeenCalled();
+    expect(mockDeleteNutritionLogs).not.toHaveBeenCalled();
   });
 
   it("returns 400 for invalid id", async () => {

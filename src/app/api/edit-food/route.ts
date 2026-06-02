@@ -169,8 +169,18 @@ export async function POST(request: Request) {
           await deleteNutritionLogs(accessToken, [entry.healthLogId], log, userId, "user");
         } catch (deleteErr) {
           const errMsg = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
-          log.error({ action: "edit_food_fast_path_delete_failed", error: errMsg }, "failed to delete old health log");
-          return mapHealthError(deleteErr);
+          if (errMsg === "HEALTH_LOG_NOT_FOUND") {
+            // Data drift: the old Google Health entry is already gone. The delete's goal is
+            // achieved, so proceed with the re-create rather than failing the edit with a
+            // misleading 500 (mirrors food-history's drift handling — never strand the user).
+            log.error(
+              { action: "edit_food_fast_path_delete_drift", entryId, healthLogId: entry.healthLogId },
+              "CRITICAL: old Google Health entry already gone (data drift) — proceeding with re-create",
+            );
+          } else {
+            log.error({ action: "edit_food_fast_path_delete_failed", error: errMsg }, "failed to delete old health log");
+            return mapHealthError(deleteErr);
+          }
         }
       }
 
@@ -314,8 +324,18 @@ export async function POST(request: Request) {
         log.info({ action: "edit_food_old_health_deleted", healthLogId: entry.healthLogId }, "old health log deleted");
       } catch (deleteErr) {
         const errMsg = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
-        log.error({ action: "edit_food_delete_failed", error: errMsg }, "failed to delete old health log");
-        return mapHealthError(deleteErr);
+        if (errMsg === "HEALTH_LOG_NOT_FOUND") {
+          // Data drift: the old Google Health entry is already gone. Proceed with creating the
+          // new log instead of failing the edit with a misleading 500 (mirrors food-history's
+          // drift handling — never strand the user with an uneditable entry).
+          log.error(
+            { action: "edit_food_delete_drift", entryId, healthLogId: entry.healthLogId },
+            "CRITICAL: old Google Health entry already gone (data drift) — proceeding with create",
+          );
+        } else {
+          log.error({ action: "edit_food_delete_failed", error: errMsg }, "failed to delete old health log");
+          return mapHealthError(deleteErr);
+        }
       }
     }
 

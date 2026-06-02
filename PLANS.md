@@ -345,6 +345,11 @@
 Point budget reached at a clean phase boundary (BLOCKERS 1–5 + the two contiguous google-health read fixes 6–7). Tasks 8–19 remain — the next invocation resumes at Task 8 (FOO-1124).
 **Release gate unchanged:** the FOO-1115 staging smoke test (`HEALTH_DRY_RUN=false`, real round-trip) is still required before `push-to-production`.
 
+### Review Findings (reviewed jointly with Iteration 2)
+Iterations 1 and 2 were reviewed together in a single plan-review session (they share `google-health.ts`, `edit-food`, `types/index.ts`, `daily-goals`, `shared-food`, and the health components). The consolidated findings — including one that traces to Iteration 1 files (shared-food Cache-Control) — are documented under **Iteration 2 → Review Findings** below. All FOO-1117..1123 issues moved Review → Merge.
+
+<!-- REVIEW COMPLETE -->
+
 ---
 
 ## Iteration 2
@@ -409,3 +414,77 @@ Point budget reached at a clean phase boundary (BLOCKERS 1–5 + the two contigu
 ### Continuation Status
 **All plan tasks complete (Tasks 1–19 across Iterations 1–2).** Plan implementation is done.
 **Release gate unchanged:** the FOO-1115 staging smoke test (`HEALTH_DRY_RUN=false`, real Google Health round-trip — create→read-back→edit→delete→confirm-gone) remains a hard manual gate before `push-to-production`, reconciling the live response shapes flagged in Tasks 4/6/9/18.
+
+### Review Findings
+
+Summary: 16 raw findings across the changed files (single plan-review session, 3 domain reviewers — security, reliability, quality — via Workflow). After dedup: **3 FIX (fixed inline, TDD), 9 DISCARD, 1 deferred to Backlog.** Covers Iterations 1 & 2 jointly (55 changed files).
+
+**Issues fixed inline (TDD + bug-hunter clean):**
+- [HIGH] BUG: edit-food returned a misleading **500 INTERNAL_ERROR** on `HEALTH_LOG_NOT_FOUND` drift — both the fast-path and regular-path old-log delete (`mode:"user"`) passed the 404-drift error to `mapHealthError`, which has no case for it (`src/app/api/edit-food/route.ts`, `src/lib/health-error-response.ts`). A user could never edit an entry whose Google Health log was externally deleted. **Fixed:** both paths now detect `HEALTH_LOG_NOT_FOUND`, log CRITICAL drift, and fall through to re-create (mirrors `food-history/[id]` drift handling). Merges reliability + quality findings. → **FOO-1136** (Merge)
+- [MEDIUM] CONVENTION: `GET /api/shared-food/[token]` omitted `Cache-Control: private, no-cache` (CLAUDE.md GET rule). **Fixed:** header set on the success response (`src/app/api/shared-food/[token]/route.ts`). → **FOO-1137** (Merge)
+- [MEDIUM] TEST: the new FOO-1126 write-route scope gate (403 `HEALTH_SCOPE_MISSING`) was untested for `log-food` + `food-history` — their `validateSession` mocks omitted the `healthScopeComplete === false` branch. **Fixed:** mocks corrected to mirror real `validateSession` + a 403 gate test added to each route. → **FOO-1138** (Merge)
+
+**Deferred to Backlog (low priority, not blocking):**
+- [P3] OBSERVABILITY: Google Health API functions don't log `durationMs` (claude.ts does). Zero correctness impact; latency already observable via Sentry tracing (1.0) + per-call breadcrumbs; M-size across ~6 functions. → **FOO-1139** (Backlog)
+
+**Discarded findings (genuinely not bugs — verified against the code):**
+- [DISCARDED] [med] SECURITY: edit/google callback token-binding guard is conditional on `stateUserId !== null` (`callback/route.ts:85`) — **impossible to exploit**: the incoming `state` must exactly equal the iron-session-stored `oauthState` (line 38), which always includes `userId` post-deploy; old states bind to the same initiating cookie user anyway, so no cross-user misbinding. Defense-in-depth only.
+- [DISCARDED] [low] SECURITY: login flow drops `returnTo` when the user has no health tokens (`callback/route.ts:187`) — intended onboarding (must connect health first); minor UX, not a bug.
+- [DISCARDED] [low] SECURITY: `validateSession` treats `healthScopeComplete === undefined` as passing (`session.ts:107`) — **impossible in production**: `getSession` is the only `FullSession` producer and always sets it (line 78); undefined only occurs in test mocks.
+- [DISCARDED] [low] SECURITY: `refreshGoogleHealthToken` reads `GOOGLE_CLIENT_ID/SECRET` via `process.env` not `getRequiredEnv` (`google-health.ts:228`) — **misdiagnosed**: both vars ARE in `REQUIRED_ENV_VARS` and validated at boot (`env.ts:2-3` + `instrumentation.ts:40`), so the manual check is unreachable in a booted server, not a fail-fast gap.
+- [DISCARDED] [low] BUG: weight `sampleTime` nesting assumption (`google-health.ts:929`) — inferred v4 schema, internally consistent with its fixture, explicitly gated on the FOO-1115 live-validation smoke test.
+- [DISCARDED] [low] EDGE-CASE: `findKcalSum` first-match DFS (`google-health.ts:1007`) — speculative ("unlikely but not impossible"), inferred schema, gated on FOO-1115; summing across rollup points is already handled.
+- [DISCARDED] [low] EDGE-CASE: `assertUnitIdConverted` boot guard couples to a future `unit_id` rename (`migrate.ts:22`) — intended design (fail-fast on corrupt post-migration state); hypothetical future-migration scenario, reviewer rated it "doing exactly what it was designed to do."
+- [DISCARDED] [low] TYPE: `daily-goals` `ComputeResult` blocked-reason union includes `sex_unset` which `doCompute` never returns (`daily-goals.ts:59`) — not dead: it's part of the shared reason surface and handled defensively by UI components; zero runtime impact, removing it risks UI narrowing.
+- [DISCARDED] [low] CONVENTION: stale `fitbitConnected`/`hasFitbitCredentials` mock in `shared-food` test — cosmetic stale-naming, the route never reads those fields; outside the Task 19 sweep file list, no correctness impact (noted, not fixed).
+
+### Linear Updates
+- FOO-1117 … FOO-1135 (19 issues): Review → Merge (all original tasks completed)
+- FOO-1136: Created in Merge (Fix: edit-food HEALTH_LOG_NOT_FOUND drift → 500, fixed inline)
+- FOO-1137: Created in Merge (Fix: shared-food Cache-Control, fixed inline)
+- FOO-1138: Created in Merge (Fix: log-food/food-history scope-gate tests, fixed inline)
+- FOO-1139: Created in Backlog (deferred: durationMs observability)
+
+### Inline Fix Verification
+- Unit tests: 3537 pass (193 files) — +6 new tests (3 edit-food drift, 1 shared-food Cache-Control, 1 log-food 403, 1 food-history 403)
+- typecheck: clean · lint: clean (zero warnings)
+- bug-hunter: no bugs found in the inline fixes (drift fall-through control flow, error selectivity, Cache-Control branch isolation, and mock accuracy all verified)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## E2E Release Gate — FAILED (3 tests) → Fix Plan below
+
+The unit/lint/typecheck gates and the review are all green, but the **E2E suite found 3 real failures** in `e2e/tests/goal-anchored-engine.spec.ts` (132 passed). The plan is therefore **NOT marked COMPLETE** — these must be fixed before the PR/release. Both root causes are understood and filed (FOO-1140, FOO-1141).
+
+**Failures (all in goal-anchored-engine.spec.ts):**
+1. `shows GoalsSetupBanner on the dashboard when goal settings are not set` (`/app`)
+2. `TargetsCard shows the goals_not_set blocked message on settings` (`/settings`)
+3. `DailyGoalsCard renders with all three input controls` (`/settings`)
+
+**Root causes:**
+- **(1) & (2)** — The new write-route scope gate (Task 10 / FOO-1126) 403s the health-gated reads for the E2E test user, because the E2E seed (`e2e/fixtures/db.ts:177`) grants a single **stale Fitbit-era scope** (`…/auth/fitness.nutrition.write`) that doesn't match `GOOGLE_HEALTH_SCOPES`. `/api/nutrition-goals` 403s before it can return the `goals_not_set` 200 result, so the banner/blocked-message never render. Test-infra gap exposed by the new gate.
+- **(3)** — Regression from Task 16 (FOO-1132): `daily-goals-card`'s `if (profileError) return <error>` early-return replaces the whole card (incl. the profile-independent goal inputs) whenever `/api/health-profile` fails (in E2E the fake token fails the real read). The user can't set goals at all — contradicts Task 15.
+
+---
+
+## Fix Plan
+
+**Source:** E2E release-gate failures from the completion check (post-review).
+**Linear Issues:** [FOO-1140](https://linear.app/lw-claude/issue/FOO-1140), [FOO-1141](https://linear.app/lw-claude/issue/FOO-1141)
+
+### Fix 1: E2E seed grants a stale single scope → new scope gate 403s the goals UI reads
+**Linear Issue:** [FOO-1140](https://linear.app/lw-claude/issue/FOO-1140)
+
+1. Update `e2e/fixtures/db.ts` (`healthTokens` seed, ~line 177): set `scope` to the full `GOOGLE_HEALTH_SCOPES` joined by spaces (derive from `@/lib/auth`) — or `null` (RFC 6749 all-granted, honored by `checkHealthConnection`, FOO-1127). Prefer the full set (most realistic).
+2. Re-run `npm run e2e`; confirm the dashboard-banner and TargetsCard-blocked-message tests pass.
+
+### Fix 2: daily-goals-card hides goal inputs on profile-read failure
+**Linear Issue:** [FOO-1141](https://linear.app/lw-claude/issue/FOO-1141)
+
+1. Write a component test (`src/components/__tests__/daily-goals-card.test.tsx`): when the `/api/health-profile` SWR errors, the sex/activity radios + goal weight/rate + Save still render, and a non-blocking "preview unavailable" notice is shown. (Expect fail.)
+2. In `src/components/daily-goals-card.tsx`, remove the full-card `profileError` early-return (~lines 204-221). Render the normal card regardless of `profileError`; suppress only the live preview and show the inline notice. Keep the `settingsError` hard-error (that one genuinely gates the inputs).
+3. Run vitest (expect pass), then `npm run e2e` (with Fix 1 applied) — confirm the DailyGoalsCard-renders test passes.
+
+**Note:** This Fix Plan is independent of the already-completed review fixes (FOO-1136/1137/1138, fixed inline). The 19 original migration-fix tasks (FOO-1117..1135) remain done; only the E2E gate blocks completion.

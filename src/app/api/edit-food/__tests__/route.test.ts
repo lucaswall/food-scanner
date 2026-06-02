@@ -713,6 +713,67 @@ describe("POST /api/edit-food", () => {
     });
   });
 
+  // ── HEALTH_LOG_NOT_FOUND drift on the old-log delete (review fix) ────────────
+  // A user-initiated delete of the OLD health log can 404 when the entry drifted
+  // (externally deleted from Google Health). The old entry is definitively gone, so
+  // the edit must PROCEED to create the new log — not fail with a misleading 500.
+  // Mirrors food-history's drift handling.
+
+  describe("old-log delete drift (HEALTH_LOG_NOT_FOUND) proceeds with re-create", () => {
+    const unchangedBodyFP = {
+      entryId: 42,
+      food_name: "Empanada de carne",
+      amount: 150,
+      unit_id: "g",
+      calories: 320,
+      protein_g: 12,
+      carbs_g: 28,
+      fat_g: 18,
+      fiber_g: 2,
+      sodium_mg: 450,
+      saturated_fat_g: null,
+      trans_fat_g: null,
+      sugars_g: null,
+      calories_from_fat: null,
+      confidence: "high" as const,
+      notes: "Baked style",
+      description: "Standard Argentine beef empanada",
+      keywords: ["empanada", "carne"],
+      mealTypeId: 5,
+      date: "2026-02-15",
+      time: "20:00:00",
+    };
+
+    it("fast path: delete drift → creates new log and returns 200 (not 500)", async () => {
+      mockDeleteNutritionLogs.mockRejectedValueOnce(new Error("HEALTH_LOG_NOT_FOUND"));
+      const response = await POST(createMockRequest(unchangedBodyFP));
+      expect(response.status).toBe(200);
+      // The old entry is gone, so we still re-create the log.
+      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
+      const body = await response.json();
+      expect(body.data.reusedFood).toBe(true);
+    });
+
+    it("regular path: delete drift → creates new log and returns 200 (not 500)", async () => {
+      mockDeleteNutritionLogs.mockRejectedValueOnce(new Error("HEALTH_LOG_NOT_FOUND"));
+      const response = await POST(createMockRequest(validBody));
+      expect(response.status).toBe(200);
+      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
+      const body = await response.json();
+      expect(body.data.reusedFood).toBe(false);
+    });
+
+    it("regular path: delete drift logs CRITICAL drift with the stale healthLogId", async () => {
+      mockDeleteNutritionLogs.mockRejectedValueOnce(new Error("HEALTH_LOG_NOT_FOUND"));
+      await POST(createMockRequest(validBody));
+      const { logger } = await import("@/lib/logger") as unknown as { logger: { error: ReturnType<typeof vi.fn> } };
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ healthLogId: "health-log-old-12345" }),
+        expect.stringContaining("CRITICAL"),
+      );
+    });
+  });
+
   // ── buildAnalysisFromEntry unit tests (FOO-1129) ────────────────────────────
 
   describe("buildAnalysisFromEntry", () => {

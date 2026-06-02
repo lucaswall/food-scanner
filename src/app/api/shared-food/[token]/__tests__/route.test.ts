@@ -113,6 +113,15 @@ describe("GET /api/shared-food/[token]", () => {
     expect(body.data.keywords).toEqual(["chicken", "protein"]);
   });
 
+  it("sets Cache-Control: private, no-cache on success (CLAUDE.md GET convention)", async () => {
+    mockGetCustomFoodByShareToken.mockResolvedValue(mockFood);
+
+    const response = await GET(makeRequest("valid-token-12"), makeParams("valid-token-12"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
+  });
+
   it("does not return id field", async () => {
     mockGetCustomFoodByShareToken.mockResolvedValue(mockFood);
 
