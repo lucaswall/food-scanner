@@ -45,7 +45,7 @@ The Google Health REST request/response shapes are now **confirmed against the v
 1. **Nutrition WRITE end-to-end (the core gate).** Temporarily set `HEALTH_DRY_RUN=false` on staging, connect Google Health, then log → edit → delete a food. Confirm the dataPoint is created with correct nutrients/time/meal-type (check via the Google Health app or a direct `GET .../dataTypes/nutrition-log/dataPoints`), and that `batchDelete` removes it. If a field is rejected, correct ONLY the isolated `buildNutritionLogBody`/parser helpers in `google-health.ts`. Re-enable `HEALTH_DRY_RUN=true` on staging afterward.
 2. **`getHealthActivitySummary` dailyRollUp range body** (`/api/v1/activity-summary`, optional/non-blocking — degrades to null). The `CivilTimeInterval` field names (`start`/`end` vs `startTime`/`endTime`, exclusive-end) and the `total-calories` data-type id are unconfirmed; validate live if/when the external activity API is needed. (Codex finding, deferred.)
 
-**🔴 POST-CUTOVER USER ACTION (or daily goals stay blocked):** both Lucas and Mariana must, after re-consenting, **set their biological sex** in Settings → Daily Goals (FOO-1116 — the v4 profile does not expose sex). Until set, `getOrComputeDailyGoals` returns `goals_not_set` and the home banner shows.
+**🔴 POST-CUTOVER USER ACTION (or daily goals stay blocked):** both Lucas and Mariana must, after re-consenting, **set their biological sex AND activity level** in Settings → Daily Goals (FOO-1116/FOO-1131 — the v4 profile does not expose sex; activity level is required by the macro engine). Until both are set, `getOrComputeDailyGoals` returns `goals_not_set`, the save button is disabled in the UI, and the home banner shows. Neither field has a default — each user must explicitly choose.
 
 ---
 

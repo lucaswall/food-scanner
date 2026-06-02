@@ -15,13 +15,34 @@ interface HealthConnectGuardProps {
 }
 
 export function HealthConnectGuard({ children }: HealthConnectGuardProps) {
-  const { data, isLoading } = useSWR<SessionResponse>(
+  const { data, error, isLoading, mutate } = useSWR<SessionResponse>(
     "/api/auth/session",
     apiFetcher,
   );
 
   if (isLoading) {
     return <div className="h-48 rounded-lg bg-muted animate-pulse" />;
+  }
+
+  if (error) {
+    const isTimeout =
+      error instanceof DOMException &&
+      (error.name === "TimeoutError" || error.name === "AbortError");
+    return (
+      <div
+        className="flex flex-col items-center justify-center py-12 space-y-4 text-center"
+        role="alert"
+      >
+        <p className="text-muted-foreground">
+          {isTimeout
+            ? "Request timed out. Please try again."
+            : "Could not connect to session. Please try again."}
+        </p>
+        <Button variant="outline" className="min-h-[44px]" onClick={() => mutate()}>
+          Retry
+        </Button>
+      </div>
+    );
   }
 
   if (!data) return null;

@@ -410,4 +410,111 @@ describe("DailyGoalsCard", () => {
       }
     });
   });
+
+  // FOO-1131: Save must be disabled when required fields are missing
+  describe("Required fields guard (FOO-1131)", () => {
+    it("disables Save when sex is null", () => {
+      mockUseSWR.mockImplementation((key: string) => {
+        if (key === "/api/daily-goals-settings") {
+          return {
+            data: { ...sampleSettings, sex: null },
+            error: null,
+            isLoading: false,
+            mutate: vi.fn(),
+          };
+        }
+        return { data: sampleProfile, error: null, isLoading: false, mutate: vi.fn() };
+      });
+
+      render(<DailyGoalsCard />);
+
+      const saveButton = screen.getByRole("button", { name: /^save$/i });
+      expect(saveButton).toBeDisabled();
+    });
+
+    it("disables Save when activityLevel is null", () => {
+      mockUseSWR.mockImplementation((key: string) => {
+        if (key === "/api/daily-goals-settings") {
+          return {
+            data: { ...sampleSettings, activityLevel: null },
+            error: null,
+            isLoading: false,
+            mutate: vi.fn(),
+          };
+        }
+        return { data: sampleProfile, error: null, isLoading: false, mutate: vi.fn() };
+      });
+
+      render(<DailyGoalsCard />);
+
+      const saveButton = screen.getByRole("button", { name: /^save$/i });
+      expect(saveButton).toBeDisabled();
+    });
+
+    it("shows accessible validation message when sex and activityLevel are both null", () => {
+      mockUseSWR.mockImplementation((key: string) => {
+        if (key === "/api/daily-goals-settings") {
+          return {
+            data: { activityLevel: null, goalWeightKg: null, goalRateKgPerWeek: null, sex: null, weightGoalType: null },
+            error: null,
+            isLoading: false,
+            mutate: vi.fn(),
+          };
+        }
+        return { data: sampleProfile, error: null, isLoading: false, mutate: vi.fn() };
+      });
+
+      render(<DailyGoalsCard />);
+
+      // Should show an accessible message about required fields
+      const message = screen.getByRole("alert");
+      expect(message.textContent).toMatch(/sex.*activity|activity.*sex|required/i);
+    });
+
+    it("enables Save when both sex and activityLevel are set", () => {
+      // Default mockUseSWR already has both set (sampleSettings has sex and activityLevel)
+      render(<DailyGoalsCard />);
+
+      const saveButton = screen.getByRole("button", { name: /^save$/i });
+      expect(saveButton).not.toBeDisabled();
+    });
+  });
+
+  // FOO-1132: Health-profile SWR error state
+  describe("Health profile error state (FOO-1132)", () => {
+    it("shows error state when health-profile SWR errors", () => {
+      mockUseSWR.mockImplementation((key: string) => {
+        if (key === "/api/daily-goals-settings") {
+          return { data: sampleSettings, error: null, isLoading: false, mutate: vi.fn() };
+        }
+        if (key === "/api/health-profile") {
+          return { data: undefined, error: new Error("fetch failed"), isLoading: false, mutate: vi.fn() };
+        }
+        return { data: null, error: null, isLoading: true, mutate: vi.fn() };
+      });
+
+      render(<DailyGoalsCard />);
+
+      const alert = screen.getByRole("alert");
+      expect(alert.textContent).toMatch(/could not load|profile/i);
+    });
+
+    it("shows timeout message when health-profile errors with TimeoutError", () => {
+      const timeoutError = new DOMException("Timeout", "TimeoutError");
+      mockUseSWR.mockImplementation((key: string) => {
+        if (key === "/api/daily-goals-settings") {
+          return { data: sampleSettings, error: null, isLoading: false, mutate: vi.fn() };
+        }
+        if (key === "/api/health-profile") {
+          return { data: undefined, error: timeoutError, isLoading: false, mutate: vi.fn() };
+        }
+        return { data: null, error: null, isLoading: true, mutate: vi.fn() };
+      });
+
+      render(<DailyGoalsCard />);
+
+      const alert = screen.getByRole("alert");
+      expect(alert.textContent).toMatch(/timed? ?out/i);
+    });
+  });
 });

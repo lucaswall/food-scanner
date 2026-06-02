@@ -643,5 +643,8 @@ export function mapComputeResultToNutritionGoals(result: ComputeResult): Nutriti
     fatG:     null,
     status:   "blocked",
     reason:   result.reason,
+    ...(result.reason === "goals_not_set"
+      ? { hint: "Set your sex and activity level in Settings → Daily Goals to enable targets." }
+      : {}),
   };
 }
