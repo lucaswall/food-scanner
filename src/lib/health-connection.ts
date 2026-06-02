@@ -24,9 +24,11 @@ export async function checkHealthConnection(userId: string, log?: Logger): Promi
     return { status: "needs_reconnect" };
   }
 
-  // Null scope = treat as no scopes granted
-  const scopeString = tokenRow.scope ?? "";
-  const grantedScopes = new Set(scopeString.split(/\s+/).filter(Boolean));
+  // Null scope = RFC 6749 §3.3: omitted scope means all requested scopes were granted
+  if (tokenRow.scope === null) {
+    return { status: "healthy" };
+  }
+  const grantedScopes = new Set(tokenRow.scope.split(/\s+/).filter(Boolean));
   const missingScopes = GOOGLE_HEALTH_SCOPES.filter((s) => !grantedScopes.has(s));
 
   if (missingScopes.length > 0) {

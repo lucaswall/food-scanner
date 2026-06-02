@@ -31,16 +31,17 @@ vi.mock("@/lib/session-db", () => ({
   touchSession: (...args: unknown[]) => mockTouchSession(...args),
 }));
 
-const mockGetHealthTokens = vi.fn();
-vi.mock("@/lib/health-tokens", () => ({
-  getHealthTokens: (...args: unknown[]) => mockGetHealthTokens(...args),
+const mockCheckHealthConnection = vi.fn();
+vi.mock("@/lib/health-connection", () => ({
+  checkHealthConnection: (...args: unknown[]) => mockCheckHealthConnection(...args),
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockDeleteSession.mockResolvedValue(undefined);
   mockTouchSession.mockResolvedValue(undefined);
-  mockGetHealthTokens.mockResolvedValue(null);
+  // Default: no health tokens
+  mockCheckHealthConnection.mockResolvedValue({ status: "needs_reconnect" });
 });
 
 const { getSession, getRawSession, validateSession } = await import(
@@ -96,7 +97,7 @@ describe("getSession", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 86400000),
     });
-    mockGetHealthTokens.mockResolvedValue(null);
+    mockCheckHealthConnection.mockResolvedValue({ status: "needs_reconnect" });
 
     const result = await getSession();
 
@@ -104,8 +105,9 @@ describe("getSession", () => {
     expect(result!.sessionId).toBe("abc-123");
     expect(result!.userId).toBe("user-uuid-123");
     expect(result!.healthConnected).toBe(false);
+    expect(result!.healthScopeComplete).toBe(false);
     expect(typeof result!.expiresAt).toBe("number");
-    expect(mockGetHealthTokens).toHaveBeenCalledWith("user-uuid-123");
+    expect(mockCheckHealthConnection).toHaveBeenCalledWith("user-uuid-123");
   });
 
   it("does not expose legacy fitbit session keys", async () => {
@@ -127,7 +129,7 @@ describe("getSession", () => {
     expect(result).not.toHaveProperty("hasFitbitCredentials");
   });
 
-  it("sets healthConnected to true when health tokens exist", async () => {
+  it("sets healthConnected=true and healthScopeComplete=true when connection is healthy", async () => {
     mockGetIronSession.mockResolvedValue({
       sessionId: "abc-123",
       save: vi.fn(),
@@ -139,16 +141,35 @@ describe("getSession", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 86400000),
     });
-    mockGetHealthTokens.mockResolvedValue({
-      accessToken: "tok",
-      refreshToken: "ref",
-      healthUserId: "uid",
+    mockCheckHealthConnection.mockResolvedValue({ status: "healthy" });
+
+    const result = await getSession();
+
+    expect(result!.healthConnected).toBe(true);
+    expect(result!.healthScopeComplete).toBe(true);
+  });
+
+  it("sets healthConnected=true but healthScopeComplete=false when scope_mismatch", async () => {
+    mockGetIronSession.mockResolvedValue({
+      sessionId: "abc-123",
+      save: vi.fn(),
+      destroy: vi.fn(),
+    });
+    mockGetSessionById.mockResolvedValue({
+      id: "abc-123",
+      userId: "user-uuid-123",
+      createdAt: new Date(),
       expiresAt: new Date(Date.now() + 86400000),
+    });
+    mockCheckHealthConnection.mockResolvedValue({
+      status: "scope_mismatch",
+      missingScopes: ["https://www.googleapis.com/auth/googlehealth.profile.readonly"],
     });
 
     const result = await getSession();
 
     expect(result!.healthConnected).toBe(true);
+    expect(result!.healthScopeComplete).toBe(false);
   });
 
   it("destroy() clears both cookie and DB session", async () => {
@@ -291,7 +312,7 @@ describe("getSession", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + twentyDaysMs),
     });
-    mockGetHealthTokens.mockResolvedValue(null);
+    mockCheckHealthConnection.mockResolvedValue({ status: "needs_reconnect" });
     await getSession();
     await new Promise((r) => setTimeout(r, 10));
 
@@ -351,5 +372,27 @@ describe("validateSession", () => {
     const session = { ...baseSession, healthConnected: true };
     const result = validateSession(session, { requireHealth: true });
     expect(result).toBeNull();
+  });
+
+  it("returns HEALTH_SCOPE_MISSING (403) when healthConnected but healthScopeComplete is false", async () => {
+    const session = { ...baseSession, healthConnected: true, healthScopeComplete: false };
+    const result = validateSession(session, { requireHealth: true });
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+    const body = await result!.json();
+    expect(body.error.code).toBe("HEALTH_SCOPE_MISSING");
+  });
+
+  it("returns null (passes) when healthConnected and healthScopeComplete are both true", () => {
+    const session = { ...baseSession, healthConnected: true, healthScopeComplete: true };
+    const result = validateSession(session, { requireHealth: true });
+    expect(result).toBeNull();
+  });
+
+  it("returns HEALTH_NOT_CONNECTED when healthConnected is false, regardless of healthScopeComplete", () => {
+    const session = { ...baseSession, healthConnected: false, healthScopeComplete: false };
+    const result = validateSession(session, { requireHealth: true });
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(400);
   });
 });

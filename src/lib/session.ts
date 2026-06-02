@@ -5,7 +5,7 @@ import { getRequiredEnv } from "@/lib/env";
 import { errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { getSessionById, deleteSession, touchSession } from "@/lib/session-db";
-import { getHealthTokens } from "@/lib/health-tokens";
+import { checkHealthConnection } from "@/lib/health-connection";
 
 let touchFailCount = 0;
 const TOUCH_FAIL_THRESHOLD = 3;
@@ -68,13 +68,14 @@ export async function getSession(): Promise<FullSession | null> {
     });
   }
 
-  const healthTokens = await getHealthTokens(dbSession.userId);
+  const connectionStatus = await checkHealthConnection(dbSession.userId);
 
   return {
     sessionId: dbSession.id,
     userId: dbSession.userId,
     expiresAt: dbSession.expiresAt.getTime(),
-    healthConnected: healthTokens !== null,
+    healthConnected: connectionStatus.status !== "needs_reconnect",
+    healthScopeComplete: connectionStatus.status === "healthy",
     destroy: async () => {
       await deleteSession(dbSession.id);
       rawSession.destroy();
@@ -94,12 +95,22 @@ export function validateSession(
     return errorResponse("AUTH_MISSING_SESSION", "No active session", 401);
   }
 
-  if (options?.requireHealth && !session.healthConnected) {
-    logger.warn(
-      { action: "session_invalid", reason: "health_not_connected" },
-      "session validation failed: Google Health not connected",
-    );
-    return errorResponse("HEALTH_NOT_CONNECTED", "Google Health account not connected", 400);
+  if (options?.requireHealth) {
+    if (!session.healthConnected) {
+      logger.warn(
+        { action: "session_invalid", reason: "health_not_connected" },
+        "session validation failed: Google Health not connected",
+      );
+      return errorResponse("HEALTH_NOT_CONNECTED", "Google Health account not connected", 400);
+    }
+    // healthScopeComplete undefined means not computed (test mocks) — treat as passing
+    if (session.healthScopeComplete === false) {
+      logger.warn(
+        { action: "session_invalid", reason: "health_scope_missing" },
+        "session validation failed: Google Health connection missing required scopes",
+      );
+      return errorResponse("HEALTH_SCOPE_MISSING", "Google Health connection is missing required scopes", 403);
+    }
   }
 
   return null;
