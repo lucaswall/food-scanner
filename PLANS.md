@@ -488,3 +488,32 @@ The unit/lint/typecheck gates and the review are all green, but the **E2E suite 
 3. Run vitest (expect pass), then `npm run e2e` (with Fix 1 applied) — confirm the DailyGoalsCard-renders test passes.
 
 **Note:** This Fix Plan is independent of the already-completed review fixes (FOO-1136/1137/1138, fixed inline). The 19 original migration-fix tasks (FOO-1117..1135) remain done; only the E2E gate blocks completion.
+
+---
+
+## Fix Plan — Iteration 1
+
+**Implemented:** 2026-06-02
+**Method:** Single-agent (2 fixes across 2 independent units, effort score 3 — below the worker threshold; Fix 1 is E2E-fixture-only, which is lead-exclusive)
+
+### Tasks Completed This Iteration
+- **Fix 1 (FOO-1140):** E2E seed scope — `e2e/fixtures/db.ts` `healthTokens` seed `scope` changed from the single stale Fitbit-era scope (`.../fitness.nutrition.write`) to the full Google Health set via `GOOGLE_HEALTH_SCOPES.join(' ')` (imported from `@/lib/auth`). `checkHealthConnection` now reports `healthy` for the E2E user, so the write-route scope gate (FOO-1126) admits the goals-UI reads (`/api/nutrition-goals`, `/api/health-profile`) instead of 403-ing them.
+- **Fix 2 (FOO-1141):** `daily-goals-card` no longer blanks on profile-read failure — removed the full-card `profileError` early-return (the FOO-1132 regression). The card now always renders the goal inputs + Save regardless of `profileError`; the live target preview is already suppressed when `profileData` is absent, and a non-blocking `role="status"` notice ("…live preview unavailable. You can still set and save your goals.") is shown. `settingsError` still hard-errors the card (it genuinely gates the inputs). Unused `mutateProfile` destructure removed (zero-warnings).
+
+### Files Modified
+- `e2e/fixtures/db.ts` — import `GOOGLE_HEALTH_SCOPES`; seed full health scope set
+- `src/components/daily-goals-card.tsx` — remove `profileError` early-return; add non-blocking preview-unavailable notice; drop unused `mutateProfile`
+- `src/components/__tests__/daily-goals-card.test.tsx` — replaced the FOO-1132 full-card-error assertions with non-blocking-behavior tests (inputs render + notice shown + preview hidden + Save enabled) and added a `settingsError`-still-blocks guard
+
+### Linear Updates
+- FOO-1140: Todo → In Progress → Review
+- FOO-1141: Todo → In Progress → Review
+
+### Pre-commit Verification
+- **bug-hunter:** No bugs found. Verified `profileUnavailable`/`canPreview` mutual exclusivity, `role="status"` correctness (non-urgent degradation, not an error), no dangling `mutateProfile` reference, and the E2E seed → `checkHealthConnection: healthy` chain.
+- **verifier (unit + lint + build):** 3,540 tests pass (193 files), lint clean, build clean — zero warnings.
+- **verifier "e2e":** All 135 E2E tests pass — the 3 previously-failing `goal-anchored-engine.spec.ts` tests (dashboard GoalsSetupBanner, TargetsCard goals_not_set message, DailyGoalsCard three input controls) are now green.
+
+### Continuation Status
+**All Fix Plan tasks complete (FOO-1140, FOO-1141).** The E2E release gate is now GREEN — all 135 E2E tests pass. With the 19 original migration-fix tasks (FOO-1117..1135) and the 3 inline review fixes (FOO-1136/1137/1138) already done, the full plan is implementation-complete.
+**Release gate unchanged:** the FOO-1115 staging smoke test (`HEALTH_DRY_RUN=false`, real Google Health round-trip — create→read-back→edit→delete→confirm-gone) remains a hard manual gate before `push-to-production`, reconciling the live response shapes flagged in Tasks 4/6/9/18.

@@ -59,7 +59,6 @@ export function DailyGoalsCard() {
     data: profileData,
     error: profileError,
     isLoading: profileLoading,
-    mutate: mutateProfile,
   } = useSWR<HealthProfileData>("/api/health-profile", apiFetcher, HEALTH_BACKED_SWR_CONFIG);
 
   // Local form state
@@ -201,24 +200,12 @@ export function DailyGoalsCard() {
     );
   }
 
-  if (profileError) {
-    const isTimeout =
-      profileError instanceof DOMException &&
-      (profileError.name === "TimeoutError" || profileError.name === "AbortError");
-    return (
-      <div className="flex flex-col gap-4 rounded-xl border bg-card p-6" role="alert">
-        <h2 className="text-lg font-semibold">Daily Goals</h2>
-        <p className="text-sm text-destructive">
-          {isTimeout
-            ? "Request timed out. Please try again."
-            : "Could not load health profile. Try again."}
-        </p>
-        <Button variant="outline" className="min-h-[44px]" onClick={() => mutateProfile()}>
-          Retry
-        </Button>
-      </div>
-    );
-  }
+  // FOO-1141: a health-profile read failure must NOT blank the card. The goal
+  // inputs below are local settings, independent of the Google Health profile —
+  // only the live target preview needs the profile. So we render the full card
+  // and degrade only the preview (non-blocking notice). `settingsError` above
+  // genuinely gates the inputs, so it stays a hard error.
+  const profileUnavailable = Boolean(profileError);
 
   // FOO-1131: sex and activityLevel are required for the macro engine to compute goals.
   const isRequiredFieldsMissing = sex === null || activityLevel === null;
@@ -375,6 +362,14 @@ export function DailyGoalsCard() {
             <span className="font-semibold">—</span>
           )}
         </div>
+      )}
+
+      {/* FOO-1141: profile read failed → degrade only the preview, keep the inputs usable */}
+      {profileUnavailable && (
+        <p className="text-sm text-muted-foreground" role="status">
+          Couldn&apos;t load your Google Health profile — live preview unavailable. You can still
+          set and save your goals.
+        </p>
       )}
 
       {/* Safety floor warning */}
