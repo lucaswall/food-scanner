@@ -1313,6 +1313,57 @@ describe("analyzeFood", () => {
     expect(analysisEvent?.analysis).toEqual(validAnalysis);
     expect(events[events.length - 1]).toEqual({ type: "done" });
   });
+
+  it("slow path fallback: strips hallucinated sourceCustomFoodId when search_food_log never ran (Codex P2)", async () => {
+    // First response: report_nutrition WITH a source id + a NON-search data tool.
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "tool_use",
+        content: [
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: { ...rawToolInput, source_custom_food_id: 999 } },
+          { type: "tool_use", id: "t_sum", name: "get_nutrition_summary", input: { date: "2026-02-15" } },
+        ],
+        usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+    mockExecuteTool.mockResolvedValueOnce("Totals: 1800 cal");
+    // Continuation: end_turn text only → no new analysis → falls back to pendingAnalysis.
+    mockStream.mockReturnValueOnce(makeTextStream("Analysis complete."));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const events = await collectEvents(analyzeFood([], "empanada", "user-123", "2026-02-15"));
+
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent).toBeDefined();
+    // search_food_log was never called → the hallucinated id must NOT leak via the fallback.
+    expect(analysisEvent?.analysis.sourceCustomFoodId).toBeUndefined();
+  });
+
+  it("slow path fallback: preserves sourceCustomFoodId when search_food_log DID run", async () => {
+    // First response: report_nutrition WITH a source id + search_food_log (trusted lookup).
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "tool_use",
+        content: [
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: { ...rawToolInput, source_custom_food_id: 999 } },
+          { type: "tool_use", id: "t_search", name: "search_food_log", input: { query: "empanada" } },
+        ],
+        usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+    mockExecuteTool.mockResolvedValueOnce("Found: Empanada — id 999");
+    mockStream.mockReturnValueOnce(makeTextStream("Analysis complete."));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const events = await collectEvents(analyzeFood([], "empanada", "user-123", "2026-02-15"));
+
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent?.analysis.sourceCustomFoodId).toBe(999);
+  });
 });
 
 // =============================================================================

@@ -1233,6 +1233,16 @@ export async function* analyzeFood(
           // If the tool loop didn't produce analysis, fall back to analysis captured from the
           // initial response (e.g. report_nutrition + data tool in the same first response).
           if (!sawAnalysis && slowPathPendingAnalysis) {
+            // Same strip as the analysis branch above: a sourceCustomFoodId from the
+            // initial report_nutrition is untrusted unless search_food_log actually ran.
+            // Without this, a hallucinated id leaks via the fallback to use-log-food.
+            if (slowPathPendingAnalysis.sourceCustomFoodId != null && !sawSearchFoodLog) {
+              l.warn(
+                { action: "analyze_food_strip_source_id", sourceCustomFoodId: slowPathPendingAnalysis.sourceCustomFoodId, foodName: slowPathPendingAnalysis.food_name },
+                "stripping hallucinated sourceCustomFoodId from slow-path fallback analysis (no search_food_log was called)"
+              );
+              delete slowPathPendingAnalysis.sourceCustomFoodId;
+            }
             yield { type: "analysis", analysis: slowPathPendingAnalysis };
           } else if (!sawAnalysis && accumulatedText.trim()) {
             // If no analysis was produced and we have text, emit needs_chat

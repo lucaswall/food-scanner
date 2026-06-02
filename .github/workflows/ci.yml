@@ -84,8 +84,13 @@ jobs:
   e2e:
     needs: [lint-typecheck, unit-tests, build]
     runs-on: ubuntu-latest
-    # Backstop against a hung step (e.g. a stalled Playwright CDN download): without
-    # this the job inherits GitHub's 6h default and a hang blocks merges indefinitely.
+    # Run inside the official Playwright image (tag pinned to the @playwright/test
+    # version in package.json): browsers + system deps are pre-baked, eliminating the
+    # `playwright install` browser download/extraction step that deadlocked on
+    # cache-miss runs and hung the job for hours.
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
+    # Backstop so a hung step can never block merges for GitHub's 6h default.
     timeout-minutes: 25
     services:
       postgres:
@@ -94,8 +99,6 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: food_scanner
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -109,43 +112,13 @@ jobs:
           cache: npm
       - run: npm ci
 
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ hashFiles('package-lock.json') }}
-
-      - name: Install Playwright browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        # Bound + retry the chromium binary download. The CDN fetch has no built-in
-        # per-attempt timeout and can stall indefinitely on a flaky runner — which
-        # previously hung this job. `timeout` kills a stalled attempt so the retry
-        # loop can recover; the step timeout is the final backstop.
-        timeout-minutes: 13
-        run: |
-          for attempt in 1 2 3; do
-            if timeout 240 npx playwright install chromium; then
-              exit 0
-            fi
-            if [ "$attempt" -lt 3 ]; then
-              echo "::warning::Playwright browser install attempt $attempt failed or timed out; retrying…"
-              sleep 10
-            fi
-          done
-          echo "::error::Playwright browser install failed after 3 attempts"
-          exit 1
-
-      # System deps are needed whether or not the browser binary was cache-restored,
-      # so this runs on every job (split out from the browser download above).
-      - name: Install Playwright system dependencies
-        run: npx playwright install-deps chromium
-
       - name: Run E2E tests
         run: npx playwright test
         env:
           CI: true
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/food_scanner
+          # In a container job the postgres service is reachable by its service name
+          # on the job network (NOT localhost, which the runner-host mapping used).
+          DATABASE_URL: postgresql://postgres:postgres@postgres:5432/food_scanner
           SESSION_SECRET: test-session-secret-min-32-chars-required-for-iron-session
           APP_URL: http://localhost:3001
           ALLOWED_EMAILS: test@example.com
