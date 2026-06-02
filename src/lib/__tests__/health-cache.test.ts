@@ -51,6 +51,7 @@ describe("health-cache", () => {
     targetDate: string,
     log?: Logger,
     criticality?: HealthCallCriticality,
+    zoneOffset?: string | null,
   ) => Promise<ActivitySummary>;
   let invalidateHealthProfileCache: (userId: string) => void;
 
@@ -240,8 +241,26 @@ describe("health-cache", () => {
 
       const result = await getCachedHealthActivitySummary("user-1", "2024-01-15");
 
-      expect(mockGetHealthActivitySummary).toHaveBeenCalledWith("test-access-token", "2024-01-15", expect.any(Object), "user-1", "optional");
+      expect(mockGetHealthActivitySummary).toHaveBeenCalledWith("test-access-token", "2024-01-15", expect.any(Object), "user-1", "optional", undefined);
       expect(result).toEqual(mockActivity);
+    });
+
+    it("threads zoneOffset through to getHealthActivitySummary", async () => {
+      mockGetHealthActivitySummary.mockResolvedValue(mockActivity);
+
+      await getCachedHealthActivitySummary("user-1", "2024-01-15", undefined, "optional", "-03:00");
+
+      expect(mockGetHealthActivitySummary).toHaveBeenCalledWith("test-access-token", "2024-01-15", expect.any(Object), "user-1", "optional", "-03:00");
+    });
+
+    it("keys the cache by zoneOffset (different offsets do not collide)", async () => {
+      mockGetHealthActivitySummary.mockResolvedValue(mockActivity);
+
+      await getCachedHealthActivitySummary("user-1", "2024-01-15", undefined, "optional", "-03:00");
+      await getCachedHealthActivitySummary("user-1", "2024-01-15", undefined, "optional", "+05:30");
+
+      // Same user+date but different civil-day windows → two distinct fetches.
+      expect(mockGetHealthActivitySummary).toHaveBeenCalledTimes(2);
     });
 
     it("returns cached value on second call within TTL", async () => {
