@@ -507,6 +507,40 @@ describe("GET /api/auth/google/callback", () => {
     expect(response.headers.get("location")).not.toContain("evil.com");
   });
 
+  it("health-connect: returns 400 when state userId does not match cookie session userId", async () => {
+    const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect", userId: "initiating-user" });
+    mockRawSession.oauthState = healthState;
+    mockRawSession.sessionId = "existing-session-id";
+    // Cookie session belongs to a different user than the one who initiated the health-connect
+    mockGetSessionById.mockResolvedValue({ ...fakeDbSession, userId: "different-user" });
+
+    const response = await GET(makeCallbackRequest("health-code", healthState));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("health-connect: binds tokens to the correct (initiating) user when state userId matches cookie session", async () => {
+    const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect", userId: "user-uuid-123" });
+    mockRawSession.oauthState = healthState;
+    mockRawSession.sessionId = "existing-session-id";
+    mockGetSessionById.mockResolvedValue(fakeDbSession); // userId = "user-uuid-123"
+    mockExchangeGoogleHealthCode.mockResolvedValue({
+      access_token: "health-at",
+      refresh_token: "health-rt",
+      expires_in: 3600,
+    });
+    mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
+
+    const response = await GET(makeCallbackRequest("health-code", healthState));
+    expect(response.status).toBe(302);
+    expect(mockUpsertHealthTokens).toHaveBeenCalledWith(
+      "user-uuid-123",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
   it("health-connect: rejects protocol-relative returnTo (//evil.com) and falls back to /app", async () => {
     // Protocol-relative URLs start with "/" but also with "//" — both checks are needed.
     const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect", returnTo: "//evil.com/steal" });

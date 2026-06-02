@@ -11,7 +11,7 @@ async function initiate(request: Request): Promise<Response> {
   if (sessionError) return sessionError;
 
   const nonce = crypto.randomUUID();
-  const state = JSON.stringify({ nonce, flow: "health-connect" });
+  const state = JSON.stringify({ nonce, flow: "health-connect", userId: session!.userId });
 
   const redirectUri = buildUrl("/api/auth/google/callback");
   const authUrl = buildGoogleHealthAuthUrl(state, redirectUri);

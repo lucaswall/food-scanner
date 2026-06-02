@@ -16,7 +16,13 @@ export interface FullSession {
   sessionId: string;
   userId: string;
   expiresAt: number;
+  /** True when a health token row exists (connected, even if scopes are incomplete) */
   healthConnected: boolean;
+  /**
+   * True when the health connection is fully healthy (all GOOGLE_HEALTH_SCOPES granted).
+   * Undefined when not computed (e.g. in test mocks). Treat undefined as passing.
+   */
+  healthScopeComplete?: boolean;
   /** Call to destroy both cookie and DB session */
   destroy: () => Promise<void>;
 }

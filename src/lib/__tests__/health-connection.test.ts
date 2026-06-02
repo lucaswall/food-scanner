@@ -85,4 +85,41 @@ describe("checkHealthConnection", () => {
     expect(["needs_reconnect", "scope_mismatch", "healthy"]).toContain(result.status);
     expect(result.status).not.toBe("needs_setup");
   });
+
+  it("returns healthy when scope is null (RFC 6749: omitted scope = all requested scopes granted)", async () => {
+    mockGetHealthTokens.mockResolvedValue({
+      id: 1,
+      userId: "user-1",
+      healthUserId: "gh-1",
+      accessToken: "tok",
+      refreshToken: "ref",
+      expiresAt: new Date(),
+      // scope omitted by provider → stored as null
+      scope: null,
+      updatedAt: new Date(),
+    });
+
+    const result = await checkHealthConnection("user-1");
+    expect(result.status).toBe("healthy");
+  });
+
+  it("still returns scope_mismatch for a non-null partial scope string", async () => {
+    mockGetHealthTokens.mockResolvedValue({
+      id: 1,
+      userId: "user-1",
+      healthUserId: "gh-1",
+      accessToken: "tok",
+      refreshToken: "ref",
+      expiresAt: new Date(),
+      // Only one scope explicitly granted
+      scope: "https://www.googleapis.com/auth/googlehealth.nutrition.writeonly",
+      updatedAt: new Date(),
+    });
+
+    const result = await checkHealthConnection("user-1");
+    expect(result.status).toBe("scope_mismatch");
+    if (result.status === "scope_mismatch") {
+      expect(result.missingScopes.length).toBeGreaterThan(0);
+    }
+  });
 });
