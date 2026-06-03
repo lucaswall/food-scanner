@@ -324,6 +324,36 @@ describe("google-health", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    it("aborts the 5xx exponential-backoff sleep promptly when the caller AbortSignal fires", async () => {
+      vi.useFakeTimers();
+      const controller = new AbortController();
+
+      // First fetch returns 500 (triggers 1s backoff sleep); second returns 200 (would succeed
+      // if the sleep completes). Without fix: sleep fires, retry resolves → assertion FAILS.
+      // With fix: abortableSleep sees signal.aborted immediately → rejects with AbortError.
+      fetchMock
+        .mockResolvedValueOnce(new Response(null, { status: 500 }))
+        .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+      const promise = fetchWithRetry(
+        "https://example.com",
+        { signal: controller.signal },
+        0, Date.now(), fakeLog,
+      );
+
+      // Abort before the backoff sleep elapses
+      controller.abort();
+
+      // MUST set up rejection assertion BEFORE advancing timers (CLAUDE.md fake-timers gotcha)
+      const rejection = expect(promise).rejects.toThrow();
+      // Advance 2s — enough for the 1s sleep to fire (without fix) or abort to be detected (with fix)
+      await vi.advanceTimersByTimeAsync(2000);
+      await rejection;
+
+      // With the fix: only 1 fetch (abort fires during backoff sleep, retry never runs)
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it("does not call recordResourceExhaustedCooldown when userId is undefined on 403 RESOURCE_EXHAUSTED", async () => {
       fetchMock.mockResolvedValue(
         new Response(
