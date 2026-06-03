@@ -210,3 +210,19 @@ docker stop pg-integration
 **Deployment action required:**
 - **Staging** (`food-test.lucaswall.me`): Set `HEALTH_DRY_RUN=true` before deploying this change (already noted in the main runbook; now boot-enforced).
 - **Production** (`food.lucaswall.me`): Set `HEALTH_DRY_RUN=false` (or `HEALTH_DRY_RUN=true` for a pre-production test). The env var must be present — the server will not start without it.
+
+---
+
+## FOO-1142 — Health-token encryption key rotation (HKDF + version prefix)
+
+**No SQL.** Token format change only — `health_tokens.access_token` and `health_tokens.refresh_token` column values are re-encrypted with the new scheme on next write; old values become undecryptable on deploy.
+
+**What changed:** `src/lib/token-encryption.ts` now derives the AES-256-GCM key via HKDF-SHA256 from a dedicated `HEALTH_TOKEN_ENCRYPTION_KEY` env var (replacing the old `crypto.createHash("sha256").update(SESSION_SECRET)` KDF). Ciphertext gains a 1-byte version prefix (`0x01`) so format mismatches are detected immediately. `getHealthTokens` catches `TokenDecryptionError` and returns `null` rather than crashing, routing users through the re-link flow.
+
+**Forced re-auth:** All existing `health_tokens` rows are encrypted under the old `SESSION_SECRET`-derived key. They will be undecryptable after this deploy. Both Lucas and Mariana will see `healthConnected=false` and be routed to `/app/connect-health` to re-link Google Health on their next visit. No data is lost — re-linking re-populates the tokens.
+
+**Railway env var required before deploy (both environments):**
+```bash
+railway variables --set "HEALTH_TOKEN_ENCRYPTION_KEY=$(openssl rand -base64 32)"
+```
+Set independently on staging and production — do NOT share the same key between environments.

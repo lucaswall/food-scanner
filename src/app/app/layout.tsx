@@ -5,23 +5,14 @@ import { PendingSubmissionHandler } from "@/components/pending-submission-handle
 import { SwipeNavigationWrapper } from "@/components/swipe-navigation-wrapper";
 import { SentryUserContext } from "@/components/sentry-user-context";
 import { getSession } from "@/lib/session";
-import { getUserById } from "@/lib/users";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
-  let user: Awaited<ReturnType<typeof getUserById>> = null;
-  if (session) {
-    try {
-      user = await getUserById(session.userId);
-    } catch {
-      // Non-fatal: Sentry context will use session.userId only
-    }
-  }
 
   return (
     <AppRefreshGuard>
       {session && (
-        <SentryUserContext userId={user?.id ?? session.userId} email={user?.email ?? ""} />
+        <SentryUserContext userId={session.userId} />
       )}
       <SWRProvider>
         <PendingSubmissionHandler />

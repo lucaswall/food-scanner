@@ -80,6 +80,7 @@ Follow the **OAuth Setup** section below to create Google OAuth credentials befo
 ```bash
 railway variables set \
   SESSION_SECRET="$(openssl rand -base64 32)" \
+  HEALTH_TOKEN_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
   ALLOWED_EMAILS=wall.lucas@gmail.com \
   APP_URL=https://food.lucaswall.me \
   GOOGLE_CLIENT_ID=your-google-client-id \
@@ -92,6 +93,8 @@ For staging, also set:
 ```bash
 railway variables set HEALTH_DRY_RUN=true
 ```
+
+> **Note:** `HEALTH_TOKEN_ENCRYPTION_KEY` is a dedicated 32-byte random key for encrypting Google Health tokens at rest. Rotating this key invalidates all stored tokens — users must re-link Google Health after rotation.
 
 Set real values for all credentials.
 

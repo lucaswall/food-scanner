@@ -25,8 +25,26 @@ export async function getHealthTokens(userId: string, log?: Logger): Promise<Hea
     l.debug({ action: "get_health_tokens", found: false }, "health tokens not found");
     return null;
   }
-  const accessToken = decryptToken(row.accessToken);
-  const refreshToken = decryptToken(row.refreshToken);
+
+  let accessToken: string;
+  let refreshToken: string;
+  try {
+    accessToken = decryptToken(row.accessToken);
+    refreshToken = decryptToken(row.refreshToken);
+  } catch (err) {
+    // Token is undecryptable — key rotation, format version change, or corruption.
+    // Treat as absent so callers prompt the user to re-link Google Health.
+    l.warn(
+      {
+        action: "get_health_tokens",
+        userId,
+        errorType: err instanceof Error ? err.name : "unknown",
+      },
+      "health token decryption failed — treating as absent to force re-auth",
+    );
+    return null;
+  }
+
   l.debug({ action: "get_health_tokens", found: true }, "health tokens retrieved");
   return { ...row, accessToken, refreshToken };
 }

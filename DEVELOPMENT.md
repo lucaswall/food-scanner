@@ -50,6 +50,7 @@ Then edit `.env.local` and override these values for local development:
 | `APP_URL` | `http://localhost:3000` | Local dev server, not production domain |
 | `LOG_LEVEL` | `debug` (optional) | More verbose logging during development |
 | `HEALTH_DRY_RUN` | `true` (optional) | Skip Google Health API calls, log to DB only |
+| `HEALTH_TOKEN_ENCRYPTION_KEY` | `$(openssl rand -base64 32)` (if not pulled from Railway) | Dedicated encryption key for health tokens at rest |
 
 Remove any Railway-internal variables (e.g., `RAILWAY_*`, `PORT`) — they're not needed locally.
 
@@ -314,6 +315,34 @@ This project uses Claude Code with custom agents and skills for development:
 4. `/plan-implement` — Execute the plan with TDD
 5. `/plan-review-implementation` — Review, commit, and create PR
 6. `/push-to-production` — Release to production
+
+---
+
+## Content Security Policy (CSP)
+
+The CSP header is applied in production only (see `next.config.ts`).
+
+### Sentry tunnel
+
+All client-side Sentry events route through the `/monitoring` same-origin tunnel endpoint,
+configured via `tunnelRoute: "/monitoring"` in `withSentryConfig`. The `@sentry/nextjs` build
+plugin injects the tunnel URL into the compiled client bundle — no direct `connect-src sentry.io`
+is needed. `connect-src 'self'` covers Sentry reporting.
+
+### Nonce-based script-src (deferred — FOO-1154)
+
+The current CSP uses `'unsafe-inline'` for `script-src`. Replacing it with a per-request nonce
+requires:
+
+1. Generating a cryptographic nonce in `middleware.ts` on every request.
+2. Setting both the `Content-Security-Policy` header (with `'nonce-<value>'`) and an `x-nonce`
+   response header so Next.js App Router's root layout can read it.
+3. Passing the nonce to the root `<html>` layout so Next.js includes it on all inline hydration
+   `<script>` tags (using the `headers().get("x-nonce")` pattern from Next.js docs).
+
+This change touches `middleware.ts`, `src/app/layout.tsx`, and `next.config.ts`. It carries a
+risk of breaking RSC hydration if any inline script is missed. Deferred to a dedicated task —
+`'unsafe-inline'` is acceptable in the interim for this single-user app.
 
 ---
 

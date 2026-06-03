@@ -96,7 +96,7 @@ describe("getHealthTokens", () => {
     expect(result!.healthUserId).toBe("health-uid-123");
   });
 
-  it("throws when decryption fails", async () => {
+  it("returns null when decryption fails (key rotation / format change forces re-auth)", async () => {
     const { getHealthTokens } = await import("@/lib/health-tokens");
     mockWhere.mockResolvedValue([{
       id: 1,
@@ -109,9 +109,10 @@ describe("getHealthTokens", () => {
       updatedAt: new Date(),
     }]);
 
-    mockDecryptToken.mockImplementationOnce(() => { throw new Error("Invalid token format"); });
+    mockDecryptToken.mockImplementationOnce(() => { throw new Error("Unknown token format version: 0x00"); });
 
-    await expect(getHealthTokens("user-uuid-123")).rejects.toThrow("Invalid token format");
+    const result = await getHealthTokens("user-uuid-123");
+    expect(result).toBeNull();
   });
 
   it("returns scope from DB row", async () => {

@@ -13,28 +13,26 @@ describe("SentryUserContext", () => {
     mockSetUser.mockClear();
   });
 
-  it("calls Sentry.setUser with id and email on mount", () => {
-    render(
-      <SentryUserContext userId="user-123" email="test@example.com" />,
-    );
-    expect(mockSetUser).toHaveBeenCalledWith({
-      id: "user-123",
-      email: "test@example.com",
-    });
+  it("calls Sentry.setUser with id only (no email — PII not sent to Sentry)", () => {
+    render(<SentryUserContext userId="user-123" />);
+    expect(mockSetUser).toHaveBeenCalledWith({ id: "user-123" });
+    expect(mockSetUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not include email in the Sentry user context", () => {
+    render(<SentryUserContext userId="user-123" />);
+    const callArg = mockSetUser.mock.calls[0][0] as Record<string, unknown>;
+    expect(callArg).not.toHaveProperty("email");
   });
 
   it("calls Sentry.setUser(null) on unmount", () => {
-    render(
-      <SentryUserContext userId="user-123" email="test@example.com" />,
-    );
+    render(<SentryUserContext userId="user-123" />);
     cleanup();
     expect(mockSetUser).toHaveBeenCalledWith(null);
   });
 
   it("renders nothing (returns null)", () => {
-    const { container } = render(
-      <SentryUserContext userId="user-123" email="test@example.com" />,
-    );
+    const { container } = render(<SentryUserContext userId="user-123" />);
     expect(container).toBeEmptyDOMElement();
   });
 });
