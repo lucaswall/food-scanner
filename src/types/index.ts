@@ -147,6 +147,7 @@ export interface FoodLogRequest extends FoodAnalysis {
   zoneOffset?: string; // ±HH:MM (client UTC offset)
   clientToken?: string; // optional idempotency key for retried log requests
   reuseCustomFoodId?: number;
+  expectedCalories?: number; // cross-check: if provided, reused food calories must match within 50%
   // Optional metadata updates when reusing a custom food
   newDescription?: string;
   newNotes?: string;

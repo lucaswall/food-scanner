@@ -784,18 +784,18 @@ export async function searchFoods(
   const db = getDb();
   const limit = options.limit ?? 10;
 
-  const conditions = [eq(customFoods.userId, userId)];
-
-  const rows = await db
+  // Query 1: fetch all custom foods for this user (one row per food — no cross-join).
+  const foods = await db
     .select()
     .from(customFoods)
-    .leftJoin(foodLogEntries, eq(foodLogEntries.customFoodId, customFoods.id))
-    .where(and(...conditions));
+    .where(eq(customFoods.userId, userId));
 
-  // Application-level filtering: keyword match ratio OR food name substring match
-  const filtered = rows.filter((row) => {
+  // Application-level filtering: keyword match ratio OR food name substring match.
+  // All user foods remain searchable — no limit applied before or during filtering
+  // (see memory: "always show all logged foods").
+  const filtered = foods.filter((food) => {
     // Primary: keyword-based matching (ratio >= 0.5)
-    const existingKeywords = row.custom_foods.keywords;
+    const existingKeywords = food.keywords;
     if (existingKeywords && existingKeywords.length > 0) {
       // Normalize existing keywords to lowercase — DB keywords may have mixed case
       // if the model didn't follow the "lowercase tokens" instruction perfectly
@@ -805,70 +805,78 @@ export async function searchFoods(
 
     // Fallback: all search terms appear as substrings in the food name.
     // This catches brand names (excluded from keywords) and partial words.
-    const foodNameLower = row.custom_foods.foodName.toLowerCase();
+    const foodNameLower = food.foodName.toLowerCase();
     return keywords.every(kw => foodNameLower.includes(kw));
   });
 
-  // Group by customFoodId: count entries, track max date, keep best mealTypeId
-  const grouped = new Map<
-    number,
-    { row: (typeof filtered)[number]; count: number; maxDate: string | null; bestEntry: (typeof filtered)[number] | null }
-  >();
+  if (filtered.length === 0) {
+    l.debug({ action: "search_foods", keywords, resultCount: 0 }, "food search complete");
+    return [];
+  }
 
-  for (const row of filtered) {
-    const foodId = row.custom_foods.id;
-    const existing = grouped.get(foodId);
-    const entryDate = row.food_log_entries?.date ?? null;
+  // Query 2: fetch all log entries for this user and aggregate per food.
+  // Using a separate query avoids materialising the full custom_foods × food_log_entries
+  // cross-join. Aggregation (count, maxDate, bestMealTypeId) happens in memory.
+  const filteredIds = new Set(filtered.map(f => f.id));
+  const logRows = await db
+    .select()
+    .from(foodLogEntries)
+    .where(eq(foodLogEntries.userId, userId));
 
+  // Aggregate log data per customFoodId: count entries, track latest date and its mealTypeId
+  const aggregated = new Map<number, { count: number; maxDate: string | null; bestMealTypeId: number }>();
+
+  for (const entry of logRows) {
+    if (!filteredIds.has(entry.customFoodId)) continue;
+    const existing = aggregated.get(entry.customFoodId);
+    const entryDate = entry.date;
     if (!existing) {
-      grouped.set(foodId, {
-        row,
-        count: entryDate ? 1 : 0,
-        maxDate: entryDate,
-        bestEntry: row.food_log_entries ? row : null,
-      });
+      aggregated.set(entry.customFoodId, { count: 1, maxDate: entryDate, bestMealTypeId: entry.mealTypeId });
     } else {
-      if (entryDate) {
-        existing.count += 1;
-        if (!existing.maxDate || entryDate > existing.maxDate) {
-          existing.maxDate = entryDate;
-          existing.bestEntry = row;
-        }
+      existing.count += 1;
+      if (!existing.maxDate || entryDate > existing.maxDate) {
+        existing.maxDate = entryDate;
+        existing.bestMealTypeId = entry.mealTypeId;
       }
     }
   }
 
   // Sort by count DESC, then maxDate DESC
-  const sorted = [...grouped.values()]
+  const sorted = [...filtered]
     .sort((a, b) => {
-      if (b.count !== a.count) return b.count - a.count;
-      const dateA = a.maxDate ?? "";
-      const dateB = b.maxDate ?? "";
+      const aggA = aggregated.get(a.id);
+      const aggB = aggregated.get(b.id);
+      const countA = aggA?.count ?? 0;
+      const countB = aggB?.count ?? 0;
+      if (countB !== countA) return countB - countA;
+      const dateA = aggA?.maxDate ?? "";
+      const dateB = aggB?.maxDate ?? "";
       return dateB.localeCompare(dateA);
     })
     .slice(0, limit);
 
-  const results = sorted.map(({ row, bestEntry }) => {
-    const entryRow = bestEntry ?? row;
+  const results = sorted.map(food => {
+    const agg = aggregated.get(food.id);
     return {
-      customFoodId: row.custom_foods.id,
-      foodName: row.custom_foods.foodName,
-      amount: Number(row.custom_foods.amount),
-      unitId: coerceServingUnit(row.custom_foods.unitId),
-      calories: row.custom_foods.calories,
-      proteinG: Number(row.custom_foods.proteinG),
-      carbsG: Number(row.custom_foods.carbsG),
-      fatG: Number(row.custom_foods.fatG),
-      fiberG: Number(row.custom_foods.fiberG),
-      sodiumMg: Number(row.custom_foods.sodiumMg),
-      saturatedFatG: row.custom_foods.saturatedFatG != null ? Number(row.custom_foods.saturatedFatG) : null,
-      transFatG: row.custom_foods.transFatG != null ? Number(row.custom_foods.transFatG) : null,
-      sugarsG: row.custom_foods.sugarsG != null ? Number(row.custom_foods.sugarsG) : null,
-      caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
-      mealTypeId: entryRow.food_log_entries?.mealTypeId ?? 7,
-      isFavorite: row.custom_foods.isFavorite,
+      customFoodId: food.id,
+      foodName: food.foodName,
+      amount: Number(food.amount),
+      unitId: coerceServingUnit(food.unitId),
+      calories: food.calories,
+      proteinG: Number(food.proteinG),
+      carbsG: Number(food.carbsG),
+      fatG: Number(food.fatG),
+      fiberG: Number(food.fiberG),
+      sodiumMg: Number(food.sodiumMg),
+      saturatedFatG: food.saturatedFatG != null ? Number(food.saturatedFatG) : null,
+      transFatG: food.transFatG != null ? Number(food.transFatG) : null,
+      sugarsG: food.sugarsG != null ? Number(food.sugarsG) : null,
+      caloriesFromFat: food.caloriesFromFat != null ? Number(food.caloriesFromFat) : null,
+      mealTypeId: agg?.bestMealTypeId ?? 7,
+      isFavorite: food.isFavorite,
     };
   });
+
   l.debug({ action: "search_foods", keywords, resultCount: results.length }, "food search complete");
   return results;
 }

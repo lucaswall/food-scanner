@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { FullSession } from "@/types";
 
+const mockCheckRateLimit = vi.fn();
+vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+}));
+
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 
 const mockGetSession = vi.fn();
@@ -98,6 +103,7 @@ function createRequest(): Request {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("HEALTH_DRY_RUN", "");
+  mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
 });
 
 afterEach(() => {
@@ -295,6 +301,31 @@ describe("DELETE /api/food-history/[id]", () => {
     expect(response.status).toBe(500);
     const body = await response.json();
     expect(body.error.code).toBe("INTERNAL_ERROR");
+  });
+
+  // Task 3: Per-user rate limiting (FOO-1145)
+  describe("rate limiting", () => {
+    it("returns 429 RATE_LIMIT_EXCEEDED when rate limit is exceeded", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockCheckRateLimit.mockReturnValue({ allowed: false, remaining: 0 });
+
+      const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
+
+      expect(response.status).toBe(429);
+      const body = await response.json();
+      expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
+    });
+
+    it("does NOT call ensureFreshToken or deleteNutritionLogs when rate limit exceeded", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockCheckRateLimit.mockReturnValue({ allowed: false, remaining: 0 });
+
+      await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
+
+      expect(mockEnsureFreshToken).not.toHaveBeenCalled();
+      expect(mockDeleteNutritionLogs).not.toHaveBeenCalled();
+      expect(mockDeleteFoodLogEntry).not.toHaveBeenCalled();
+    });
   });
 });
 

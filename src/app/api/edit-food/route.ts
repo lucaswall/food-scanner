@@ -6,8 +6,13 @@ import { getFoodLogEntryDetail, updateFoodLogEntry, updateFoodLogEntryMetadata, 
 import { isValidDateFormat, isValidTimeFormat } from "@/lib/date-utils";
 import { isValidFoodAnalysisFields } from "@/lib/food-validation";
 import { mapHealthError } from "@/lib/health-error-response";
+import { checkRateLimit } from "@/lib/rate-limit";
 import type { FoodAnalysis, FoodLogEntryDetail, ServingUnit } from "@/types";
 import { MealType, coerceServingUnit } from "@/types";
+
+// Task 3: Per-user rate limits (60 requests / 15 minutes)
+const RATE_LIMIT_MAX = 60;
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 
 const VALID_MEAL_TYPE_IDS = [
   MealType.Breakfast,
@@ -67,6 +72,11 @@ export async function POST(request: Request) {
 
   const validationError = validateSession(session, { requireHealth: true });
   if (validationError) return validationError;
+
+  const { allowed } = checkRateLimit(`edit-food:${session!.userId}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
+  if (!allowed) {
+    return errorResponse("RATE_LIMIT_EXCEEDED", "Too many requests. Please try again later.", 429);
+  }
 
   let body: unknown;
   try {

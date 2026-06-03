@@ -3,6 +3,11 @@ import type { FoodLogRequest, FullSession, ServingUnit } from "@/types";
 
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 
+const mockCheckRateLimit = vi.fn();
+vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+}));
+
 const mockGetSession = vi.fn();
 vi.mock("@/lib/session", () => ({
   getSession: () => mockGetSession(),
@@ -111,6 +116,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 1, foodLogId: 1 });
   mockInsertFoodLogEntry.mockResolvedValue({ id: 1, loggedAt: new Date() });
+  mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
 });
 
 describe("POST /api/log-food", () => {
@@ -933,6 +939,253 @@ describe("POST /api/log-food", () => {
       expect(response.status).toBe(400);
       const body = await response.json();
       expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+  });
+
+  // Task 3: Per-user rate limiting (FOO-1145)
+  describe("rate limiting", () => {
+    it("returns 429 RATE_LIMIT_EXCEEDED when rate limit is exceeded", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockCheckRateLimit.mockReturnValue({ allowed: false, remaining: 0 });
+
+      const request = createMockRequest(validFoodLogRequest);
+      const response = await POST(request);
+
+      expect(response.status).toBe(429);
+      const body = await response.json();
+      expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
+    });
+
+    it("does NOT call createNutritionLog when rate limit exceeded", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockCheckRateLimit.mockReturnValue({ allowed: false, remaining: 0 });
+
+      await POST(createMockRequest(validFoodLogRequest));
+
+      expect(mockEnsureFreshToken).not.toHaveBeenCalled();
+      expect(mockCreateNutritionLog).not.toHaveBeenCalled();
+      expect(mockInsertCustomFoodWithLogEntry).not.toHaveBeenCalled();
+    });
+
+    it("passes userId in the rate-limit key", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-1" });
+
+      await POST(createMockRequest(validFoodLogRequest));
+
+      expect(mockCheckRateLimit).toHaveBeenCalledWith(
+        expect.stringContaining("user-uuid-123"),
+        expect.any(Number),
+        expect.any(Number),
+      );
+    });
+  });
+
+  // Task 13: expectedCalories field on FoodLogRequest (FOO-1150)
+  describe("expectedCalories validation", () => {
+    it("returns 400 VALIDATION_ERROR when expectedCalories is a non-number string", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      const request = createMockRequest({
+        reuseCustomFoodId: 42,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
+        expectedCalories: "not-a-number",
+      });
+      const response = await POST(request);
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 400 VALIDATION_ERROR when expectedCalories is 0 (not > 0)", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      const request = createMockRequest({
+        reuseCustomFoodId: 42,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
+        expectedCalories: 0,
+      });
+      const response = await POST(request);
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("accepts a valid expectedCalories (positive number) in reuse flow", async () => {
+      const existingFood = {
+        id: 42,
+        userId: "user-uuid-123",
+        foodName: "Tea with milk",
+        amount: "1",
+        unitId: "cup" as ServingUnit,
+        calories: 50,
+        proteinG: "2",
+        carbsG: "5",
+        fatG: "2",
+        fiberG: "0",
+        sodiumMg: "30",
+        saturatedFatG: null,
+        transFatG: null,
+        sugarsG: null,
+        caloriesFromFat: null,
+        confidence: "high",
+        notes: null,
+        description: null,
+        keywords: [],
+        createdAt: new Date(),
+      };
+      mockGetSession.mockResolvedValue(validSession);
+      mockGetCustomFoodById.mockResolvedValue(existingFood);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-1" });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 1, loggedAt: new Date() });
+
+      const request = createMockRequest({
+        reuseCustomFoodId: 42,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
+        expectedCalories: 50,
+      });
+      const response = await POST(request);
+      expect(response.status).toBe(200);
+    });
+
+    it("accepts request without expectedCalories (omitted is allowed)", async () => {
+      const existingFood = {
+        id: 42,
+        userId: "user-uuid-123",
+        foodName: "Tea with milk",
+        amount: "1",
+        unitId: "cup" as ServingUnit,
+        calories: 50,
+        proteinG: "2",
+        carbsG: "5",
+        fatG: "2",
+        fiberG: "0",
+        sodiumMg: "30",
+        saturatedFatG: null,
+        transFatG: null,
+        sugarsG: null,
+        caloriesFromFat: null,
+        confidence: "high",
+        notes: null,
+        description: null,
+        keywords: [],
+        createdAt: new Date(),
+      };
+      mockGetSession.mockResolvedValue(validSession);
+      mockGetCustomFoodById.mockResolvedValue(existingFood);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-1" });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 1, loggedAt: new Date() });
+
+      const request = createMockRequest({
+        reuseCustomFoodId: 42,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
+        // no expectedCalories
+      });
+      const response = await POST(request);
+      expect(response.status).toBe(200);
+    });
+
+    it("body.expectedCalories is read directly without double cast", async () => {
+      // After Task 13 GREEN: the route reads body.expectedCalories directly.
+      // If the cast is removed and the field typed, this test confirms the
+      // route still applies the mismatch check correctly.
+      const existingFood = {
+        id: 42,
+        userId: "user-uuid-123",
+        foodName: "Tea with milk",
+        amount: "1",
+        unitId: "cup" as ServingUnit,
+        calories: 50,
+        proteinG: "2",
+        carbsG: "5",
+        fatG: "2",
+        fiberG: "0",
+        sodiumMg: "30",
+        saturatedFatG: null,
+        transFatG: null,
+        sugarsG: null,
+        caloriesFromFat: null,
+        confidence: "high",
+        notes: null,
+        description: null,
+        keywords: [],
+        createdAt: new Date(),
+      };
+      mockGetSession.mockResolvedValue(validSession);
+      mockGetCustomFoodById.mockResolvedValue(existingFood);
+
+      // expectedCalories is 500 but existing food is 50 — >50% diff → mismatch
+      const request = createMockRequest({
+        reuseCustomFoodId: 42,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
+        expectedCalories: 500,
+      });
+      const response = await POST(request);
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+      expect(body.error.message).toContain("Reused food does not match");
+    });
+  });
+
+  // Task 12: Bounded idempotency cache (FOO-1156)
+  describe("idempotency cache bounds", () => {
+    it("idempotency cache has a bounded max size and size helper exports", async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const m = await import("@/app/api/log-food/route") as any;
+      expect(typeof m.MAX_IDEMPOTENCY_SIZE).toBe("number");
+      expect(m.MAX_IDEMPOTENCY_SIZE).toBeGreaterThan(0);
+      expect(typeof m._getIdempotencyCacheSize).toBe("function");
+      expect(typeof m._clearIdempotencyCache).toBe("function");
+    });
+
+    it("does not exceed MAX_IDEMPOTENCY_SIZE after overflow", async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const m = await import("@/app/api/log-food/route") as any;
+      const { MAX_IDEMPOTENCY_SIZE, _getIdempotencyCacheSize, _clearIdempotencyCache } = m;
+      _clearIdempotencyCache();
+
+      mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-flood" });
+      mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 1, foodLogId: 1 });
+
+      // Insert MAX+1 distinct tokens
+      for (let i = 0; i <= MAX_IDEMPOTENCY_SIZE; i++) {
+        await POST(createMockRequest({ ...validFoodLogRequest, clientToken: `flood-${i}` }));
+      }
+
+      expect(_getIdempotencyCacheSize()).toBeLessThanOrEqual(MAX_IDEMPOTENCY_SIZE);
+    });
+
+    it("still returns cached result within TTL after many insertions (idempotency preserved)", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-stable" });
+      mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 99, foodLogId: 77 });
+
+      const body = { ...validFoodLogRequest, clientToken: "stable-token" };
+      const r1 = await POST(createMockRequest(body));
+      const r2 = await POST(createMockRequest(body));
+
+      expect(r1.status).toBe(200);
+      expect(r2.status).toBe(200);
+      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1); // idempotent
+      const d1 = (await r1.json()).data;
+      const d2 = (await r2.json()).data;
+      expect(d1.foodLogId).toBe(77);
+      expect(d2.foodLogId).toBe(77);
     });
   });
 });
