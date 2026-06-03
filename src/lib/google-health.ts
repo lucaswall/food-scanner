@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
-import { logger } from "@/lib/logger";
+import { logger, startTimer } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import { getHealthTokens, upsertHealthTokens } from "@/lib/health-tokens";
 import {
@@ -23,6 +23,32 @@ const GOOGLE_HEALTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const MAX_RETRIES = 3;
 const DEADLINE_MS = 30_000;
 const RATE_LIMIT_NO_HEADER_DELAY_MS = 1_000;
+
+/**
+ * Sleep for `ms` milliseconds, but abort early if `signal` fires.
+ * Rejects with an AbortError when the signal fires before the timer completes.
+ * Used for the 429 Retry-After sleep so callers can cancel mid-wait.
+ */
+function abortableSleep(ms: number, signal?: AbortSignal | null): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("The operation was aborted.", "AbortError"));
+      return;
+    }
+    let onAbort: (() => void) | undefined;
+    const timer = setTimeout(() => {
+      if (onAbort && signal) signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    if (signal) {
+      onAbort = () => {
+        clearTimeout(timer);
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+  });
+}
 
 /**
  * If the token expires within this window, we treat it as near-expired and
@@ -80,6 +106,10 @@ export async function fetchWithRetry(
   userId?: string,
   criticality: HealthCallCriticality = "optional",
 ): Promise<Response> {
+  // Extract the caller's AbortSignal (if any) for use in retry sleeps.
+  // Note: each fetch attempt uses its own internal timeout controller, so options.signal
+  // is NOT passed directly to fetch — we preserve it here only for the sleep race.
+  const callerSignal: AbortSignal | undefined = options.signal ?? undefined;
   const elapsed = Date.now() - startTime;
   if (elapsed > DEADLINE_MS) {
     throw new Error("HEALTH_TIMEOUT");
@@ -175,7 +205,7 @@ export async function fetchWithRetry(
           { action: "health_rate_limit", retryAfterMs, source: "header" },
           "rate limited, sleeping per Retry-After header",
         );
-        await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
+        await abortableSleep(retryAfterMs, callerSignal);
       } else {
         l.warn(
           {
@@ -185,9 +215,7 @@ export async function fetchWithRetry(
           },
           "rate limited (no Retry-After), brief retry",
         );
-        await new Promise((resolve) =>
-          setTimeout(resolve, RATE_LIMIT_NO_HEADER_DELAY_MS),
-        );
+        await abortableSleep(RATE_LIMIT_NO_HEADER_DELAY_MS, callerSignal);
       }
 
       return fetchWithRetry(url, options, retryCount + 1, startTime, l, userId, criticality);
@@ -207,7 +235,7 @@ export async function fetchWithRetry(
         },
         "server error, retrying",
       );
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      await abortableSleep(delay, callerSignal);
       return fetchWithRetry(url, options, retryCount + 1, startTime, l, userId, criticality);
     }
 
@@ -233,6 +261,7 @@ export async function refreshGoogleHealthToken(
   log?: Logger,
 ): Promise<{ access_token: string; expires_in: number }> {
   const l = log ?? logger;
+  const elapsed = startTimer();
   l.debug(
     { action: "google_health_token_refresh_start" },
     "refreshing Google Health token",
@@ -291,7 +320,7 @@ export async function refreshGoogleHealthToken(
     // reused indefinitely. We intentionally omit it from the return value so
     // callers are forced to preserve the existing one.
     l.info(
-      { action: "google_health_token_refresh_success" },
+      { action: "google_health_token_refresh_success", durationMs: elapsed() },
       "Google Health token refreshed",
     );
     return { access_token: data.access_token, expires_in: data.expires_in };
@@ -327,46 +356,38 @@ const refreshInFlight = new Map<string, Promise<string>>();
 export async function ensureFreshToken(userId: string, log?: Logger): Promise<string> {
   const l = log ?? logger;
 
-  const tokenRow = await getHealthTokens(userId, l);
-  if (!tokenRow) {
-    throw new Error("HEALTH_TOKEN_INVALID");
-  }
-
-  // Token is fresh — return immediately without acquiring the refresh lock.
-  if (tokenRow.expiresAt.getTime() >= Date.now() + TOKEN_EXPIRY_SKEW_MS) {
-    return tokenRow.accessToken;
-  }
-
-  // Token near-expired — dedup concurrent refreshes.
+  // Check in-flight FIRST (before any await) — dedup window brackets the entire refresh
+  // including the initial token read so concurrent callers always join a single promise.
   const existing = refreshInFlight.get(userId);
   if (existing) {
     return existing;
   }
 
-  // Register the promise synchronously BEFORE any await so subsequent callers
-  // arriving in the same microtask batch see it and join rather than starting
-  // a second refresh.
+  // Register the promise synchronously BEFORE any await so concurrent callers arriving in
+  // the same sync-execution batch see it immediately and join rather than starting a
+  // parallel refresh.
   const promise = (async (): Promise<string> => {
     try {
-      // Re-read to short-circuit if another server instance already refreshed.
-      const freshRow = await getHealthTokens(userId, l);
-      if (!freshRow) {
+      const tokenRow = await getHealthTokens(userId, l);
+      if (!tokenRow) {
         throw new Error("HEALTH_TOKEN_INVALID");
       }
-      if (freshRow.expiresAt.getTime() >= Date.now() + TOKEN_EXPIRY_SKEW_MS) {
-        return freshRow.accessToken;
+
+      // Token is fresh — return immediately.
+      if (tokenRow.expiresAt.getTime() >= Date.now() + TOKEN_EXPIRY_SKEW_MS) {
+        return tokenRow.accessToken;
       }
 
       // Still near-expired — proceed with refresh.
-      const tokens = await refreshGoogleHealthToken(freshRow.refreshToken, l);
+      // Google does NOT rotate the refresh token — preserve the existing one.
+      const tokens = await refreshGoogleHealthToken(tokenRow.refreshToken, l);
 
       const tokenData = {
-        healthUserId: freshRow.healthUserId,
+        healthUserId: tokenRow.healthUserId,
         accessToken: tokens.access_token,
-        // Google does NOT rotate the refresh token — preserve the existing one.
-        refreshToken: freshRow.refreshToken,
+        refreshToken: tokenRow.refreshToken,
         expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
-        scope: freshRow.scope,
+        scope: tokenRow.scope,
       };
 
       try {
@@ -594,6 +615,7 @@ export async function createNutritionLog(
   userId?: string,
 ): Promise<{ healthLogId: string | null }> {
   const l = log ?? logger;
+  const elapsed = startTimer();
 
   if (isHealthDryRun()) {
     l.debug({ action: "health_create_nutrition_log_dry_run" }, "dry run: skipping nutrition log creation");
@@ -624,7 +646,7 @@ export async function createNutritionLog(
     l.error(
       // Log the request body too so a field-level rejection can be diagnosed against what
       // we sent (nutritionLog carries no tokens/PII beyond the food name + macros).
-      { action: "health_create_nutrition_log_failed", status: response.status, errorBody, requestBody: body },
+      { action: "health_create_nutrition_log_failed", status: response.status, errorBody, requestBody: body, durationMs: elapsed() },
       "nutrition log creation failed",
     );
     throw new Error(response.status < 500 ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR");
@@ -652,7 +674,7 @@ export async function createNutritionLog(
     // Include the response key shape so the first live write reveals whether create returns
     // a DataPoint inline or an Operation wrapper (resolves the one remaining live unknown).
     const responseKeys = parsed && typeof parsed === "object" ? Object.keys(parsed as Record<string, unknown>) : [];
-    l.info({ action: "health_create_nutrition_log_success", healthLogId, responseKeys }, "nutrition log created");
+    l.info({ action: "health_create_nutrition_log_success", healthLogId, responseKeys, durationMs: elapsed() }, "nutrition log created");
   }
   return { healthLogId };
 }
@@ -678,9 +700,16 @@ export async function deleteNutritionLogs(
   mode: "user" | "cleanup" = "cleanup",
 ): Promise<void> {
   const l = log ?? logger;
+  const elapsed = startTimer();
 
   if (isHealthDryRun()) {
     l.debug({ action: "health_delete_nutrition_logs_dry_run" }, "dry run: skipping nutrition log deletion");
+    return;
+  }
+
+  // Nothing to delete — batchDelete with an empty names array would be a no-op but
+  // consumes a rate-limit slot unnecessarily; short-circuit early.
+  if (ids.length === 0) {
     return;
   }
 
@@ -722,13 +751,13 @@ export async function deleteNutritionLogs(
     const rawBody = await parseErrorBody(response);
     const errorBody = sanitizeErrorBody(rawBody);
     l.error(
-      { action: "health_delete_nutrition_logs_failed", status: response.status, errorBody },
+      { action: "health_delete_nutrition_logs_failed", status: response.status, errorBody, durationMs: elapsed() },
       "nutrition log deletion failed",
     );
     throw new Error(response.status < 500 ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR");
   }
 
-  l.info({ action: "health_delete_nutrition_logs_success", idCount: ids.length }, "nutrition logs deleted");
+  l.info({ action: "health_delete_nutrition_logs_success", idCount: ids.length, durationMs: elapsed() }, "nutrition logs deleted");
 }
 
 // ─── Profile + biometric read API ────────────────────────────────────────────
@@ -873,6 +902,7 @@ export async function getHealthProfile(
   criticality: HealthCallCriticality = "optional",
 ): Promise<HealthProfile> {
   const l = log ?? logger;
+  const elapsed = startTimer();
   l.debug({ action: "health_get_profile" }, "fetching Google Health profile");
 
   const response = await fetchWithRetry(
@@ -887,7 +917,7 @@ export async function getHealthProfile(
   if (!response.ok) {
     const rawBody = await parseErrorBody(response);
     const errorBody = sanitizeErrorBody(rawBody);
-    l.error({ action: "health_get_profile_failed", status: response.status, errorBody }, "profile fetch failed");
+    l.error({ action: "health_get_profile_failed", status: response.status, errorBody, durationMs: elapsed() }, "profile fetch failed");
     throw new Error(response.status < 500 ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR");
   }
 
@@ -898,7 +928,7 @@ export async function getHealthProfile(
     // Log the raw profile so an unexpected live shape (missing/renamed `age`) is
     // diagnosable instead of a blind HEALTH_API_ERROR.
     l.error(
-      { action: "health_get_profile_unparseable", profileKeys: Object.keys(data), rawProfile: data },
+      { action: "health_get_profile_unparseable", profileKeys: Object.keys(data), rawProfile: data, durationMs: elapsed() },
       "profile response has no numeric `age` — unexpected shape",
     );
     throw new Error("HEALTH_API_ERROR");
@@ -915,7 +945,7 @@ export async function getHealthProfile(
   // Log the parsed fields + raw profile keys so a live shape change (e.g. sex ever
   // appearing, or age in a different unit) is visible during testing.
   l.debug(
-    { action: "health_get_profile_success", ageYears, sex, heightCm, profileKeys: Object.keys(data) },
+    { action: "health_get_profile_success", ageYears, sex, heightCm, profileKeys: Object.keys(data), durationMs: elapsed() },
     "profile fetched",
   );
   return { ageYears, sex, heightCm };
@@ -940,6 +970,7 @@ export async function getHealthLatestWeightKg(
   criticality: HealthCallCriticality = "optional",
 ): Promise<HealthWeightLog | null> {
   const l = log ?? logger;
+  const elapsed = startTimer();
   const startDate = subtractDays(targetDate, 13); // 14 days inclusive
   l.debug(
     { action: "health_get_weight", targetDate, startDate, windowDays: 14 },
@@ -961,7 +992,7 @@ export async function getHealthLatestWeightKg(
   if (!response.ok) {
     const rawBody = await parseErrorBody(response);
     const errorBody = sanitizeErrorBody(rawBody);
-    l.error({ action: "health_get_weight_failed", status: response.status, errorBody }, "weight fetch failed");
+    l.error({ action: "health_get_weight_failed", status: response.status, errorBody, durationMs: elapsed() }, "weight fetch failed");
     throw new Error(response.status < 500 ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR");
   }
 
@@ -992,7 +1023,7 @@ export async function getHealthLatestWeightKg(
   valid.sort((a, b) => b.date.localeCompare(a.date));
   const latest = valid[0];
 
-  l.debug({ action: "health_get_weight_success", loggedDate: latest.date, weightKg: latest.weightKg }, "weight fetched");
+  l.debug({ action: "health_get_weight_success", loggedDate: latest.date, weightKg: latest.weightKg, durationMs: elapsed() }, "weight fetched");
   return { weightKg: latest.weightKg, loggedDate: latest.date };
 }
 
@@ -1017,6 +1048,7 @@ export async function getHealthActivitySummary(
   zoneOffset?: string | null,
 ): Promise<ActivitySummary> {
   const l = log ?? logger;
+  const elapsed = startTimer();
   l.debug({ action: "health_get_activity_summary", date }, "fetching activity summary from Google Health");
 
   // v4 DailyRollUp requires a `range` (CivilTimeInterval { start, end } of CivilDateTime),
@@ -1044,7 +1076,7 @@ export async function getHealthActivitySummary(
   if (!response.ok) {
     const rawBody = await parseErrorBody(response);
     const errorBody = sanitizeErrorBody(rawBody);
-    l.error({ action: "health_get_activity_summary_failed", status: response.status, errorBody }, "activity summary fetch failed");
+    l.error({ action: "health_get_activity_summary_failed", status: response.status, errorBody, durationMs: elapsed() }, "activity summary fetch failed");
     throw new Error(response.status < 500 ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR");
   }
 
@@ -1078,6 +1110,6 @@ export async function getHealthActivitySummary(
   }
 
   const caloriesOut = Math.round(kcal);
-  l.debug({ action: "health_get_activity_summary_success", date, caloriesOut }, "activity summary fetched");
+  l.debug({ action: "health_get_activity_summary_success", date, caloriesOut, durationMs: elapsed() }, "activity summary fetched");
   return { caloriesOut };
 }

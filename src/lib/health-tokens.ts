@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { healthTokens } from "@/db/schema";
-import { encryptToken, decryptToken } from "@/lib/token-encryption";
+import { encryptToken, decryptToken, TokenDecryptionError } from "@/lib/token-encryption";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 
@@ -25,8 +25,32 @@ export async function getHealthTokens(userId: string, log?: Logger): Promise<Hea
     l.debug({ action: "get_health_tokens", found: false }, "health tokens not found");
     return null;
   }
-  const accessToken = decryptToken(row.accessToken);
-  const refreshToken = decryptToken(row.refreshToken);
+
+  let accessToken: string;
+  let refreshToken: string;
+  try {
+    accessToken = decryptToken(row.accessToken);
+    refreshToken = decryptToken(row.refreshToken);
+  } catch (err) {
+    // Only an undecryptable ciphertext (key rotation, format version change, or
+    // corruption) means "treat as absent and force re-link". Any other error —
+    // e.g. a missing/misconfigured HEALTH_TOKEN_ENCRYPTION_KEY — is a server
+    // misconfiguration that must surface (re-linking would hit the same
+    // encryption failure on write), not be masked as a user reconnect.
+    if (!(err instanceof TokenDecryptionError)) {
+      throw err;
+    }
+    l.warn(
+      {
+        action: "get_health_tokens",
+        userId,
+        errorType: err.name,
+      },
+      "health token decryption failed — treating as absent to force re-auth",
+    );
+    return null;
+  }
+
   l.debug({ action: "get_health_tokens", found: true }, "health tokens retrieved");
   return { ...row, accessToken, refreshToken };
 }

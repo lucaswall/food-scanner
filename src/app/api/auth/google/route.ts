@@ -3,6 +3,7 @@ import { buildUrl } from "@/lib/url";
 import { createRequestLogger } from "@/lib/logger";
 import { getRawSession } from "@/lib/session";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/request-ip";
 import { errorResponse } from "@/lib/api-response";
 
 const RATE_LIMIT_MAX = 10;
@@ -10,7 +11,7 @@ const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 
 export async function POST(request: Request) {
   const log = createRequestLogger("POST", "/api/auth/google");
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const ip = getClientIp(request.headers);
   const { allowed } = checkRateLimit(`google-oauth:${ip}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
   if (!allowed) {
     log.warn({ action: "rate_limit_exceeded", ip, endpoint: "google_oauth" }, "rate limit exceeded");

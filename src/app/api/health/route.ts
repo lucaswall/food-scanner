@@ -1,6 +1,5 @@
 import { successResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
-import { CLAUDE_MODEL } from "@/lib/claude";
 import packageJson from "../../../../package.json";
 
 export async function GET() {
@@ -9,7 +8,6 @@ export async function GET() {
 
   const appUrl = process.env.APP_URL ?? "";
   const environment = appUrl.includes("food-test") ? "Staging" : "Production";
-  const healthMode = process.env.HEALTH_DRY_RUN === "true" ? "Dry Run" : "Live";
   const commitHash = process.env.COMMIT_SHA ?? "";
   const version =
     environment === "Staging" && commitHash
@@ -20,8 +18,5 @@ export async function GET() {
     status: "ok",
     version,
     environment,
-    healthMode,
-    claudeModel: CLAUDE_MODEL,
-    commitHash,
   });
 }

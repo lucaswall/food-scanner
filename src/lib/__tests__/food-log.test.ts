@@ -1078,55 +1078,82 @@ describe("getCommonFoods", () => {
 });
 
 describe("getRecentFoods", () => {
-  function makeRecentRow(overrides: {
+  // Implementation uses two queries both resolving at mockWhere (no join/orderBy/limit):
+  //   Query 1: db.select(fields).from(foodLogEntries).where(userId)  → flat entry rows
+  //   Query 2: db.select().from(customFoods).where(userId + inArray) → flat food rows
+  // mockReset() before/after each test prevents leaked mockResolvedValueOnce queue entries.
+  beforeEach(() => {
+    mockWhere.mockReset();
+  });
+  afterEach(() => {
+    mockWhere.mockReset();
+    mockWhere.mockReturnValue({ orderBy: mockOrderBy });
+  });
+
+  /** Flat food-log entry row (Query 1 result shape). */
+  function makeEntryRow(overrides: {
     id: number;
     customFoodId: number;
-    foodName: string;
-    time: string | null;
     date: string;
-    fitbitFoodId?: number | null;
+    time: string | null;
+    mealTypeId?: number;
     healthLogId?: string | null;
-    mealTypeId: number;
   }) {
     return {
-      food_log_entries: {
-        id: overrides.id,
-        userId: "user-uuid-123",
-        customFoodId: overrides.customFoodId,
-        mealTypeId: overrides.mealTypeId,
-        amount: "150",
-        unitId: "g",
-        date: overrides.date,
-        time: overrides.time,
-        healthLogId: overrides.healthLogId !== undefined ? overrides.healthLogId : "100",
-        loggedAt: new Date(),
-      },
-      custom_foods: {
-        id: overrides.customFoodId,
-        userId: "user-uuid-123",
-        foodName: overrides.foodName,
-        amount: "150",
-        unitId: "g",
-        calories: 250,
-        proteinG: "30",
-        carbsG: "5",
-        fatG: "10",
-        fiberG: "2",
-        sodiumMg: "400",
-        confidence: "high",
-        notes: null,
-        keywords: null,
-        createdAt: new Date(),
-      },
+      id: overrides.id,
+      customFoodId: overrides.customFoodId,
+      date: overrides.date,
+      time: overrides.time,
+      mealTypeId: overrides.mealTypeId ?? 3,
+      amount: "150",
+      unitId: "g",
+      healthLogId: overrides.healthLogId !== undefined ? overrides.healthLogId : "100",
+    };
+  }
+
+  /** Flat custom-food row (Query 2 result shape). */
+  function makeFoodRow(overrides: {
+    id: number;
+    foodName: string;
+    isFavorite?: boolean;
+  }) {
+    return {
+      id: overrides.id,
+      userId: "user-uuid-123",
+      foodName: overrides.foodName,
+      amount: "150",
+      unitId: "g",
+      calories: 250,
+      proteinG: "30",
+      carbsG: "5",
+      fatG: "10",
+      fiberG: "2",
+      sodiumMg: "400",
+      saturatedFatG: null,
+      transFatG: null,
+      sugarsG: null,
+      caloriesFromFat: null,
+      confidence: "high",
+      notes: null,
+      keywords: null,
+      isFavorite: overrides.isFavorite ?? false,
+      shareToken: null,
+      createdAt: new Date(),
     };
   }
 
   it("returns foods ordered by most-recently-logged (date DESC, time DESC)", async () => {
-    mockLimit.mockResolvedValue([
-      makeRecentRow({ id: 1, customFoodId: 1, foodName: "Latest", time: "18:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 5 }),
-      makeRecentRow({ id: 2, customFoodId: 2, foodName: "Earlier", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 3 }),
-      makeRecentRow({ id: 3, customFoodId: 3, foodName: "Yesterday", time: "20:00:00", date: "2026-02-07", fitbitFoodId: 102, mealTypeId: 5 }),
-    ]);
+    mockWhere
+      .mockResolvedValueOnce([
+        makeEntryRow({ id: 1, customFoodId: 1, date: "2026-02-08", time: "18:00:00", mealTypeId: 5 }),
+        makeEntryRow({ id: 2, customFoodId: 2, date: "2026-02-08", time: "12:00:00", mealTypeId: 3 }),
+        makeEntryRow({ id: 3, customFoodId: 3, date: "2026-02-07", time: "20:00:00", mealTypeId: 5 }),
+      ])
+      .mockResolvedValueOnce([
+        makeFoodRow({ id: 1, foodName: "Latest" }),
+        makeFoodRow({ id: 2, foodName: "Earlier" }),
+        makeFoodRow({ id: 3, foodName: "Yesterday" }),
+      ]);
 
     const result = await getRecentFoods("user-uuid-123");
 
@@ -1137,24 +1164,35 @@ describe("getRecentFoods", () => {
   });
 
   it("deduplicates by customFoodId keeping the most recent entry", async () => {
-    mockLimit.mockResolvedValue([
-      makeRecentRow({ id: 10, customFoodId: 1, foodName: "Chicken", time: "18:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 5 }),
-      makeRecentRow({ id: 5, customFoodId: 1, foodName: "Chicken", time: "12:00:00", date: "2026-02-07", fitbitFoodId: 100, mealTypeId: 3 }),
-      makeRecentRow({ id: 8, customFoodId: 2, foodName: "Salad", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 3 }),
-    ]);
+    // Two entries for customFoodId=1 (ids 10 and 5); most-recent is id=10 (date 2026-02-08)
+    mockWhere
+      .mockResolvedValueOnce([
+        makeEntryRow({ id: 10, customFoodId: 1, date: "2026-02-08", time: "18:00:00", mealTypeId: 5 }),
+        makeEntryRow({ id: 5,  customFoodId: 1, date: "2026-02-07", time: "12:00:00", mealTypeId: 3 }),
+        makeEntryRow({ id: 8,  customFoodId: 2, date: "2026-02-08", time: "12:00:00", mealTypeId: 3 }),
+      ])
+      .mockResolvedValueOnce([
+        makeFoodRow({ id: 1, foodName: "Chicken" }),
+        makeFoodRow({ id: 2, foodName: "Salad" }),
+      ]);
 
     const result = await getRecentFoods("user-uuid-123");
 
     expect(result.foods).toHaveLength(2);
     expect(result.foods[0].foodName).toBe("Chicken");
-    expect(result.foods[0].mealTypeId).toBe(5); // from most recent entry
+    expect(result.foods[0].mealTypeId).toBe(5); // from most recent entry (id=10)
     expect(result.foods[1].foodName).toBe("Salad");
   });
 
   it("returns CommonFood shape", async () => {
-    mockLimit.mockResolvedValue([
-      makeRecentRow({ id: 1, customFoodId: 42, foodName: "Rice", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3 }),
-    ]);
+    // isFavorite is now required in CommonFood; makeFoodRow sets it to false by default.
+    mockWhere
+      .mockResolvedValueOnce([
+        makeEntryRow({ id: 1, customFoodId: 42, date: "2026-02-08", time: "12:00:00", mealTypeId: 3 }),
+      ])
+      .mockResolvedValueOnce([
+        makeFoodRow({ id: 42, foodName: "Rice" }),
+      ]);
 
     const result = await getRecentFoods("user-uuid-123");
 
@@ -1174,22 +1212,18 @@ describe("getRecentFoods", () => {
       sugarsG: null,
       caloriesFromFat: null,
       mealTypeId: 3,
+      isFavorite: false,
     });
   });
 
   it("accepts limit parameter", async () => {
-    const rows = Array.from({ length: 5 }, (_, i) =>
-      makeRecentRow({
-        id: i + 1,
-        customFoodId: i + 1,
-        foodName: `Food ${i + 1}`,
-        time: "12:00:00",
-        date: "2026-02-08",
-        fitbitFoodId: 100 + i,
-        mealTypeId: 3,
-      }),
+    const entries = Array.from({ length: 5 }, (_, i) =>
+      makeEntryRow({ id: i + 1, customFoodId: i + 1, date: "2026-02-08", time: "12:00:00", mealTypeId: 3 }),
     );
-    mockLimit.mockResolvedValue(rows);
+    const foods = Array.from({ length: 3 }, (_, i) =>
+      makeFoodRow({ id: i + 1, foodName: `Food ${i + 1}` }),
+    );
+    mockWhere.mockResolvedValueOnce(entries).mockResolvedValueOnce(foods);
 
     const result = await getRecentFoods("user-uuid-123", { limit: 3 });
 
@@ -1197,18 +1231,20 @@ describe("getRecentFoods", () => {
   });
 
   it("returns nextCursor when more items exist", async () => {
-    const rows = Array.from({ length: 4 }, (_, i) =>
-      makeRecentRow({
+    // 4 unique foods on 2026-02-08 with descending times; limit=3 → food #4 is hasMore
+    const entries = Array.from({ length: 4 }, (_, i) =>
+      makeEntryRow({
         id: i + 1,
         customFoodId: i + 1,
-        foodName: `Food ${i + 1}`,
-        time: `${String(18 - i).padStart(2, "0")}:00:00`,
         date: "2026-02-08",
-        fitbitFoodId: 100 + i,
+        time: `${String(18 - i).padStart(2, "0")}:00:00`,
         mealTypeId: 3,
       }),
     );
-    mockLimit.mockResolvedValue(rows);
+    const pageFoods = Array.from({ length: 3 }, (_, i) =>
+      makeFoodRow({ id: i + 1, foodName: `Food ${i + 1}` }),
+    );
+    mockWhere.mockResolvedValueOnce(entries).mockResolvedValueOnce(pageFoods);
 
     const result = await getRecentFoods("user-uuid-123", { limit: 3 });
 
@@ -1219,9 +1255,13 @@ describe("getRecentFoods", () => {
   });
 
   it("returns null nextCursor when no more items", async () => {
-    mockLimit.mockResolvedValue([
-      makeRecentRow({ id: 1, customFoodId: 1, foodName: "Only Food", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3 }),
-    ]);
+    mockWhere
+      .mockResolvedValueOnce([
+        makeEntryRow({ id: 1, customFoodId: 1, date: "2026-02-08", time: "12:00:00", mealTypeId: 3 }),
+      ])
+      .mockResolvedValueOnce([
+        makeFoodRow({ id: 1, foodName: "Only Food" }),
+      ]);
 
     const result = await getRecentFoods("user-uuid-123", { limit: 10 });
 
@@ -1230,7 +1270,8 @@ describe("getRecentFoods", () => {
   });
 
   it("returns empty array when no entries", async () => {
-    mockLimit.mockResolvedValue([]);
+    // Query 1 returns empty → early return, Query 2 never called
+    mockWhere.mockResolvedValueOnce([]);
 
     const result = await getRecentFoods("user-uuid-123");
 
@@ -1243,14 +1284,88 @@ describe("getRecentFoods", () => {
       // HEALTH_DRY_RUN unset (production). Migrated/pre-cutover entries have a NULL
       // health_log_id; they MUST still appear in recent foods — never hidden by a remote-sync filter.
       vi.stubEnv("HEALTH_DRY_RUN", "");
-      mockLimit.mockResolvedValue([
-        makeRecentRow({ id: 1, customFoodId: 1, foodName: "Migrated Food", time: "12:00:00", date: "2026-02-08", healthLogId: null, mealTypeId: 3 }),
-      ]);
+      mockWhere
+        .mockResolvedValueOnce([
+          makeEntryRow({ id: 1, customFoodId: 1, date: "2026-02-08", time: "12:00:00", mealTypeId: 3, healthLogId: null }),
+        ])
+        .mockResolvedValueOnce([
+          makeFoodRow({ id: 1, foodName: "Migrated Food" }),
+        ]);
 
       const result = await getRecentFoods("user-uuid-123");
 
       expect(result.foods).toHaveLength(1);
       expect(result.foods[0].foodName).toBe("Migrated Food");
+    });
+  });
+
+  describe("FOO-1161: pagination must not prematurely null nextCursor when recent window is dominated by repeated foods", () => {
+    // No extra beforeEach/afterEach needed: parent describe's hooks already handle mockWhere reset.
+    it("nextCursor not null when recent window dominated by 2 repeated foods but 3 unique foods exist further back", async () => {
+      // limit=2. User has 5 unique foods:
+      //   Foods 1+2: logged many times recently (dominate any fixed-size window)
+      //   Foods 3+4+5: each logged once, long ago
+      // With the OLD limit*3=6 heuristic: deduped = 2, hasMore = 2 > 2 = false → nextCursor=null (BUG)
+      // With the NEW one-per-food approach: 5 unique foods found, hasMore = true → nextCursor set
+      const allEntries = [
+        makeEntryRow({ id: 10, customFoodId: 1, date: "2026-02-08", time: "18:00:00", mealTypeId: 5 }),
+        makeEntryRow({ id: 9,  customFoodId: 2, date: "2026-02-08", time: "12:00:00", mealTypeId: 3 }),
+        makeEntryRow({ id: 8,  customFoodId: 1, date: "2026-02-07", time: "18:00:00", mealTypeId: 5 }),
+        makeEntryRow({ id: 7,  customFoodId: 2, date: "2026-02-07", time: "12:00:00", mealTypeId: 3 }),
+        makeEntryRow({ id: 6,  customFoodId: 1, date: "2026-02-06", time: "18:00:00", mealTypeId: 5 }),
+        makeEntryRow({ id: 5,  customFoodId: 2, date: "2026-02-06", time: "12:00:00", mealTypeId: 3 }),
+        makeEntryRow({ id: 4,  customFoodId: 3, date: "2026-01-15", time: "08:00:00", mealTypeId: 1 }),
+        makeEntryRow({ id: 3,  customFoodId: 4, date: "2026-01-10", time: "08:00:00", mealTypeId: 1 }),
+        makeEntryRow({ id: 2,  customFoodId: 5, date: "2026-01-05", time: "08:00:00", mealTypeId: 1 }),
+      ];
+      mockWhere
+        .mockResolvedValueOnce(allEntries)  // Query 1: foodLogEntries for user
+        .mockResolvedValueOnce([            // Query 2: customFoods for page foods (1 and 2)
+          makeFoodRow({ id: 1, foodName: "Food A" }),
+          makeFoodRow({ id: 2, foodName: "Food B" }),
+        ]);
+
+      const result = await getRecentFoods("user-uuid-123", { limit: 2 });
+
+      expect(result.foods).toHaveLength(2);
+      expect(result.foods[0].foodName).toBe("Food A");
+      expect(result.foods[1].foodName).toBe("Food B");
+      expect(result.nextCursor).not.toBeNull();
+    });
+
+    it("cursor-based pagination reaches all unique foods across pages", async () => {
+      // 2 unique foods with many repeats + 1 older unique food
+      // Page 1 (limit=2): foods 1+2, nextCursor set
+      // Page 2 (limit=2, with cursor): food 3, nextCursor null
+      const allEntries = [
+        makeEntryRow({ id: 6, customFoodId: 1, date: "2026-02-08", time: "18:00:00", mealTypeId: 5 }),
+        makeEntryRow({ id: 5, customFoodId: 2, date: "2026-02-08", time: "12:00:00", mealTypeId: 3 }),
+        makeEntryRow({ id: 4, customFoodId: 1, date: "2026-02-07", time: "18:00:00", mealTypeId: 5 }),
+        makeEntryRow({ id: 3, customFoodId: 2, date: "2026-02-07", time: "12:00:00", mealTypeId: 3 }),
+        makeEntryRow({ id: 2, customFoodId: 3, date: "2026-01-10", time: "08:00:00", mealTypeId: 1 }),
+      ];
+      // Page 1
+      mockWhere
+        .mockResolvedValueOnce(allEntries)
+        .mockResolvedValueOnce([
+          makeFoodRow({ id: 1, foodName: "Food A" }),
+          makeFoodRow({ id: 2, foodName: "Food B" }),
+        ]);
+      const page1 = await getRecentFoods("user-uuid-123", { limit: 2 });
+      expect(page1.foods).toHaveLength(2);
+      expect(page1.nextCursor).not.toBeNull();
+
+      // Page 2 — mockWhere is not reset between page1 and page2 calls in the same test,
+      // so we just queue more values for the two page-2 queries.
+      mockWhere
+        .mockResolvedValueOnce(allEntries)
+        .mockResolvedValueOnce([
+          makeFoodRow({ id: 3, foodName: "Food C" }),
+        ]);
+      const page2 = await getRecentFoods("user-uuid-123", { limit: 2, cursor: page1.nextCursor! });
+      expect(page2.foods).toHaveLength(1);
+      expect(page2.foods[0].foodName).toBe("Food C");
+      expect(page2.nextCursor).toBeNull();
     });
   });
 });
@@ -1717,66 +1832,84 @@ const mockUpdateWhere = vi.fn();
 const mockUpdateReturning = vi.fn();
 
 describe("searchFoods", () => {
-  function makeSearchRow(overrides: {
+  /**
+   * The refactored searchFoods uses two separate queries:
+   * 1. db.select().from(customFoods).where(userId)  → flat custom-food rows
+   * 2. db.select().from(foodLogEntries).where(userId) → flat log-entry rows
+   *
+   * Both end at mockWhere. Use mockResolvedValueOnce for each call in order.
+   * If the first query returns 0 matching foods, the early-exit skips query 2.
+   */
+  function makeCustomFoodRow(overrides: {
     customFoodId: number;
     foodName: string;
-    fitbitFoodId?: number | null;
-    healthLogId?: string | null;
     keywords?: string[] | null;
-    entryId?: number | null;
-    date?: string | null;
-    time?: string | null;
-    mealTypeId?: number | null;
+    isFavorite?: boolean;
   }) {
-    const hasEntry = overrides.entryId != null;
     return {
-      custom_foods: {
-        id: overrides.customFoodId,
-        userId: "user-uuid-123",
-        foodName: overrides.foodName,
-        amount: "150",
-        unitId: "g",
-        calories: 250,
-        proteinG: "30",
-        carbsG: "5",
-        fatG: "10",
-        fiberG: "2",
-        sodiumMg: "400",
-        confidence: "high",
-        notes: null,
-        keywords: overrides.keywords ?? null,
-        createdAt: new Date(),
-      },
-      food_log_entries: hasEntry
-        ? {
-            id: overrides.entryId!,
-            userId: "user-uuid-123",
-            customFoodId: overrides.customFoodId,
-            mealTypeId: overrides.mealTypeId ?? 3,
-            amount: "150",
-            unitId: "g",
-            date: overrides.date ?? "2026-02-08",
-            time: overrides.time ?? "12:00:00",
-            healthLogId: overrides.healthLogId !== undefined ? overrides.healthLogId : "100",
-            loggedAt: new Date(),
-          }
-        : null,
+      id: overrides.customFoodId,
+      userId: "user-uuid-123",
+      foodName: overrides.foodName,
+      amount: "150",
+      unitId: "g",
+      calories: 250,
+      proteinG: "30",
+      carbsG: "5",
+      fatG: "10",
+      fiberG: "2",
+      sodiumMg: "400",
+      saturatedFatG: null,
+      transFatG: null,
+      sugarsG: null,
+      caloriesFromFat: null,
+      confidence: "high",
+      notes: null,
+      description: null,
+      keywords: overrides.keywords ?? null,
+      isFavorite: overrides.isFavorite ?? false,
+      shareToken: null,
+      createdAt: new Date(),
     };
   }
 
-  // searchFoods uses leftJoin → where (no orderBy/limit) so mockWhere
-  // must resolve directly to rows. Reset it to clear the default
-  // mockReturnValue({ orderBy }) set by the top-level beforeEach.
+  function makeLogEntryRow(overrides: {
+    customFoodId: number;
+    date?: string;
+    time?: string;
+    mealTypeId?: number;
+  }) {
+    return {
+      id: overrides.customFoodId * 100 + Math.floor(Math.random() * 99),
+      userId: "user-uuid-123",
+      customFoodId: overrides.customFoodId,
+      mealTypeId: overrides.mealTypeId ?? 3,
+      amount: "150",
+      unitId: "g",
+      date: overrides.date ?? "2026-02-08",
+      time: overrides.time ?? "12:00:00",
+      healthLogId: null,
+      zoneOffset: null,
+      loggedAt: new Date(),
+    };
+  }
+
+  // searchFoods ends each query at mockWhere, with no orderBy/limit.
+  // Reset it to clear the default mockReturnValue({ orderBy }) set by
+  // the top-level beforeEach, so tests can use mockResolvedValueOnce.
   beforeEach(() => {
     mockWhere.mockReset();
   });
 
   it("matches foods using keyword-based computeMatchRatio (ratio >= 0.5)", async () => {
-    const rows = [
-      makeSearchRow({ customFoodId: 1, foodName: "Té con leche", fitbitFoodId: 100, keywords: ["te", "leche", "azucar"], entryId: 1, date: "2026-02-08" }),
-      makeSearchRow({ customFoodId: 2, foodName: "Café con leche", fitbitFoodId: 101, keywords: ["cafe", "leche"], entryId: 2, date: "2026-02-07" }),
-    ];
-    mockWhere.mockResolvedValue(rows);
+    mockWhere
+      .mockResolvedValueOnce([
+        makeCustomFoodRow({ customFoodId: 1, foodName: "Té con leche", keywords: ["te", "leche", "azucar"] }),
+        makeCustomFoodRow({ customFoodId: 2, foodName: "Café con leche", keywords: ["cafe", "leche"] }),
+      ])
+      .mockResolvedValueOnce([
+        makeLogEntryRow({ customFoodId: 1, date: "2026-02-08" }),
+        makeLogEntryRow({ customFoodId: 2, date: "2026-02-07" }),
+      ]);
 
     const result = await searchFoods("user-uuid-123", ["te", "leche"]);
 
@@ -1785,9 +1918,11 @@ describe("searchFoods", () => {
   });
 
   it("matches case-insensitively (existing keywords may have uppercase)", async () => {
-    mockWhere.mockResolvedValue([
-      makeSearchRow({ customFoodId: 1, foodName: "Pizza Napolitana", fitbitFoodId: 100, keywords: ["Pizza", "Napolitana"], entryId: 1 }),
-    ]);
+    mockWhere
+      .mockResolvedValueOnce([
+        makeCustomFoodRow({ customFoodId: 1, foodName: "Pizza Napolitana", keywords: ["Pizza", "Napolitana"] }),
+      ])
+      .mockResolvedValueOnce([makeLogEntryRow({ customFoodId: 1 })]);
 
     const result = await searchFoods("user-uuid-123", ["pizza"]);
 
@@ -1796,9 +1931,11 @@ describe("searchFoods", () => {
   });
 
   it("matches single keyword against food with multiple keywords", async () => {
-    mockWhere.mockResolvedValue([
-      makeSearchRow({ customFoodId: 1, foodName: "Pizza de jamón y muzzarella", fitbitFoodId: 100, keywords: ["pizza", "jamon", "muzzarella"], entryId: 1 }),
-    ]);
+    mockWhere
+      .mockResolvedValueOnce([
+        makeCustomFoodRow({ customFoodId: 1, foodName: "Pizza de jamón y muzzarella", keywords: ["pizza", "jamon", "muzzarella"] }),
+      ])
+      .mockResolvedValueOnce([makeLogEntryRow({ customFoodId: 1 })]);
 
     const result = await searchFoods("user-uuid-123", ["pizza"]);
 
@@ -1807,8 +1944,9 @@ describe("searchFoods", () => {
   });
 
   it("does not match when keyword match ratio is below 0.5", async () => {
-    mockWhere.mockResolvedValue([
-      makeSearchRow({ customFoodId: 1, foodName: "Pizza de jamón", fitbitFoodId: 100, keywords: ["pizza", "jamon"], entryId: 1 }),
+    // Foods exist but none match ["cerveza", "sin-alcohol"] → early return, no second query
+    mockWhere.mockResolvedValueOnce([
+      makeCustomFoodRow({ customFoodId: 1, foodName: "Pizza de jamón", keywords: ["pizza", "jamon"] }),
     ]);
 
     const result = await searchFoods("user-uuid-123", ["cerveza", "sin-alcohol"]);
@@ -1817,10 +1955,15 @@ describe("searchFoods", () => {
   });
 
   it("matches null-keyword foods by food name fallback", async () => {
-    mockWhere.mockResolvedValue([
-      makeSearchRow({ customFoodId: 1, foodName: "Pizza", fitbitFoodId: 100, keywords: null, entryId: 1 }),
-      makeSearchRow({ customFoodId: 2, foodName: "Pizza especial", fitbitFoodId: 101, keywords: ["pizza", "especial"], entryId: 2 }),
-    ]);
+    mockWhere
+      .mockResolvedValueOnce([
+        makeCustomFoodRow({ customFoodId: 1, foodName: "Pizza", keywords: null }),
+        makeCustomFoodRow({ customFoodId: 2, foodName: "Pizza especial", keywords: ["pizza", "especial"] }),
+      ])
+      .mockResolvedValueOnce([
+        makeLogEntryRow({ customFoodId: 1 }),
+        makeLogEntryRow({ customFoodId: 2 }),
+      ]);
 
     const result = await searchFoods("user-uuid-123", ["pizza"]);
 
@@ -1831,12 +1974,17 @@ describe("searchFoods", () => {
     // Food A: 3 log entries, last on 2026-02-06
     // Food B: 1 log entry, last on 2026-02-08 (more recent but fewer logs)
     // Food A should appear first because it has more log entries
-    mockWhere.mockResolvedValue([
-      makeSearchRow({ customFoodId: 1, foodName: "Chicken A", fitbitFoodId: 100, keywords: ["pollo", "grillado"], entryId: 1, date: "2026-02-06" }),
-      makeSearchRow({ customFoodId: 1, foodName: "Chicken A", fitbitFoodId: 100, keywords: ["pollo", "grillado"], entryId: 2, date: "2026-02-05" }),
-      makeSearchRow({ customFoodId: 1, foodName: "Chicken A", fitbitFoodId: 100, keywords: ["pollo", "grillado"], entryId: 3, date: "2026-02-04" }),
-      makeSearchRow({ customFoodId: 2, foodName: "Chicken B", fitbitFoodId: 101, keywords: ["pollo", "ensalada"], entryId: 4, date: "2026-02-08" }),
-    ]);
+    mockWhere
+      .mockResolvedValueOnce([
+        makeCustomFoodRow({ customFoodId: 1, foodName: "Chicken A", keywords: ["pollo", "grillado"] }),
+        makeCustomFoodRow({ customFoodId: 2, foodName: "Chicken B", keywords: ["pollo", "ensalada"] }),
+      ])
+      .mockResolvedValueOnce([
+        makeLogEntryRow({ customFoodId: 1, date: "2026-02-06" }),
+        makeLogEntryRow({ customFoodId: 1, date: "2026-02-05" }),
+        makeLogEntryRow({ customFoodId: 1, date: "2026-02-04" }),
+        makeLogEntryRow({ customFoodId: 2, date: "2026-02-08" }),
+      ]);
 
     const result = await searchFoods("user-uuid-123", ["pollo"]);
 
@@ -1845,9 +1993,13 @@ describe("searchFoods", () => {
   });
 
   it("returns CommonFood shape", async () => {
-    mockWhere.mockResolvedValue([
-      makeSearchRow({ customFoodId: 42, foodName: "Rice Bowl", fitbitFoodId: 100, keywords: ["arroz", "bowl"], entryId: 1, date: "2026-02-08", mealTypeId: 3 }),
-    ]);
+    mockWhere
+      .mockResolvedValueOnce([
+        makeCustomFoodRow({ customFoodId: 42, foodName: "Rice Bowl", keywords: ["arroz", "bowl"] }),
+      ])
+      .mockResolvedValueOnce([
+        makeLogEntryRow({ customFoodId: 42, date: "2026-02-08", mealTypeId: 3 }),
+      ]);
 
     const result = await searchFoods("user-uuid-123", ["arroz"]);
 
@@ -1867,14 +2019,18 @@ describe("searchFoods", () => {
       sugarsG: null,
       caloriesFromFat: null,
       mealTypeId: 3,
+      isFavorite: false,
     });
   });
 
   it("accepts limit parameter", async () => {
-    const rows = Array.from({ length: 5 }, (_, i) =>
-      makeSearchRow({ customFoodId: i + 1, foodName: `Food ${i + 1}`, fitbitFoodId: 100 + i, keywords: ["comida"], entryId: i + 1 }),
+    const foods = Array.from({ length: 5 }, (_, i) =>
+      makeCustomFoodRow({ customFoodId: i + 1, foodName: `Food ${i + 1}`, keywords: ["comida"] }),
     );
-    mockWhere.mockResolvedValue(rows);
+    const logEntries = Array.from({ length: 5 }, (_, i) =>
+      makeLogEntryRow({ customFoodId: i + 1 }),
+    );
+    mockWhere.mockResolvedValueOnce(foods).mockResolvedValueOnce(logEntries);
 
     const result = await searchFoods("user-uuid-123", ["comida"], { limit: 3 });
 
@@ -1882,7 +2038,8 @@ describe("searchFoods", () => {
   });
 
   it("returns empty array when no matches", async () => {
-    mockWhere.mockResolvedValue([]);
+    // No foods in DB for user → early return
+    mockWhere.mockResolvedValueOnce([]);
 
     const result = await searchFoods("user-uuid-123", ["nonexistent"]);
 
@@ -1890,8 +2047,8 @@ describe("searchFoods", () => {
   });
 
   it("only returns foods for the given userId", async () => {
-    // This is verified by checking that where clause includes userId filter
-    mockWhere.mockResolvedValue([]);
+    // Verified by checking where clause includes userId filter; empty result → early return
+    mockWhere.mockResolvedValueOnce([]);
 
     await searchFoods("user-uuid-123", ["pollo"]);
 
@@ -1899,12 +2056,16 @@ describe("searchFoods", () => {
   });
 
   it("returns foods with no health_log_id in production mode (FOO-1114 — no remote-sync filter)", async () => {
-    // HEALTH_DRY_RUN unset (production). A migrated/pre-cutover food whose entry has a
-    // NULL health_log_id MUST still be searchable — historical foods are never hidden.
+    // HEALTH_DRY_RUN unset (production). A food whose entries have NULL health_log_id
+    // MUST still be searchable — historical foods are never hidden.
     vi.stubEnv("HEALTH_DRY_RUN", "");
-    mockWhere.mockResolvedValue([
-      makeSearchRow({ customFoodId: 1, foodName: "Pollo al horno", keywords: ["pollo", "horno"], entryId: 1, healthLogId: null }),
-    ]);
+    mockWhere
+      .mockResolvedValueOnce([
+        makeCustomFoodRow({ customFoodId: 1, foodName: "Pollo al horno", keywords: ["pollo", "horno"] }),
+      ])
+      .mockResolvedValueOnce([
+        makeLogEntryRow({ customFoodId: 1, date: "2026-02-08" }),
+      ]);
 
     const result = await searchFoods("user-uuid-123", ["pollo", "horno"]);
 
@@ -1912,11 +2073,57 @@ describe("searchFoods", () => {
     expect(result[0].foodName).toBe("Pollo al horno");
   });
 
+  // Task 11: deduplication + two-query structure (FOO-1149)
+  it("returns each food exactly once even with multiple log entries, and tracks mealTypeId from most recent entry", async () => {
+    // Two-query pattern: first call returns flat custom-food rows, second returns log entry rows
+    mockWhere
+      .mockResolvedValueOnce([
+        makeCustomFoodRow({ customFoodId: 1, foodName: "Pollo asado", keywords: ["pollo"] }),
+      ])
+      .mockResolvedValueOnce([
+        makeLogEntryRow({ customFoodId: 1, date: "2026-02-08", mealTypeId: 1 }),
+        makeLogEntryRow({ customFoodId: 1, date: "2026-02-07", mealTypeId: 5 }),
+      ]);
+
+    const result = await searchFoods("user-uuid-123", ["pollo"]);
+
+    // Exactly one result, not two (deduplication by customFoodId)
+    expect(result).toHaveLength(1);
+    expect(result[0].foodName).toBe("Pollo asado");
+    // bestMealTypeId: taken from most recent entry (2026-02-08 → mealTypeId=1)
+    expect(result[0].mealTypeId).toBe(1);
+  });
+
+  it("still returns a food with zero log entries (food with no history)", async () => {
+    mockWhere
+      .mockResolvedValueOnce([
+        makeCustomFoodRow({ customFoodId: 1, foodName: "Pollo asado", keywords: ["pollo"] }),
+        makeCustomFoodRow({ customFoodId: 2, foodName: "Pollo al verdeo", keywords: ["pollo", "verdeo"] }),
+      ])
+      .mockResolvedValueOnce([
+        makeLogEntryRow({ customFoodId: 1, date: "2026-02-08" }), // only food 1 has a log entry
+        // food 2 has NO log entries
+      ]);
+
+    const result = await searchFoods("user-uuid-123", ["pollo"]);
+
+    // Both foods returned; food 1 first (has entry), food 2 second (no entries)
+    expect(result).toHaveLength(2);
+    const names = result.map(r => r.foodName);
+    expect(names).toContain("Pollo asado");
+    expect(names).toContain("Pollo al verdeo");
+    // food 2 has no log entries → mealTypeId defaults to 7
+    const food2 = result.find(r => r.foodName === "Pollo al verdeo")!;
+    expect(food2.mealTypeId).toBe(7);
+  });
+
   describe("food name fallback", () => {
     it("matches by food name when keywords don't match", async () => {
-      mockWhere.mockResolvedValue([
-        makeSearchRow({ customFoodId: 1, foodName: "Merlin Bars Cafe Protein", fitbitFoodId: 100, keywords: ["barra", "proteina", "cafe"], entryId: 1 }),
-      ]);
+      mockWhere
+        .mockResolvedValueOnce([
+          makeCustomFoodRow({ customFoodId: 1, foodName: "Merlin Bars Cafe Protein", keywords: ["barra", "proteina", "cafe"] }),
+        ])
+        .mockResolvedValueOnce([makeLogEntryRow({ customFoodId: 1 })]);
 
       const result = await searchFoods("user-uuid-123", ["merlin"]);
 
@@ -1925,9 +2132,11 @@ describe("searchFoods", () => {
     });
 
     it("matches partial words in food name (bar matches Bars)", async () => {
-      mockWhere.mockResolvedValue([
-        makeSearchRow({ customFoodId: 1, foodName: "Merlin Bars Cafe Protein", fitbitFoodId: 100, keywords: ["barra", "proteina", "cafe"], entryId: 1 }),
-      ]);
+      mockWhere
+        .mockResolvedValueOnce([
+          makeCustomFoodRow({ customFoodId: 1, foodName: "Merlin Bars Cafe Protein", keywords: ["barra", "proteina", "cafe"] }),
+        ])
+        .mockResolvedValueOnce([makeLogEntryRow({ customFoodId: 1 })]);
 
       const result = await searchFoods("user-uuid-123", ["bar"]);
 
@@ -1936,8 +2145,9 @@ describe("searchFoods", () => {
     });
 
     it("requires all search terms to appear in food name", async () => {
-      mockWhere.mockResolvedValue([
-        makeSearchRow({ customFoodId: 1, foodName: "Merlin Bars Cafe Protein", fitbitFoodId: 100, keywords: ["barra", "proteina"], entryId: 1 }),
+      // "merlin" matches but "chicken" doesn't → no result → early return
+      mockWhere.mockResolvedValueOnce([
+        makeCustomFoodRow({ customFoodId: 1, foodName: "Merlin Bars Cafe Protein", keywords: ["barra", "proteina"] }),
       ]);
 
       const result = await searchFoods("user-uuid-123", ["merlin", "chicken"]);
@@ -1946,9 +2156,11 @@ describe("searchFoods", () => {
     });
 
     it("matches food name even when keywords are null", async () => {
-      mockWhere.mockResolvedValue([
-        makeSearchRow({ customFoodId: 1, foodName: "Chocolate Brownie", fitbitFoodId: 100, keywords: null, entryId: 1 }),
-      ]);
+      mockWhere
+        .mockResolvedValueOnce([
+          makeCustomFoodRow({ customFoodId: 1, foodName: "Chocolate Brownie", keywords: null }),
+        ])
+        .mockResolvedValueOnce([makeLogEntryRow({ customFoodId: 1 })]);
 
       const result = await searchFoods("user-uuid-123", ["brownie"]);
 
@@ -1957,9 +2169,11 @@ describe("searchFoods", () => {
     });
 
     it("prefers keyword match over food name match (both work)", async () => {
-      mockWhere.mockResolvedValue([
-        makeSearchRow({ customFoodId: 1, foodName: "Pizza Napolitana", fitbitFoodId: 100, keywords: ["pizza", "napolitana"], entryId: 1 }),
-      ]);
+      mockWhere
+        .mockResolvedValueOnce([
+          makeCustomFoodRow({ customFoodId: 1, foodName: "Pizza Napolitana", keywords: ["pizza", "napolitana"] }),
+        ])
+        .mockResolvedValueOnce([makeLogEntryRow({ customFoodId: 1 })]);
 
       const result = await searchFoods("user-uuid-123", ["pizza"]);
 
@@ -1969,16 +2183,30 @@ describe("searchFoods", () => {
   });
 
   describe("HEALTH_DRY_RUN=true", () => {
-    it("includes foods with no remote health log in dry-run mode", async () => {
+    it("includes foods regardless of HEALTH_DRY_RUN flag (healthLogId not tracked in aggregation)", async () => {
       vi.stubEnv("HEALTH_DRY_RUN", "true");
-      mockWhere.mockResolvedValue([
-        makeSearchRow({ customFoodId: 1, foodName: "Dry Run Chicken", healthLogId: null, keywords: ["pollo"], entryId: 1 }),
-      ]);
+      mockWhere
+        .mockResolvedValueOnce([
+          makeCustomFoodRow({ customFoodId: 1, foodName: "Dry Run Chicken", keywords: ["pollo"] }),
+        ])
+        .mockResolvedValueOnce([makeLogEntryRow({ customFoodId: 1 })]);
 
       const result = await searchFoods("user-uuid-123", ["pollo"]);
 
       expect(result).toHaveLength(1);
       expect(result[0].foodName).toBe("Dry Run Chicken");
+    });
+  });
+
+  describe("FOO-1162: empty keywords guard", () => {
+    it("returns empty array when called with empty keywords (vacuous truth guard)", async () => {
+      // Without a guard, keywords.every(kw => name.includes(kw)) is vacuously true for all foods.
+      // With the guard, it returns [] immediately without touching the DB.
+      // No mock setup: the guard must fire before any DB call. Old code (no guard) reaches
+      // db.select()...where() which returns undefined after mockReset() → throws TypeError → RED.
+      const result = await searchFoods("user-uuid-123", []);
+
+      expect(result).toEqual([]);
     });
   });
 });
@@ -2456,7 +2684,7 @@ describe("debug logging", () => {
 
   it("searchFoods logs debug with keywords and result count", async () => {
     mockWhere.mockReset();
-    mockWhere.mockResolvedValue([]);
+    mockWhere.mockResolvedValueOnce([]); // No foods → early return, result count 0
 
     await searchFoods("user-123", ["pollo"]);
 

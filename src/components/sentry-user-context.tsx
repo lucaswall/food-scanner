@@ -5,16 +5,15 @@ import * as Sentry from "@sentry/nextjs";
 
 interface SentryUserContextProps {
   userId: string;
-  email: string;
 }
 
-export function SentryUserContext({ userId, email }: SentryUserContextProps) {
+export function SentryUserContext({ userId }: SentryUserContextProps) {
   useEffect(() => {
-    Sentry.setUser({ id: userId, email });
+    Sentry.setUser({ id: userId });
     return () => {
       Sentry.setUser(null);
     };
-  }, [userId, email]);
+  }, [userId]);
 
   return null;
 }

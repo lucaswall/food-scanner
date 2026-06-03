@@ -50,6 +50,7 @@ Then edit `.env.local` and override these values for local development:
 | `APP_URL` | `http://localhost:3000` | Local dev server, not production domain |
 | `LOG_LEVEL` | `debug` (optional) | More verbose logging during development |
 | `HEALTH_DRY_RUN` | `true` (optional) | Skip Google Health API calls, log to DB only |
+| `HEALTH_TOKEN_ENCRYPTION_KEY` | `$(openssl rand -base64 32)` (if not pulled from Railway) | Dedicated encryption key for health tokens at rest |
 
 Remove any Railway-internal variables (e.g., `RAILWAY_*`, `PORT`) — they're not needed locally.
 
@@ -141,6 +142,7 @@ E2E tests use `.env.test` for configuration. This file is checked into git (cont
 - `DATABASE_URL` → local Docker Postgres (`food_scanner` database)
 - `ENABLE_TEST_AUTH=true` → enables test-only auth bypass route
 - `HEALTH_DRY_RUN=true` → skips Google Health API calls
+- `HEALTH_TOKEN_ENCRYPTION_KEY` → test-only AES key (no real secret; encrypts health tokens during test seeding)
 - `PORT=3001` → production server port (avoids conflict with dev server on 3000)
 - Test values for Google OAuth, Anthropic API (not actually called in smoke tests)
 
@@ -314,6 +316,55 @@ This project uses Claude Code with custom agents and skills for development:
 4. `/plan-implement` — Execute the plan with TDD
 5. `/plan-review-implementation` — Review, commit, and create PR
 6. `/push-to-production` — Release to production
+
+---
+
+## Content Security Policy (CSP)
+
+The CSP header is applied in production only (see `next.config.ts`).
+
+### Sentry tunnel
+
+All client-side Sentry events route through the `/monitoring` same-origin tunnel endpoint,
+configured via `tunnelRoute: "/monitoring"` in `withSentryConfig`. The `@sentry/nextjs` build
+plugin injects the tunnel URL into the compiled client bundle — no direct `connect-src sentry.io`
+is needed. `connect-src 'self'` covers Sentry reporting.
+
+### Nonce-based script-src (deferred — FOO-1154)
+
+The current CSP uses `'unsafe-inline'` for `script-src`. Replacing it with a per-request nonce
+requires:
+
+1. Generating a cryptographic nonce in `middleware.ts` on every request.
+2. Setting both the `Content-Security-Policy` header (with `'nonce-<value>'`) and an `x-nonce`
+   response header so Next.js App Router's root layout can read it.
+3. Passing the nonce to the root `<html>` layout so Next.js includes it on all inline hydration
+   `<script>` tags (using the `headers().get("x-nonce")` pattern from Next.js docs).
+
+This change touches `middleware.ts`, `src/app/layout.tsx`, and `next.config.ts`. It carries a
+risk of breaking RSC hydration if any inline script is missed. Deferred to a dedicated task —
+`'unsafe-inline'` is acceptable in the interim for this single-user app.
+
+---
+
+## Dependency Security Advisories (FOO-1144)
+
+`npm audit --omit=dev` reports **0 critical / 0 high** in production dependencies. The audit
+baseline (1 critical + 10 high) was resolved by:
+
+- `npm audit fix` — cleared the high-severity build-tooling advisories (`rollup`,
+  `serialize-javascript` via `terser-webpack-plugin`, `uuid` via `@sentry/webpack-plugin`).
+- `next` upgraded `16.1.6 → 16.2.7` — cleared all high-severity Next.js runtime advisories
+  (middleware/proxy bypass, RSC cache poisoning, image-optimization DoS, WebSocket SSRF,
+  `beforeInteractive` XSS). The original drizzle-orm/undici advisories were already resolved by
+  the versions in use.
+
+**Residual (2 moderate, not fixable without a breaking change):** `postcss <8.5.10` (XSS via
+unescaped `</style>` in CSS stringify output), reached transitively through `next`. The only
+available fix bumps `next` to a `16.3.0-canary` release, which is unacceptable for production.
+PostCSS runs at build time over the project's own trusted CSS (Tailwind), so the advisory is not
+reachable with untrusted runtime input. Re-evaluate when a stable `next` ships the patched
+`postcss`.
 
 ---
 

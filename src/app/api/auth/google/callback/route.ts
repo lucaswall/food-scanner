@@ -8,6 +8,7 @@ import { getHealthTokens, upsertHealthTokens } from "@/lib/health-tokens";
 import { isEmailAllowed } from "@/lib/env";
 import { getOrCreateUser } from "@/lib/users";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/request-ip";
 
 function maskEmail(email: string): string {
   const atIndex = email.indexOf("@");
@@ -20,7 +21,7 @@ const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 
 export async function GET(request: Request) {
   const log = createRequestLogger("GET", "/api/auth/google/callback");
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const ip = getClientIp(request.headers);
   const { allowed } = checkRateLimit(`google-callback:${ip}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
   if (!allowed) {
     log.warn({ action: "rate_limit_exceeded", ip, endpoint: "google_callback" }, "rate limit exceeded");

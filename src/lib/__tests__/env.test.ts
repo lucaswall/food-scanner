@@ -45,9 +45,24 @@ describe("env", () => {
       process.env.APP_URL = "https://food.example.com";
       process.env.ALLOWED_EMAILS = "test@example.com";
       process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
+      process.env.HEALTH_TOKEN_ENCRYPTION_KEY = "dGVzdC1oZWFsdGgtdG9rZW4ta2V5LTMyLWJ5dGVzLWxvbmc=";
 
       const { validateRequiredEnvVars } = await import("@/lib/env");
       expect(() => validateRequiredEnvVars()).not.toThrow();
+    });
+
+    it("throws when HEALTH_TOKEN_ENCRYPTION_KEY is missing (boot-time guard for the Health integration)", async () => {
+      process.env.SESSION_SECRET = "test-secret-that-is-at-least-32-chars-long";
+      process.env.GOOGLE_CLIENT_ID = "google-id";
+      process.env.GOOGLE_CLIENT_SECRET = "google-secret";
+      process.env.ANTHROPIC_API_KEY = "anthropic-key";
+      process.env.APP_URL = "https://food.example.com";
+      process.env.ALLOWED_EMAILS = "test@example.com";
+      process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
+      delete process.env.HEALTH_TOKEN_ENCRYPTION_KEY;
+
+      const { validateRequiredEnvVars } = await import("@/lib/env");
+      expect(() => validateRequiredEnvVars()).toThrow("HEALTH_TOKEN_ENCRYPTION_KEY");
     });
 
     it("throws listing all missing vars when multiple are missing", async () => {

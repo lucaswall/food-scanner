@@ -318,6 +318,83 @@ describe("health-cache", () => {
     });
   });
 
+  // ─── bounded cache (Task 9 / FOO-1147) ──────────────────────────────────────
+
+  describe("expired-entry eviction on read", () => {
+    it("treats an expired profile cache entry as a miss and removes it from the map", async () => {
+      vi.useFakeTimers();
+      const now = Date.now();
+      vi.setSystemTime(now);
+
+      mockGetHealthProfile.mockResolvedValue(mockProfile);
+
+      // First call — populates cache (TTL 24h)
+      await getCachedHealthProfile("user-evict");
+      expect(mockGetHealthProfile).toHaveBeenCalledTimes(1);
+
+      // Advance past 24h TTL so the entry is expired
+      vi.setSystemTime(now + 25 * 60 * 60 * 1000);
+      vi.clearAllMocks();
+      mockEnsureFreshToken.mockResolvedValue("test-access-token");
+      mockGetHealthProfile.mockResolvedValue(mockProfile);
+
+      // Second call — must be a miss (expired entry must have been removed)
+      await getCachedHealthProfile("user-evict");
+      expect(mockGetHealthProfile).toHaveBeenCalledTimes(1);
+    });
+
+    it("treats an expired weight cache entry as a miss and removes it from the map", async () => {
+      vi.useFakeTimers();
+      const now = Date.now();
+      vi.setSystemTime(now);
+
+      mockGetHealthLatestWeightKg.mockResolvedValue(mockWeightLog);
+
+      await getCachedHealthWeightKg("user-evict", "2024-01-15");
+      expect(mockGetHealthLatestWeightKg).toHaveBeenCalledTimes(1);
+
+      // Advance past 1h TTL (positive result)
+      vi.setSystemTime(now + 2 * 60 * 60 * 1000);
+      vi.clearAllMocks();
+      mockEnsureFreshToken.mockResolvedValue("test-access-token");
+      mockGetHealthLatestWeightKg.mockResolvedValue(mockWeightLog);
+
+      await getCachedHealthWeightKg("user-evict", "2024-01-15");
+      expect(mockGetHealthLatestWeightKg).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("bounded cache size", () => {
+    it("profile cache evicts oldest entries when size cap is exceeded", async () => {
+      mockGetHealthProfile.mockResolvedValue(mockProfile);
+
+      // Import the module to access MAX size (task says MAX_*_SIZE mirrors rate-limit = 1000)
+      // We test by inserting many users and checking the map stays bounded.
+      // Use a smaller bound test: insert 1002 users, verify size <= 1001 (cap+1 triggers evict)
+      // In practice we just test that repeated inserts don't grow unboundedly.
+      const mod = await import("@/lib/health-cache");
+
+      // Insert entries for 1002 distinct users
+      for (let i = 0; i < 1002; i++) {
+        mockGetHealthProfile.mockResolvedValueOnce(mockProfile);
+        await mod.getCachedHealthProfile(`size-user-${i}`);
+      }
+
+      // The cache must not exceed MAX_PROFILE_CACHE_SIZE (1000)
+      // We can't access the internal map directly, but we verify that a new cache miss
+      // for a previously-evicted user triggers a fresh fetch (meaning it's gone from cache).
+      // Since we can't inspect the map, the behavioral test is: after many inserts, re-fetching
+      // an early entry (user-0) causes a new getHealthProfile call (it was evicted).
+      vi.clearAllMocks();
+      mockEnsureFreshToken.mockResolvedValue("test-access-token");
+      mockGetHealthProfile.mockResolvedValueOnce(mockProfile);
+
+      // user-size-user-0 was the oldest; it should have been evicted
+      await mod.getCachedHealthProfile("size-user-0");
+      expect(mockGetHealthProfile).toHaveBeenCalledTimes(1);
+    });
+  });
+
   // ─── invalidateHealthProfileCache ────────────────────────────────────────
 
   describe("invalidateHealthProfileCache", () => {

@@ -1,4 +1,4 @@
-import { eq, and, or, isNull, gte, lte, lt, gt, desc, asc, between, sql } from "drizzle-orm";
+import { eq, and, or, isNull, gte, lte, lt, gt, desc, asc, between, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
@@ -388,57 +388,112 @@ export async function getRecentFoods(
   const db = getDb();
   const limit = options.limit ?? 10;
 
-  const conditions = [eq(foodLogEntries.userId, userId)];
+  // Query 1: fetch ALL food log entries for this user (no join, no limit).
+  // We must aggregate over ALL entries to determine each food's most-recent log position
+  // before applying cursor pagination. Applying cursor conditions at the entry level is
+  // incorrect: a food whose most-recent entry is AFTER the cursor may still have older
+  // entries BEFORE the cursor, causing false inclusion via those older entries.
+  const allEntries = await db
+    .select({
+      id: foodLogEntries.id,
+      customFoodId: foodLogEntries.customFoodId,
+      date: foodLogEntries.date,
+      time: foodLogEntries.time,
+      mealTypeId: foodLogEntries.mealTypeId,
+      amount: foodLogEntries.amount,
+      unitId: foodLogEntries.unitId,
+      healthLogId: foodLogEntries.healthLogId,
+    })
+    .from(foodLogEntries)
+    .where(eq(foodLogEntries.userId, userId));
 
+  // Aggregate: one row per food — the entry with the most-recent (date DESC, time DESC NULLS LAST, id ASC).
+  type EntryRow = (typeof allEntries)[number];
+  const latestByFood = new Map<number, EntryRow>();
+  for (const entry of allEntries) {
+    const existing = latestByFood.get(entry.customFoodId);
+    if (!existing) {
+      latestByFood.set(entry.customFoodId, entry);
+    } else {
+      const newer =
+        entry.date > existing.date ||
+        (entry.date === existing.date && (entry.time ?? "") > (existing.time ?? "")) ||
+        (entry.date === existing.date && (entry.time ?? "") === (existing.time ?? "") && entry.id < existing.id);
+      if (newer) latestByFood.set(entry.customFoodId, entry);
+    }
+  }
+
+  // Sort: (date DESC, time DESC NULLS LAST, id ASC) — mirrors the natural ordering of
+  // "most-recently-logged food" and makes the cursor deterministic.
+  const sorted = [...latestByFood.values()].sort((a, b) => {
+    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    const at = a.time ?? "";
+    const bt = b.time ?? "";
+    if (at !== bt) return bt.localeCompare(at);
+    return a.id - b.id;
+  });
+
+  // Apply cursor: keep only foods whose most-recent entry comes AFTER the cursor position
+  // in the sort order (i.e., is older / earlier in time than the cursor food).
+  let afterCursor = sorted;
   if (options.cursor) {
     const { lastDate, lastTime, lastId } = options.cursor;
-    const cursorCondition = lastTime !== null
-      ? or(
-          lt(foodLogEntries.date, lastDate),
-          and(eq(foodLogEntries.date, lastDate), lt(foodLogEntries.time, lastTime)),
-          and(eq(foodLogEntries.date, lastDate), eq(foodLogEntries.time, lastTime), gt(foodLogEntries.id, lastId)),
-          and(eq(foodLogEntries.date, lastDate), isNull(foodLogEntries.time)),
-        )
-      : or(
-          lt(foodLogEntries.date, lastDate),
-          and(eq(foodLogEntries.date, lastDate), isNull(foodLogEntries.time), gt(foodLogEntries.id, lastId)),
-        );
-    if (cursorCondition) {
-      conditions.push(cursorCondition);
-    }
+    afterCursor = sorted.filter(e => {
+      if (e.date < lastDate) return true;
+      if (e.date > lastDate) return false;
+      const et = e.time ?? "";
+      const ct = lastTime ?? "";
+      if (et < ct) return true;
+      if (et > ct) return false;
+      // Same date and time: higher id sorts later in ASC, so ids > lastId are "after" the cursor
+      return e.id > lastId;
+    });
   }
 
-  const rows = await db
+  const hasMore = afterCursor.length > limit;
+  const page = afterCursor.slice(0, limit);
+
+  if (page.length === 0) {
+    l.debug({ action: "get_recent_foods", resultCount: 0, hasMore: false }, "recent foods retrieved");
+    return { foods: [], nextCursor: null };
+  }
+
+  // Query 2: fetch custom food details for the page foods.
+  const pageIds = page.map(e => e.customFoodId);
+  const customFoodRows = await db
     .select()
-    .from(foodLogEntries)
-    .innerJoin(customFoods, eq(foodLogEntries.customFoodId, customFoods.id))
-    .where(and(...conditions))
-    .orderBy(desc(foodLogEntries.date), desc(foodLogEntries.time), asc(foodLogEntries.id))
-    .limit(limit * 3);
+    .from(customFoods)
+    .where(and(eq(customFoods.userId, userId), inArray(customFoods.id, pageIds)));
 
-  // Dedup by customFoodId, keeping the most recent entry (first occurrence in DESC order)
-  const seenFoods = new Set<number>();
-  const deduped: typeof rows = [];
-  for (const row of rows) {
-    const foodId = row.custom_foods.id;
-    if (!seenFoods.has(foodId)) {
-      seenFoods.add(foodId);
-      deduped.push(row);
-    }
-  }
+  const foodById = new Map(customFoodRows.map(f => [f.id, f]));
 
-  const hasMore = deduped.length > limit;
-  const page = deduped.slice(0, limit);
+  const foods: CommonFood[] = page.flatMap(entry => {
+    const food = foodById.get(entry.customFoodId);
+    if (!food) return [];
+    const item: CommonFood = {
+      customFoodId: food.id,
+      foodName: food.foodName,
+      amount: Number(food.amount),
+      unitId: coerceServingUnit(food.unitId),
+      calories: food.calories,
+      proteinG: Number(food.proteinG),
+      carbsG: Number(food.carbsG),
+      fatG: Number(food.fatG),
+      fiberG: Number(food.fiberG),
+      sodiumMg: Number(food.sodiumMg),
+      saturatedFatG: food.saturatedFatG != null ? Number(food.saturatedFatG) : null,
+      transFatG: food.transFatG != null ? Number(food.transFatG) : null,
+      sugarsG: food.sugarsG != null ? Number(food.sugarsG) : null,
+      caloriesFromFat: food.caloriesFromFat != null ? Number(food.caloriesFromFat) : null,
+      mealTypeId: entry.mealTypeId,
+      isFavorite: food.isFavorite,
+    };
+    return [item];
+  });
 
-  const foods: CommonFood[] = page.map(mapRowToCommonFood);
-
-  const lastRow = page.length > 0 ? page[page.length - 1] : null;
-  const nextCursor: RecentFoodsCursor | null = hasMore && lastRow
-    ? {
-        lastDate: lastRow.food_log_entries.date,
-        lastTime: lastRow.food_log_entries.time,
-        lastId: lastRow.food_log_entries.id,
-      }
+  const lastEntry = page[page.length - 1];
+  const nextCursor: RecentFoodsCursor | null = hasMore
+    ? { lastDate: lastEntry.date, lastTime: lastEntry.time, lastId: lastEntry.id }
     : null;
 
   l.debug({ action: "get_recent_foods", resultCount: foods.length, hasMore }, "recent foods retrieved");
@@ -781,21 +836,27 @@ export async function searchFoods(
   log?: Logger,
 ): Promise<CommonFood[]> {
   const l = log ?? logger;
+  // Guard: empty keywords would vacuously match every food (keywords.every()), returning the
+  // user's entire food list. Return empty immediately — callers must supply at least one keyword.
+  if (keywords.length === 0) {
+    l.debug({ action: "search_foods", keywords, resultCount: 0 }, "food search complete");
+    return [];
+  }
   const db = getDb();
   const limit = options.limit ?? 10;
 
-  const conditions = [eq(customFoods.userId, userId)];
-
-  const rows = await db
+  // Query 1: fetch all custom foods for this user (one row per food — no cross-join).
+  const foods = await db
     .select()
     .from(customFoods)
-    .leftJoin(foodLogEntries, eq(foodLogEntries.customFoodId, customFoods.id))
-    .where(and(...conditions));
+    .where(eq(customFoods.userId, userId));
 
-  // Application-level filtering: keyword match ratio OR food name substring match
-  const filtered = rows.filter((row) => {
+  // Application-level filtering: keyword match ratio OR food name substring match.
+  // All user foods remain searchable — no limit applied before or during filtering
+  // (see memory: "always show all logged foods").
+  const filtered = foods.filter((food) => {
     // Primary: keyword-based matching (ratio >= 0.5)
-    const existingKeywords = row.custom_foods.keywords;
+    const existingKeywords = food.keywords;
     if (existingKeywords && existingKeywords.length > 0) {
       // Normalize existing keywords to lowercase — DB keywords may have mixed case
       // if the model didn't follow the "lowercase tokens" instruction perfectly
@@ -805,70 +866,85 @@ export async function searchFoods(
 
     // Fallback: all search terms appear as substrings in the food name.
     // This catches brand names (excluded from keywords) and partial words.
-    const foodNameLower = row.custom_foods.foodName.toLowerCase();
+    const foodNameLower = food.foodName.toLowerCase();
     return keywords.every(kw => foodNameLower.includes(kw));
   });
 
-  // Group by customFoodId: count entries, track max date, keep best mealTypeId
-  const grouped = new Map<
-    number,
-    { row: (typeof filtered)[number]; count: number; maxDate: string | null; bestEntry: (typeof filtered)[number] | null }
-  >();
+  if (filtered.length === 0) {
+    l.debug({ action: "search_foods", keywords, resultCount: 0 }, "food search complete");
+    return [];
+  }
 
-  for (const row of filtered) {
-    const foodId = row.custom_foods.id;
-    const existing = grouped.get(foodId);
-    const entryDate = row.food_log_entries?.date ?? null;
+  // Query 2: fetch log entries only for the matched foods and aggregate per food.
+  // Using a separate scoped query avoids materialising the full
+  // custom_foods × food_log_entries cross-join AND avoids loading the user's entire
+  // history — only entries for the filtered foods are fetched. Aggregation
+  // (count, maxDate, bestMealTypeId) happens in memory.
+  const filteredIds = new Set(filtered.map(f => f.id));
+  const logRows = await db
+    .select()
+    .from(foodLogEntries)
+    .where(
+      and(
+        eq(foodLogEntries.userId, userId),
+        inArray(foodLogEntries.customFoodId, [...filteredIds]),
+      ),
+    );
 
+  // Aggregate log data per customFoodId: count entries, track latest date and its mealTypeId
+  const aggregated = new Map<number, { count: number; maxDate: string | null; bestMealTypeId: number }>();
+
+  for (const entry of logRows) {
+    if (!filteredIds.has(entry.customFoodId)) continue;
+    const existing = aggregated.get(entry.customFoodId);
+    const entryDate = entry.date;
     if (!existing) {
-      grouped.set(foodId, {
-        row,
-        count: entryDate ? 1 : 0,
-        maxDate: entryDate,
-        bestEntry: row.food_log_entries ? row : null,
-      });
+      aggregated.set(entry.customFoodId, { count: 1, maxDate: entryDate, bestMealTypeId: entry.mealTypeId });
     } else {
-      if (entryDate) {
-        existing.count += 1;
-        if (!existing.maxDate || entryDate > existing.maxDate) {
-          existing.maxDate = entryDate;
-          existing.bestEntry = row;
-        }
+      existing.count += 1;
+      if (!existing.maxDate || entryDate > existing.maxDate) {
+        existing.maxDate = entryDate;
+        existing.bestMealTypeId = entry.mealTypeId;
       }
     }
   }
 
   // Sort by count DESC, then maxDate DESC
-  const sorted = [...grouped.values()]
+  const sorted = [...filtered]
     .sort((a, b) => {
-      if (b.count !== a.count) return b.count - a.count;
-      const dateA = a.maxDate ?? "";
-      const dateB = b.maxDate ?? "";
+      const aggA = aggregated.get(a.id);
+      const aggB = aggregated.get(b.id);
+      const countA = aggA?.count ?? 0;
+      const countB = aggB?.count ?? 0;
+      if (countB !== countA) return countB - countA;
+      const dateA = aggA?.maxDate ?? "";
+      const dateB = aggB?.maxDate ?? "";
       return dateB.localeCompare(dateA);
     })
     .slice(0, limit);
 
-  const results = sorted.map(({ row, bestEntry }) => {
-    const entryRow = bestEntry ?? row;
+  const results = sorted.map(food => {
+    const agg = aggregated.get(food.id);
     return {
-      customFoodId: row.custom_foods.id,
-      foodName: row.custom_foods.foodName,
-      amount: Number(row.custom_foods.amount),
-      unitId: coerceServingUnit(row.custom_foods.unitId),
-      calories: row.custom_foods.calories,
-      proteinG: Number(row.custom_foods.proteinG),
-      carbsG: Number(row.custom_foods.carbsG),
-      fatG: Number(row.custom_foods.fatG),
-      fiberG: Number(row.custom_foods.fiberG),
-      sodiumMg: Number(row.custom_foods.sodiumMg),
-      saturatedFatG: row.custom_foods.saturatedFatG != null ? Number(row.custom_foods.saturatedFatG) : null,
-      transFatG: row.custom_foods.transFatG != null ? Number(row.custom_foods.transFatG) : null,
-      sugarsG: row.custom_foods.sugarsG != null ? Number(row.custom_foods.sugarsG) : null,
-      caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
-      mealTypeId: entryRow.food_log_entries?.mealTypeId ?? 7,
-      isFavorite: row.custom_foods.isFavorite,
+      customFoodId: food.id,
+      foodName: food.foodName,
+      amount: Number(food.amount),
+      unitId: coerceServingUnit(food.unitId),
+      calories: food.calories,
+      proteinG: Number(food.proteinG),
+      carbsG: Number(food.carbsG),
+      fatG: Number(food.fatG),
+      fiberG: Number(food.fiberG),
+      sodiumMg: Number(food.sodiumMg),
+      saturatedFatG: food.saturatedFatG != null ? Number(food.saturatedFatG) : null,
+      transFatG: food.transFatG != null ? Number(food.transFatG) : null,
+      sugarsG: food.sugarsG != null ? Number(food.sugarsG) : null,
+      caloriesFromFat: food.caloriesFromFat != null ? Number(food.caloriesFromFat) : null,
+      mealTypeId: agg?.bestMealTypeId ?? 7,
+      isFavorite: food.isFavorite,
     };
   });
+
   l.debug({ action: "search_foods", keywords, resultCount: results.length }, "food search complete");
   return results;
 }

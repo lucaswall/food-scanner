@@ -428,7 +428,11 @@ describe("Settings content (client component)", () => {
       });
 
       // Verify fetch was called with the session endpoint
-      expect(mockFetch).toHaveBeenCalledWith("/api/auth/session");
+      // apiFetcher passes an AbortSignal.timeout option (see src/lib/swr.ts)
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/auth/session",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
     });
 
     it("displays session data after fetch completes", async () => {

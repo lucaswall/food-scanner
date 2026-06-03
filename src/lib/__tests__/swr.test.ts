@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   apiFetcher,
   ApiError,
@@ -20,6 +20,10 @@ beforeEach(() => {
   mockMutate.mockClear();
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("apiFetcher", () => {
   it("returns data on successful response", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -28,7 +32,23 @@ describe("apiFetcher", () => {
 
     const result = await apiFetcher("/api/common-foods");
     expect(result).toEqual({ foods: ["apple"] });
-    expect(fetch).toHaveBeenCalledWith("/api/common-foods");
+    // URL is first arg; signal option is added by the timeout fix
+    const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit?];
+    expect(url).toBe("/api/common-foods");
+  });
+
+  it("passes an AbortSignal to fetch so hung requests are not left open (FOO-1148)", async () => {
+    // Structural test: verify fetch receives { signal: AbortSignal } so that a 15s
+    // AbortSignal.timeout(15000) is in effect. (AbortSignal.timeout uses Node.js native
+    // timers that vi.useFakeTimers cannot intercept, so behavioral testing is skipped here.)
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ success: true, data: {} }),
+    );
+
+    await apiFetcher("/api/test");
+
+    const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit?];
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("throws on HTTP error status", async () => {

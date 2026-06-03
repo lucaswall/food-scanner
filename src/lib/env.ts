@@ -6,6 +6,7 @@ const REQUIRED_ENV_VARS = [
   "APP_URL",
   "ALLOWED_EMAILS",
   "DATABASE_URL",
+  "HEALTH_TOKEN_ENCRYPTION_KEY",
 ] as const;
 
 export function getRequiredEnv(name: string): string {

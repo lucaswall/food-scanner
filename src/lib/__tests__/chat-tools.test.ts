@@ -99,13 +99,10 @@ describe("Chat Tool Definitions", () => {
     expect(GET_FASTING_INFO_TOOL.input_schema.properties).toHaveProperty("to_date");
   });
 
-  it("SEARCH_FOOD_LOG_TOOL is non-strict with required array", () => {
+  it("SEARCH_FOOD_LOG_TOOL has required array and correct nullable types", () => {
     const schema = SEARCH_FOOD_LOG_TOOL.input_schema;
     const props = schema.properties as Record<string, Record<string, unknown>>;
 
-    // Data query tools are non-strict to stay under the 16 union-type parameter limit
-    expect(SEARCH_FOOD_LOG_TOOL).not.toHaveProperty("strict");
-    expect(schema).not.toHaveProperty("additionalProperties");
     expect(schema.required).toEqual(["keywords", "date", "from_date", "to_date", "meal_type", "limit"]);
 
     // keywords should be an array of strings
@@ -115,24 +112,19 @@ describe("Chat Tool Definitions", () => {
     expect(props.from_date.type).toEqual(["string", "null"]);
     expect(props.to_date.type).toEqual(["string", "null"]);
 
-    // meal_type should use anyOf with enum and null
-    expect(props.meal_type.anyOf).toBeDefined();
-    expect(props.meal_type.anyOf).toContainEqual({
-      type: "string",
-      enum: ["breakfast", "morning_snack", "lunch", "afternoon_snack", "dinner", "anytime"],
-    });
-    expect(props.meal_type.anyOf).toContainEqual({ type: "null" });
+    // meal_type: restructured for strict mode — uses type array instead of anyOf
+    expect(props.meal_type.anyOf).toBeUndefined();
+    const typeField = props.meal_type.type;
+    expect(Array.isArray(typeField) && typeField.includes("null")).toBe(true);
 
     // limit should be nullable number
     expect(props.limit.type).toEqual(["number", "null"]);
   });
 
-  it("GET_NUTRITION_SUMMARY_TOOL is non-strict with required array", () => {
+  it("GET_NUTRITION_SUMMARY_TOOL has correct required array and nullable types", () => {
     const schema = GET_NUTRITION_SUMMARY_TOOL.input_schema;
     const props = schema.properties as Record<string, Record<string, unknown>>;
 
-    expect(GET_NUTRITION_SUMMARY_TOOL).not.toHaveProperty("strict");
-    expect(schema).not.toHaveProperty("additionalProperties");
     expect(schema.required).toEqual(["date", "from_date", "to_date"]);
 
     // All string params should be nullable
@@ -141,18 +133,63 @@ describe("Chat Tool Definitions", () => {
     expect(props.to_date.type).toEqual(["string", "null"]);
   });
 
-  it("GET_FASTING_INFO_TOOL is non-strict with required array", () => {
+  it("GET_FASTING_INFO_TOOL has correct required array and nullable types", () => {
     const schema = GET_FASTING_INFO_TOOL.input_schema;
     const props = schema.properties as Record<string, Record<string, unknown>>;
 
-    expect(GET_FASTING_INFO_TOOL).not.toHaveProperty("strict");
-    expect(schema).not.toHaveProperty("additionalProperties");
     expect(schema.required).toEqual(["date", "from_date", "to_date"]);
 
     // All string params should be nullable
     expect(props.date.type).toEqual(["string", "null"]);
     expect(props.from_date.type).toEqual(["string", "null"]);
     expect(props.to_date.type).toEqual(["string", "null"]);
+  });
+});
+
+// FOO-1157: strict mode + nullable meal_type
+describe("Chat Tool strict mode (FOO-1157)", () => {
+  it("SEARCH_FOOD_LOG_TOOL has strict: true", () => {
+    expect(SEARCH_FOOD_LOG_TOOL.strict).toBe(true);
+  });
+
+  it("SEARCH_FOOD_LOG_TOOL has additionalProperties: false", () => {
+    expect((SEARCH_FOOD_LOG_TOOL.input_schema as Record<string, unknown>).additionalProperties).toBe(false);
+  });
+
+  it("SEARCH_FOOD_LOG_TOOL meal_type accepts null (type includes null)", () => {
+    const props = SEARCH_FOOD_LOG_TOOL.input_schema.properties as Record<string, Record<string, unknown>>;
+    const mealType = props.meal_type;
+    // After restructure for strict mode, meal_type should support null without anyOf
+    const typeField = mealType.type;
+    const hasNullType = Array.isArray(typeField) && typeField.includes("null");
+    const hasNullInEnum = Array.isArray(mealType.enum) && (mealType.enum as unknown[]).includes(null);
+    expect(hasNullType || hasNullInEnum).toBe(true);
+  });
+
+  it("GET_NUTRITION_SUMMARY_TOOL has strict: true", () => {
+    expect(GET_NUTRITION_SUMMARY_TOOL.strict).toBe(true);
+  });
+
+  it("GET_NUTRITION_SUMMARY_TOOL has additionalProperties: false", () => {
+    expect((GET_NUTRITION_SUMMARY_TOOL.input_schema as Record<string, unknown>).additionalProperties).toBe(false);
+  });
+
+  it("GET_FASTING_INFO_TOOL has strict: true", () => {
+    expect(GET_FASTING_INFO_TOOL.strict).toBe(true);
+  });
+
+  it("GET_FASTING_INFO_TOOL has additionalProperties: false", () => {
+    expect((GET_FASTING_INFO_TOOL.input_schema as Record<string, unknown>).additionalProperties).toBe(false);
+  });
+
+  // SAVE_NUTRITION_LABEL_TOOL and MANAGE_NUTRITION_LABEL_TOOL intentionally left
+  // non-strict — see code comments in chat-tools.ts for reason.
+  it("SAVE_NUTRITION_LABEL_TOOL does not have strict: true (extra_nutrients open dict)", () => {
+    expect(SAVE_NUTRITION_LABEL_TOOL.strict).not.toBe(true);
+  });
+
+  it("MANAGE_NUTRITION_LABEL_TOOL does not have strict: true (extra_nutrients open dict)", () => {
+    expect(MANAGE_NUTRITION_LABEL_TOOL.strict).not.toBe(true);
   });
 });
 

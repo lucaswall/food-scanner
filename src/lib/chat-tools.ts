@@ -10,8 +10,10 @@ import type { Logger } from "@/lib/logger";
 export const SEARCH_FOOD_LOG_TOOL: Anthropic.Tool = {
   name: "search_food_log",
   description: "Search the user's food log to find what they have eaten. Use this when the user references past meals, asks about foods they've eaten before, wants to see entries for a specific date or meal, or asks what they usually eat. Three mutually exclusive modes: (1) keywords only — returns the most frequently logged matches; (2) date only — returns entries for that date grouped by meal type; (3) from_date+to_date — returns entries in the range. Do NOT combine keywords with date parameters — keywords are ignored when a date is provided.",
+  strict: true,
   input_schema: {
     type: "object" as const,
+    additionalProperties: false as const,
     required: ["keywords", "date", "from_date", "to_date", "meal_type", "limit"],
     properties: {
       keywords: {
@@ -32,16 +34,11 @@ export const SEARCH_FOOD_LOG_TOOL: Anthropic.Tool = {
         description: "Range end in YYYY-MM-DD format",
       },
       meal_type: {
-        anyOf: [
-          {
-            type: "string",
-            enum: ["breakfast", "morning_snack", "lunch", "afternoon_snack", "dinner", "anytime"],
-          },
-          {
-            type: "null",
-          },
-        ],
-        description: "Filter by meal type",
+        // Restructured from anyOf for strict-mode compatibility.
+        // null is included in the type array so Claude can omit filtering.
+        type: ["string", "null"],
+        enum: ["breakfast", "morning_snack", "lunch", "afternoon_snack", "dinner", "anytime", null],
+        description: "Filter by meal type, or null to return all meal types",
       },
       limit: {
         type: ["number", "null"],
@@ -54,8 +51,10 @@ export const SEARCH_FOOD_LOG_TOOL: Anthropic.Tool = {
 export const GET_NUTRITION_SUMMARY_TOOL: Anthropic.Tool = {
   name: "get_nutrition_summary",
   description: "Get the user's nutrition summary including total calories, protein, carbs, fat, fiber, and sodium. Always includes the user's calorie and macro goals when available, so you can tell them how they're tracking. Use this for questions about daily intake, goal progress, nutrition trends over time, or macro breakdowns. For a single date, returns per-meal breakdown. For a date range, returns daily totals with goals.",
+  strict: true,
   input_schema: {
     type: "object" as const,
+    additionalProperties: false as const,
     required: ["date", "from_date", "to_date"],
     properties: {
       date: {
@@ -77,8 +76,10 @@ export const GET_NUTRITION_SUMMARY_TOOL: Anthropic.Tool = {
 export const GET_FASTING_INFO_TOOL: Anthropic.Tool = {
   name: "get_fasting_info",
   description: "Get the user's fasting window information. Shows when they last ate, when they first ate, and the fasting duration in between. Use this when the user asks about fasting, when they last ate, or wants to see fasting patterns over time. A null firstMealTime means the user is currently fasting (hasn't eaten yet today).",
+  strict: true,
   input_schema: {
     type: "object" as const,
+    additionalProperties: false as const,
     required: ["date", "from_date", "to_date"],
     properties: {
       date: {
@@ -369,6 +370,10 @@ export const SEARCH_NUTRITION_LABELS_TOOL: Anthropic.Tool = {
   },
 };
 
+// SAVE_NUTRITION_LABEL_TOOL is intentionally non-strict:
+// The extra_nutrients field is an open key-value dictionary (brand-specific nutrients whose
+// keys vary by product). Strict mode requires additionalProperties: false on ALL nested
+// objects, which would prevent Claude from returning any extra nutrient entries.
 export const SAVE_NUTRITION_LABEL_TOOL: Anthropic.Tool = {
   name: "save_nutrition_label",
   description: "Save nutrition data extracted from a product label photo. Automatically detects and handles duplicates. Call this when you detect a nutrition facts label in the user's photos.",
@@ -404,6 +409,10 @@ export const SAVE_NUTRITION_LABEL_TOOL: Anthropic.Tool = {
   },
 };
 
+// MANAGE_NUTRITION_LABEL_TOOL is intentionally non-strict:
+// The update_fields.extra_nutrients property is an open key-value dictionary (same
+// reason as SAVE_NUTRITION_LABEL_TOOL). Strict mode would require additionalProperties:
+// false on all nested objects, breaking support for arbitrary nutrient keys.
 export const MANAGE_NUTRITION_LABEL_TOOL: Anthropic.Tool = {
   name: "manage_nutrition_label",
   description: "Update or delete a nutrition label entry. Use when the user explicitly asks to modify or remove a saved label.",

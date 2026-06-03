@@ -15,10 +15,6 @@ vi.mock("@/lib/logger", () => {
   };
 });
 
-vi.mock("@/lib/claude", () => ({
-  CLAUDE_MODEL: "claude-sonnet-4-6",
-}));
-
 const { GET } = await import("@/app/api/health/route");
 const { logger } = await import("@/lib/logger");
 
@@ -73,43 +69,21 @@ describe("GET /api/health", () => {
     expect(body.data.environment).toBe("Production");
   });
 
-  it("returns healthMode as Dry Run when HEALTH_DRY_RUN is true", async () => {
-    vi.stubEnv("HEALTH_DRY_RUN", "true");
-    const response = await GET();
-    const body = await response.json();
-    expect(body.data.healthMode).toBe("Dry Run");
-  });
-
-  it("returns healthMode as Live when HEALTH_DRY_RUN is absent", async () => {
-    vi.stubEnv("HEALTH_DRY_RUN", "");
-    const response = await GET();
-    const body = await response.json();
-    expect(body.data.healthMode).toBe("Live");
-  });
-
-  it("returns claudeModel from claude.ts", async () => {
-    const response = await GET();
-    const body = await response.json();
-    expect(body.data.claudeModel).toBe("claude-sonnet-4-6");
-  });
-
-  it("returns all required about fields", async () => {
+  it("returns all required liveness fields", async () => {
     const response = await GET();
     const body = await response.json();
     expect(body.data).toMatchObject({
       status: "ok",
       version: expect.any(String),
       environment: expect.any(String),
-      healthMode: expect.any(String),
-      claudeModel: expect.any(String),
     });
   });
 
-  it("includes commitHash in response when COMMIT_SHA is set", async () => {
+  it("does not include commitHash in response even when COMMIT_SHA is set", async () => {
     vi.stubEnv("COMMIT_SHA", "abc1234");
     const response = await GET();
     const body = await response.json();
-    expect(body.data.commitHash).toBe("abc1234");
+    expect(body.data).not.toHaveProperty("commitHash");
   });
 
   it("formats version with commit hash for staging when COMMIT_SHA is set", async () => {
@@ -128,11 +102,42 @@ describe("GET /api/health", () => {
     expect(body.data.version).toBe(packageJson.version);
   });
 
-  it("returns empty commitHash when COMMIT_SHA is empty", async () => {
+  it("does not include commitHash in response when COMMIT_SHA is empty", async () => {
     vi.stubEnv("COMMIT_SHA", "");
     const response = await GET();
     const body = await response.json();
-    expect(body.data.commitHash).toBe("");
+    expect(body.data).not.toHaveProperty("commitHash");
+  });
+
+  // FOO-1151: deployment config must not be disclosed on the public health endpoint
+  it("does not include healthMode in response", async () => {
+    vi.stubEnv("HEALTH_DRY_RUN", "true");
+    const response = await GET();
+    const body = await response.json();
+    expect(body.data).not.toHaveProperty("healthMode");
+  });
+
+  it("does not include claudeModel in response", async () => {
+    const response = await GET();
+    const body = await response.json();
+    expect(body.data).not.toHaveProperty("claudeModel");
+  });
+
+  // FOO-1163: commitHash must not appear as a standalone field — it leaks deploy commit on production
+  it("does not include commitHash in production response even when COMMIT_SHA is set", async () => {
+    vi.stubEnv("COMMIT_SHA", "abc1234");
+    vi.stubEnv("APP_URL", "https://food.lucaswall.me");
+    const response = await GET();
+    const body = await response.json();
+    expect(body.data).not.toHaveProperty("commitHash");
+  });
+
+  it("does not include commitHash in staging response (hash is already embedded in version)", async () => {
+    vi.stubEnv("COMMIT_SHA", "abc1234");
+    vi.stubEnv("APP_URL", "https://food-test.lucaswall.me");
+    const response = await GET();
+    const body = await response.json();
+    expect(body.data).not.toHaveProperty("commitHash");
   });
 
 });

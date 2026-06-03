@@ -5,6 +5,7 @@ import { getUnitLabel, MEAL_TYPE_LABELS, coerceServingUnit } from "@/types";
 import { logger, startTimer } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
+import { wrapUntrusted, UNTRUSTED_DATA_INSTRUCTION } from "@/lib/prompt-safety";
 import { isValidDateFormat } from "@/lib/date-utils";
 import { recordUsage } from "@/lib/claude-usage";
 import { executeTool, SEARCH_FOOD_LOG_TOOL, GET_NUTRITION_SUMMARY_TOOL, GET_FASTING_INFO_TOOL, SEARCH_NUTRITION_LABELS_TOOL, SAVE_NUTRITION_LABEL_TOOL, MANAGE_NUTRITION_LABEL_TOOL } from "@/lib/chat-tools";
@@ -1007,7 +1008,7 @@ export async function* analyzeFood(
     l.debug(
       {
         action: "analyze_food_request_detail",
-        systemPrompt,
+        systemPromptLength: systemPrompt.length,
         userDescription: description || "Analyze this food.",
         imageCount: images.length,
         imageMimeTypes: images.map((img) => img.mimeType),
@@ -1051,6 +1052,14 @@ export async function* analyzeFood(
         "Claude refused to analyze the food content"
       );
       throw new ClaudeApiError("The request was flagged by our safety systems and cannot be processed.");
+    }
+
+    if (response.stop_reason === "max_tokens") {
+      l.warn(
+        { action: "analyze_food_max_tokens" },
+        "max_tokens on initial analyzeFood call — response may be truncated"
+      );
+      // Fall through: let the partial text be returned as needs_chat
     }
 
     // Check data tools first — when both report_nutrition AND data tools appear in the same
@@ -1344,7 +1353,7 @@ export function convertMessages(messages: ConversationMessage[]): Anthropic.Mess
     if (msg.role === "assistant" && msg.analysis) {
       const a = msg.analysis;
       const amtLabel = getUnitLabel(a.unit_id, a.amount);
-      let summary = `[Current values: food_name=${a.food_name}, amount=${amtLabel}, calories=${a.calories}, protein_g=${a.protein_g}, carbs_g=${a.carbs_g}, fat_g=${a.fat_g}, fiber_g=${a.fiber_g}, sodium_mg=${a.sodium_mg}`;
+      let summary = `[Current values: food_name=${wrapUntrusted("food_name", a.food_name)}, amount=${amtLabel}, calories=${a.calories}, protein_g=${a.protein_g}, carbs_g=${a.carbs_g}, fat_g=${a.fat_g}, fiber_g=${a.fiber_g}, sodium_mg=${a.sodium_mg}`;
       if (a.saturated_fat_g != null) summary += `, saturated_fat_g=${a.saturated_fat_g}`;
       if (a.trans_fat_g != null) summary += `, trans_fat_g=${a.trans_fat_g}`;
       if (a.sugars_g != null) summary += `, sugars_g=${a.sugars_g}`;
@@ -1359,6 +1368,8 @@ export function convertMessages(messages: ConversationMessage[]): Anthropic.Mess
     return { role: msg.role, content };
   });
 }
+
+// wrapUntrusted and UNTRUSTED_DATA_INSTRUCTION imported from @/lib/prompt-safety
 
 /**
  * Conversational food refinement. Returns a streaming generator of StreamEvent.
@@ -1424,8 +1435,8 @@ export async function* conversationalRefine(
       const amountLabel = getUnitLabel(initialAnalysis.unit_id, initialAnalysis.amount);
       const mealTypeLabel = initialAnalysis.mealTypeId != null ? `${initialAnalysis.mealTypeId}` : "null (not set)";
       const timeLabel = initialAnalysis.time != null ? initialAnalysis.time : "null (not set)";
-      systemPrompt += `\n\nThe initial analysis of this meal is:
-- Food: ${initialAnalysis.food_name}
+      systemPrompt += `\n\nThe initial analysis of this meal is:${UNTRUSTED_DATA_INSTRUCTION}
+- Food: ${wrapUntrusted("food_name", initialAnalysis.food_name)}
 - Amount: ${amountLabel}
 - Calories: ${initialAnalysis.calories}
 - Protein: ${initialAnalysis.protein_g}g, Carbs: ${initialAnalysis.carbs_g}g, Fat: ${initialAnalysis.fat_g}g
@@ -1433,7 +1444,7 @@ export async function* conversationalRefine(
 - Meal type: ${mealTypeLabel}
 - Time: ${timeLabel}
 - Confidence: ${initialAnalysis.confidence}
-- Notes: ${initialAnalysis.notes}
+- Notes: ${wrapUntrusted("notes", initialAnalysis.notes)}
 Use this as the baseline. When the user makes corrections, call report_nutrition with the updated values.`;
     }
 
@@ -1441,7 +1452,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     const toolsWithCache = buildToolsWithCache(allTools);
 
     l.debug(
-      { action: "conversational_refine_request_detail", systemPrompt },
+      { action: "conversational_refine_request_detail", systemPromptLength: systemPrompt.length },
       "Claude API chat request system prompt"
     );
 
@@ -1481,6 +1492,14 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         "Claude refused the conversational refinement request"
       );
       throw new ClaudeApiError("The request was flagged by our safety systems and cannot be processed.");
+    }
+
+    if (response.stop_reason === "max_tokens") {
+      l.warn(
+        { action: "conversational_refine_max_tokens" },
+        "max_tokens on initial conversationalRefine call — response may be truncated"
+      );
+      // Fall through: let the partial text be returned as-is (needs_chat / text-only path)
     }
 
     // Check if Claude used any data tools (not report_nutrition)
@@ -1746,14 +1765,14 @@ export async function* editAnalysis(
     if (entry.sugarsG != null) tier1Lines.push(`- Sugars: ${entry.sugarsG}g`);
     if (entry.caloriesFromFat != null) tier1Lines.push(`- Calories from Fat: ${entry.caloriesFromFat}`);
 
-    systemPrompt += `\n\nExisting food log entry being edited:
-- Food: ${entry.foodName}
+    systemPrompt += `\n\nExisting food log entry being edited:${UNTRUSTED_DATA_INSTRUCTION}
+- Food: ${wrapUntrusted("food_name", entry.foodName)}
 - Amount: ${amountLabel}
 - Calories: ${entry.calories}
 - Protein: ${entry.proteinG}g, Carbs: ${entry.carbsG}g, Fat: ${entry.fatG}g
 - Fiber: ${entry.fiberG}g, Sodium: ${entry.sodiumMg}mg${tier1Lines.length > 0 ? `\n${tier1Lines.join("\n")}` : ""}
 - Date: ${entry.date}${entry.time ? `, Time: ${entry.time}` : ""}
-- Confidence: ${entry.confidence}${entry.notes ? `\n- Notes: ${entry.notes}` : ""}
+- Confidence: ${entry.confidence}${entry.notes ? `\n- Notes: ${wrapUntrusted("notes", entry.notes)}` : ""}
 
 Help the user make corrections. Call report_nutrition with the corrected values.`;
 
@@ -1761,8 +1780,8 @@ Help the user make corrections. Call report_nutrition with the corrected values.
       const initAmtLabel = getUnitLabel(initialAnalysis.unit_id, initialAnalysis.amount);
       const editMealTypeLabel = initialAnalysis.mealTypeId != null ? `${initialAnalysis.mealTypeId}` : "null (not set)";
       const editTimeLabel = initialAnalysis.time != null ? initialAnalysis.time : "null (not set)";
-      systemPrompt += `\n\nThe current analysis being refined is:
-- Food: ${initialAnalysis.food_name}
+      systemPrompt += `\n\nThe current analysis being refined is:${UNTRUSTED_DATA_INSTRUCTION}
+- Food: ${wrapUntrusted("food_name", initialAnalysis.food_name)}
 - Amount: ${initAmtLabel}
 - Calories: ${initialAnalysis.calories}
 - Protein: ${initialAnalysis.protein_g}g, Carbs: ${initialAnalysis.carbs_g}g, Fat: ${initialAnalysis.fat_g}g
@@ -1770,7 +1789,7 @@ Help the user make corrections. Call report_nutrition with the corrected values.
 - Meal type: ${editMealTypeLabel}
 - Time: ${editTimeLabel}
 - Confidence: ${initialAnalysis.confidence}
-- Notes: ${initialAnalysis.notes}
+- Notes: ${wrapUntrusted("notes", initialAnalysis.notes)}
 Use this as the baseline. When the user makes corrections, call report_nutrition with the updated values.`;
     }
 
@@ -2050,7 +2069,7 @@ function convertTriageMessages(messages: ConversationMessage[]): Anthropic.Messa
     if (msg.role === "assistant" && msg.sessionItems && msg.sessionItems.length > 0) {
       const itemLines = msg.sessionItems.map((item, i) => {
         const mealLabel = item.mealTypeId != null ? (MEAL_TYPE_LABELS[item.mealTypeId] ?? `type ${item.mealTypeId}`) : "unset";
-        return `  ${i + 1}. ${item.food_name} — ${item.calories} cal, ${item.amount} ${item.unit_id}, meal: ${mealLabel}, time: ${item.time ?? "unset"}`;
+        return `  ${i + 1}. ${wrapUntrusted("food_name", item.food_name)} — ${item.calories} cal, ${item.amount} ${item.unit_id}, meal: ${mealLabel}, time: ${item.time ?? "unset"}`;
       });
       const summary = `[Current session items:\n${itemLines.join("\n")}\n]`;
       content.push({ type: "text" as const, text: summary });
@@ -2087,9 +2106,9 @@ export async function* triageRefine(
     if (initialItems && initialItems.length > 0) {
       const itemLines = initialItems.map((item, i) => {
         const mealLabel = item.mealTypeId != null ? (MEAL_TYPE_LABELS[item.mealTypeId] ?? `type ${item.mealTypeId}`) : "unset";
-        return `  ${i + 1}. ${item.food_name} — ${item.calories} cal, time: ${item.time ?? "unset"}, meal: ${mealLabel}`;
+        return `  ${i + 1}. ${wrapUntrusted("food_name", item.food_name)} — ${item.calories} cal, time: ${item.time ?? "unset"}, meal: ${mealLabel}`;
       });
-      systemPrompt += `\n\nCurrent session items baseline:\n${itemLines.join("\n")}\n\nWhen the user requests changes, call report_session_items with the updated complete list.`;
+      systemPrompt += `\n\nCurrent session items baseline:${UNTRUSTED_DATA_INSTRUCTION}\n${itemLines.join("\n")}\n\nWhen the user requests changes, call report_session_items with the updated complete list.`;
     }
 
     const toolsWithCache = buildToolsWithCache([REPORT_SESSION_ITEMS_TOOL]);
