@@ -603,7 +603,7 @@ Summary: 6 issue(s) found, 4 discarded (Team: security, reliability, quality rev
 
 **Source:** Review findings from Iteration 2
 **Linear Issues:** [FOO-1167](https://linear.app/lw-claude/issue/FOO-1167), [FOO-1168](https://linear.app/lw-claude/issue/FOO-1168), [FOO-1169](https://linear.app/lw-claude/issue/FOO-1169), [FOO-1170](https://linear.app/lw-claude/issue/FOO-1170)
-**Status:** NOT STARTED
+**Status:** COMPLETE (implemented as Iteration 3)
 
 ### Fix 1: wrapUntrusted delimiter escaping (HIGH, label: Security)
 **Files:** `src/lib/prompt-safety.ts`, `src/lib/__tests__/user-profile.test.ts` (+ a colocated `prompt-safety` test)
@@ -634,3 +634,31 @@ Summary: 6 issue(s) found, 4 discarded (Team: security, reliability, quality rev
 **Linear Issue:** [FOO-1170](https://linear.app/lw-claude/issue/FOO-1170)
 
 1. RED/GREEN: add assertions that `WEB_SEARCH_TOOL` and `REPORT_SESSION_ITEMS_TOOL` expose `strict: true` and `additionalProperties: false` (import `REPORT_SESSION_ITEMS_TOOL`, currently untested), or document in a code comment why either is intentionally excluded.
+
+---
+
+## Iteration 3
+
+**Implemented:** 2026-06-03
+**Method:** Single-agent (effort score 6 → workers not justified; Fix 2 depends on Fix 1) — executes the Iteration-2 Fix Plan (FOO-1167..1170)
+
+### Tasks Completed This Iteration
+- Fix 1: `wrapUntrusted` delimiter escaping — added `escapeUntrusted()` (entity-encode `&`→`&amp;` first, then `<`→`&lt;`, `>`→`&gt;`) so a `food_name`/`notes` value containing `</user_provided_data>` can no longer break out of the untrusted-data block. Corrected the FOO-1160 false-positive assertion in `user-profile.test.ts` (now asserts the injected closing tag is escaped and absent, not present raw). New colocated `prompt-safety.test.ts` (FOO-1167)
+- Fix 2: Wrapped raw `food_name` via `wrapUntrusted` at the 3 remaining `claude.ts` injection sites — `convertMessages` `[Current values:]` summary (:1356), `convertTriageMessages` session-items summary (:2072), and `triageRefine` system-prompt baseline (:2109, which now also prepends `UNTRUSTED_DATA_INSTRUCTION` as a new untrusted block in a system prompt). The two assistant-content sites are message history (not system prompts) so they delimit without the instruction marker; the conversation's system prompt already carries it (FOO-1168)
+- Fix 3: Added the missing `finalLength()` regression test in `user-profile.test.ts` — a single wrapped meal whose body (1144 ch) is < 1200 but whose body + ~138-char prefix (1282 ch) exceeds 1200; asserts the final prepended profile respects the 1200-char budget. Fails if the prefix is excluded from the truncation calc (FOO-1169)
+- Fix 4: Extended `claude-tools-schema.test.ts` strict-mode coverage — asserts `REPORT_SESSION_ITEMS_TOOL` carries `strict:true`/`additionalProperties:false`; documents + locks `WEB_SEARCH_TOOL` as a server-side built-in (`type: web_search_*`, no `input_schema`/`strict`) intentionally excluded from strict mode (FOO-1170)
+
+### Files Modified
+- `src/lib/prompt-safety.ts` (escapeUntrusted), `src/lib/claude.ts` (3 wrap sites)
+- Tests: `src/lib/__tests__/prompt-safety.test.ts` (new), `src/lib/__tests__/user-profile.test.ts`, `src/lib/__tests__/claude.test.ts`, `src/lib/__tests__/claude-tools-schema.test.ts`
+
+### Linear Updates
+- FOO-1167, 1168, 1169, 1170 (all 4): Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: 0 bugs. Verified `&`-first escape ordering (no double-encoding), correct delimiter containment, the FOO-1169 truncation math (1144 body + 138 prefix = 1282 > 1200 → meal removed), and that the corrected FOO-1167 assertion now tests the real security invariant. One stale comment noted (`claude.ts:1372`, redundant with the import) — not a defect.
+- verifier: unit/integration 3656 pass; lint 0 errors; production build 0 warnings.
+- E2E: deferred to plan-review-implementation (no E2E specs written this iteration; changes are prompt-construction + test-only).
+
+### Continuation Status
+All Iteration-2 Fix Plan tasks (FOO-1167..1170) completed. No tasks remaining.

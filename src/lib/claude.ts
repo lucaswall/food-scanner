@@ -1353,7 +1353,7 @@ export function convertMessages(messages: ConversationMessage[]): Anthropic.Mess
     if (msg.role === "assistant" && msg.analysis) {
       const a = msg.analysis;
       const amtLabel = getUnitLabel(a.unit_id, a.amount);
-      let summary = `[Current values: food_name=${a.food_name}, amount=${amtLabel}, calories=${a.calories}, protein_g=${a.protein_g}, carbs_g=${a.carbs_g}, fat_g=${a.fat_g}, fiber_g=${a.fiber_g}, sodium_mg=${a.sodium_mg}`;
+      let summary = `[Current values: food_name=${wrapUntrusted("food_name", a.food_name)}, amount=${amtLabel}, calories=${a.calories}, protein_g=${a.protein_g}, carbs_g=${a.carbs_g}, fat_g=${a.fat_g}, fiber_g=${a.fiber_g}, sodium_mg=${a.sodium_mg}`;
       if (a.saturated_fat_g != null) summary += `, saturated_fat_g=${a.saturated_fat_g}`;
       if (a.trans_fat_g != null) summary += `, trans_fat_g=${a.trans_fat_g}`;
       if (a.sugars_g != null) summary += `, sugars_g=${a.sugars_g}`;
@@ -2069,7 +2069,7 @@ function convertTriageMessages(messages: ConversationMessage[]): Anthropic.Messa
     if (msg.role === "assistant" && msg.sessionItems && msg.sessionItems.length > 0) {
       const itemLines = msg.sessionItems.map((item, i) => {
         const mealLabel = item.mealTypeId != null ? (MEAL_TYPE_LABELS[item.mealTypeId] ?? `type ${item.mealTypeId}`) : "unset";
-        return `  ${i + 1}. ${item.food_name} — ${item.calories} cal, ${item.amount} ${item.unit_id}, meal: ${mealLabel}, time: ${item.time ?? "unset"}`;
+        return `  ${i + 1}. ${wrapUntrusted("food_name", item.food_name)} — ${item.calories} cal, ${item.amount} ${item.unit_id}, meal: ${mealLabel}, time: ${item.time ?? "unset"}`;
       });
       const summary = `[Current session items:\n${itemLines.join("\n")}\n]`;
       content.push({ type: "text" as const, text: summary });
@@ -2106,9 +2106,9 @@ export async function* triageRefine(
     if (initialItems && initialItems.length > 0) {
       const itemLines = initialItems.map((item, i) => {
         const mealLabel = item.mealTypeId != null ? (MEAL_TYPE_LABELS[item.mealTypeId] ?? `type ${item.mealTypeId}`) : "unset";
-        return `  ${i + 1}. ${item.food_name} — ${item.calories} cal, time: ${item.time ?? "unset"}, meal: ${mealLabel}`;
+        return `  ${i + 1}. ${wrapUntrusted("food_name", item.food_name)} — ${item.calories} cal, time: ${item.time ?? "unset"}, meal: ${mealLabel}`;
       });
-      systemPrompt += `\n\nCurrent session items baseline:\n${itemLines.join("\n")}\n\nWhen the user requests changes, call report_session_items with the updated complete list.`;
+      systemPrompt += `\n\nCurrent session items baseline:${UNTRUSTED_DATA_INSTRUCTION}\n${itemLines.join("\n")}\n\nWhen the user requests changes, call report_session_items with the updated complete list.`;
     }
 
     const toolsWithCache = buildToolsWithCache([REPORT_SESSION_ITEMS_TOOL]);

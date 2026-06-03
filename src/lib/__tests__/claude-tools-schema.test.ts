@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { REPORT_NUTRITION_TOOL } from "@/lib/claude-tools-schema";
+import { REPORT_NUTRITION_TOOL, REPORT_SESSION_ITEMS_TOOL, WEB_SEARCH_TOOL } from "@/lib/claude-tools-schema";
 
 // Mocks required to import chat-tools (it pulls in DB-layer modules)
 vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost:5432/test");
@@ -105,6 +105,25 @@ describe("Claude tool strict mode — FOO-1157 regression guard", () => {
 
   it("MANAGE_NUTRITION_LABEL_TOOL is intentionally non-strict (open extra_nutrients dict)", () => {
     expect(MANAGE_NUTRITION_LABEL_TOOL.strict).toBeFalsy();
+  });
+
+  // FOO-1170: REPORT_SESSION_ITEMS_TOOL is a custom-schema tool with strict mode;
+  // guard against a regression dropping it.
+  it("REPORT_SESSION_ITEMS_TOOL has strict:true", () => {
+    expect(REPORT_SESSION_ITEMS_TOOL.strict).toBe(true);
+  });
+
+  it("REPORT_SESSION_ITEMS_TOOL input_schema has additionalProperties:false", () => {
+    expect((REPORT_SESSION_ITEMS_TOOL.input_schema as { additionalProperties?: unknown }).additionalProperties).toBe(false);
+  });
+
+  // FOO-1170: WEB_SEARCH_TOOL is a server-side built-in tool (type "web_search_*"),
+  // not a custom JSON-schema tool — it has no input_schema, so strict /
+  // additionalProperties do not apply. Lock in that it stays a server tool.
+  it("WEB_SEARCH_TOOL is a server-side tool with no custom input schema (intentionally excluded from strict mode)", () => {
+    expect(WEB_SEARCH_TOOL.type).toMatch(/^web_search_/);
+    expect((WEB_SEARCH_TOOL as { input_schema?: unknown }).input_schema).toBeUndefined();
+    expect((WEB_SEARCH_TOOL as { strict?: unknown }).strict).toBeUndefined();
   });
 });
 
