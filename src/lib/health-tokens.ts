@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { healthTokens } from "@/db/schema";
-import { encryptToken, decryptToken } from "@/lib/token-encryption";
+import { encryptToken, decryptToken, TokenDecryptionError } from "@/lib/token-encryption";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 
@@ -32,13 +32,19 @@ export async function getHealthTokens(userId: string, log?: Logger): Promise<Hea
     accessToken = decryptToken(row.accessToken);
     refreshToken = decryptToken(row.refreshToken);
   } catch (err) {
-    // Token is undecryptable — key rotation, format version change, or corruption.
-    // Treat as absent so callers prompt the user to re-link Google Health.
+    // Only an undecryptable ciphertext (key rotation, format version change, or
+    // corruption) means "treat as absent and force re-link". Any other error —
+    // e.g. a missing/misconfigured HEALTH_TOKEN_ENCRYPTION_KEY — is a server
+    // misconfiguration that must surface (re-linking would hit the same
+    // encryption failure on write), not be masked as a user reconnect.
+    if (!(err instanceof TokenDecryptionError)) {
+      throw err;
+    }
     l.warn(
       {
         action: "get_health_tokens",
         userId,
-        errorType: err instanceof Error ? err.name : "unknown",
+        errorType: err.name,
       },
       "health token decryption failed — treating as absent to force re-auth",
     );

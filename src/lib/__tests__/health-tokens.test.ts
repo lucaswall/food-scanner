@@ -48,10 +48,19 @@ vi.mock("drizzle-orm", () => ({
 // Mock token encryption
 const mockEncryptToken = vi.fn((val: string) => `encrypted:${val}`);
 const mockDecryptToken = vi.fn((val: string) => val.replace("encrypted:", ""));
-vi.mock("@/lib/token-encryption", () => ({
-  encryptToken: (val: string) => mockEncryptToken(val),
-  decryptToken: (val: string) => mockDecryptToken(val),
-}));
+vi.mock("@/lib/token-encryption", () => {
+  class TokenDecryptionError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = "TokenDecryptionError";
+    }
+  }
+  return {
+    encryptToken: (val: string) => mockEncryptToken(val),
+    decryptToken: (val: string) => mockDecryptToken(val),
+    TokenDecryptionError,
+  };
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -98,6 +107,7 @@ describe("getHealthTokens", () => {
 
   it("returns null when decryption fails (key rotation / format change forces re-auth)", async () => {
     const { getHealthTokens } = await import("@/lib/health-tokens");
+    const { TokenDecryptionError } = await import("@/lib/token-encryption");
     mockWhere.mockResolvedValue([{
       id: 1,
       userId: "user-uuid-123",
@@ -109,10 +119,32 @@ describe("getHealthTokens", () => {
       updatedAt: new Date(),
     }]);
 
-    mockDecryptToken.mockImplementationOnce(() => { throw new Error("Unknown token format version: 0x00"); });
+    mockDecryptToken.mockImplementationOnce(() => { throw new TokenDecryptionError("Unknown token format version: 0x00"); });
 
     const result = await getHealthTokens("user-uuid-123");
     expect(result).toBeNull();
+  });
+
+  it("rethrows non-decryption errors (e.g. missing encryption key) instead of masking as absent", async () => {
+    const { getHealthTokens } = await import("@/lib/health-tokens");
+    mockWhere.mockResolvedValue([{
+      id: 1,
+      userId: "user-uuid-123",
+      healthUserId: "health-uid-123",
+      accessToken: "encrypted:my-access-token",
+      refreshToken: "encrypted:my-refresh-token",
+      expiresAt: new Date("2026-12-01"),
+      scope: null,
+      updatedAt: new Date(),
+    }]);
+
+    // A config error (not a TokenDecryptionError) must propagate so the
+    // misconfiguration surfaces rather than masquerading as "no tokens".
+    mockDecryptToken.mockImplementationOnce(() => {
+      throw new Error("Missing required environment variable: HEALTH_TOKEN_ENCRYPTION_KEY");
+    });
+
+    await expect(getHealthTokens("user-uuid-123")).rejects.toThrow("HEALTH_TOKEN_ENCRYPTION_KEY");
   });
 
   it("returns scope from DB row", async () => {
