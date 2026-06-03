@@ -2,6 +2,11 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse, conditionalResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { createApiKey, listApiKeys } from "@/lib/api-keys";
+import { checkRateLimit } from "@/lib/rate-limit";
+
+// Task 3: Per-user rate limits for API key creation (10 per 60 minutes)
+const RATE_LIMIT_MAX = 10;
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 
 export async function GET(request: Request) {
   const log = createRequestLogger("GET", "/api/api-keys");
@@ -46,6 +51,11 @@ export async function POST(request: Request) {
 
   const validationError = validateSession(session);
   if (validationError) return validationError;
+
+  const { allowed } = checkRateLimit(`api-keys-create:${session!.userId}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
+  if (!allowed) {
+    return errorResponse("RATE_LIMIT_EXCEEDED", "Too many requests. Please try again later.", 429);
+  }
 
   let body: unknown;
   try {

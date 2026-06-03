@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { FullSession } from "@/types";
 
+const mockCheckRateLimit = vi.fn();
+vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+}));
+
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 
 const mockGetSession = vi.fn();
@@ -51,6 +56,7 @@ const validSession: FullSession = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 9 });
 });
 
 describe("POST /api/api-keys", () => {
@@ -158,6 +164,29 @@ describe("POST /api/api-keys", () => {
     expect(response.status).toBe(500);
     const body = await response.json();
     expect(body.error.code).toBe("INTERNAL_ERROR");
+  });
+
+  // Task 3: Per-user rate limiting (FOO-1145)
+  describe("rate limiting (creation)", () => {
+    it("returns 429 RATE_LIMIT_EXCEEDED when creation rate limit is exceeded", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockCheckRateLimit.mockReturnValue({ allowed: false, remaining: 0 });
+
+      const response = await POST(createRequest({ name: "My Script" }));
+
+      expect(response.status).toBe(429);
+      const body = await response.json();
+      expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
+    });
+
+    it("does NOT call createApiKey when rate limit exceeded", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockCheckRateLimit.mockReturnValue({ allowed: false, remaining: 0 });
+
+      await POST(createRequest({ name: "My Script" }));
+
+      expect(mockCreateApiKey).not.toHaveBeenCalled();
+    });
   });
 });
 

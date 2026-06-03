@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { FullSession, FoodLogEntryDetail } from "@/types";
 
+const mockCheckRateLimit = vi.fn();
+vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+}));
+
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 
 const mockGetSession = vi.fn();
@@ -137,6 +142,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mockGetSession.mockResolvedValue(validSession);
   mockGetFoodLogEntryDetail.mockResolvedValue(existingEntry);
+  mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
   mockEnsureFreshToken.mockResolvedValue("access-token-abc");
   mockDeleteNutritionLogs.mockResolvedValue(undefined);
   mockCreateNutritionLog.mockResolvedValue({ healthLogId: "health-log-new-99999" });
@@ -812,6 +818,29 @@ describe("POST /api/edit-food", () => {
       const result = buildAnalysisFromEntry(entryWithNulls);
       expect(result.notes).toBe("");
       expect(result.description).toBe("");
+    });
+  });
+
+  // Task 3: Per-user rate limiting (FOO-1145)
+  describe("rate limiting", () => {
+    it("returns 429 RATE_LIMIT_EXCEEDED when rate limit is exceeded", async () => {
+      mockCheckRateLimit.mockReturnValue({ allowed: false, remaining: 0 });
+
+      const response = await POST(createMockRequest(validBody));
+
+      expect(response.status).toBe(429);
+      const body = await response.json();
+      expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
+    });
+
+    it("does NOT call createNutritionLog or updateFoodLogEntry when rate limit exceeded", async () => {
+      mockCheckRateLimit.mockReturnValue({ allowed: false, remaining: 0 });
+
+      await POST(createMockRequest(validBody));
+
+      expect(mockEnsureFreshToken).not.toHaveBeenCalled();
+      expect(mockCreateNutritionLog).not.toHaveBeenCalled();
+      expect(mockUpdateFoodLogEntry).not.toHaveBeenCalled();
     });
   });
 });

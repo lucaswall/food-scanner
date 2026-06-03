@@ -6,9 +6,14 @@ import { mapHealthError, isExpectedHealthError } from "@/lib/health-error-respon
 import { insertCustomFoodWithLogEntry, insertFoodLogEntry, getCustomFoodById, updateCustomFoodMetadata } from "@/lib/food-log";
 import { isValidDateFormat, isValidTimeFormat } from "@/lib/date-utils";
 import { isValidFoodAnalysisFields } from "@/lib/food-validation";
+import { checkRateLimit } from "@/lib/rate-limit";
 import type { FoodLogRequest, FoodLogResponse, ServingUnit } from "@/types";
 import { MealType } from "@/types";
 import { coerceServingUnit } from "@/types";
+
+// Task 3: Per-user rate limits (60 requests / 15 minutes)
+const RATE_LIMIT_MAX = 60;
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 
 const VALID_MEAL_TYPE_IDS = [
   MealType.Breakfast,
@@ -33,18 +38,48 @@ const VALID_MEAL_TYPE_IDS = [
  * Expired entries are swept on each write to prevent unbounded growth.
  */
 const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000;
+/** Hard cap on cached idempotency entries to prevent unbounded growth. Mirrors rate-limit.ts pattern. */
+export const MAX_IDEMPOTENCY_SIZE = 100;
 const idempotencyCache = new Map<
   string,
   { healthLogId?: string; foodLogId?: number; reusedFood: boolean; expiresAt: number }
 >();
 
-/** Drop all entries whose TTL has elapsed (O(n) sweep, called on each write). */
+/** Exported test helpers — allow unit tests to inspect and reset in-memory state. */
+export function _getIdempotencyCacheSize(): number {
+  return idempotencyCache.size;
+}
+export function _clearIdempotencyCache(): void {
+  idempotencyCache.clear();
+}
+
+/** Evict the entry with the earliest expiresAt (oldest). */
+function evictOldestIdempotencyEntry(): void {
+  let oldestKey: string | null = null;
+  let oldestExpiry = Infinity;
+  for (const [key, entry] of idempotencyCache) {
+    if (entry.expiresAt < oldestExpiry) {
+      oldestExpiry = entry.expiresAt;
+      oldestKey = key;
+    }
+  }
+  if (oldestKey) idempotencyCache.delete(oldestKey);
+}
+
+/**
+ * Drop all entries whose TTL has elapsed (O(n) sweep, called on each write).
+ * Then enforce MAX_IDEMPOTENCY_SIZE by evicting the oldest active entries.
+ */
 function sweepIdempotencyCache(): void {
   const now = Date.now();
   for (const [key, value] of idempotencyCache) {
     if (value.expiresAt <= now) {
       idempotencyCache.delete(key);
     }
+  }
+  // Hard cap: evict oldest entries if still over limit after TTL sweep
+  while (idempotencyCache.size >= MAX_IDEMPOTENCY_SIZE) {
+    evictOldestIdempotencyEntry();
   }
 }
 
@@ -67,6 +102,11 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
 
   // Validate optional clientToken
   if (req.clientToken !== undefined && !isValidClientToken(req.clientToken)) return false;
+
+  // Validate optional expectedCalories: if present, must be a positive number
+  if (req.expectedCalories !== undefined) {
+    if (typeof req.expectedCalories !== "number" || req.expectedCalories <= 0) return false;
+  }
 
   // Reuse flow: reuseCustomFoodId + mealTypeId + date + time needed, optional metadata
   if (req.reuseCustomFoodId !== undefined) {
@@ -95,6 +135,11 @@ export async function POST(request: Request) {
 
   const validationError = validateSession(session, { requireHealth: true });
   if (validationError) return validationError;
+
+  const { allowed } = checkRateLimit(`log-food:${session!.userId}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
+  if (!allowed) {
+    return errorResponse("RATE_LIMIT_EXCEEDED", "Too many requests. Please try again later.", 429);
+  }
 
   let body: unknown;
   try {
@@ -192,7 +237,7 @@ export async function POST(request: Request) {
       }
 
       // Cross-check: if client sent expectedCalories, verify the reused food is plausible
-      const expectedCalories = (body as unknown as Record<string, unknown>).expectedCalories;
+      const expectedCalories = body.expectedCalories;
       if (typeof expectedCalories === "number" && expectedCalories > 0) {
         const calorieDiff = Math.abs(existingFood.calories - expectedCalories);
         if (calorieDiff > expectedCalories * 0.5) {

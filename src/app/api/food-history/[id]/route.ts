@@ -4,6 +4,11 @@ import { createRequestLogger } from "@/lib/logger";
 import { getFoodLogEntry, deleteFoodLogEntry, getFoodLogEntryDetail } from "@/lib/food-log";
 import { ensureFreshToken, deleteNutritionLogs } from "@/lib/google-health";
 import { mapHealthError, isExpectedHealthError } from "@/lib/health-error-response";
+import { checkRateLimit } from "@/lib/rate-limit";
+
+// Task 3: Per-user rate limits for DELETE (60 requests / 15 minutes)
+const RATE_LIMIT_MAX = 60;
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 
 export async function GET(
   request: Request,
@@ -46,6 +51,11 @@ export async function DELETE(
 
   const validationError = validateSession(session, { requireHealth: true });
   if (validationError) return validationError;
+
+  const { allowed } = checkRateLimit(`food-history-delete:${session!.userId}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
+  if (!allowed) {
+    return errorResponse("RATE_LIMIT_EXCEEDED", "Too many requests. Please try again later.", 429);
+  }
 
   const { id: idParam } = await params;
   const id = parseInt(idParam, 10);
