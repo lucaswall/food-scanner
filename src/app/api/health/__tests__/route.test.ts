@@ -15,10 +15,6 @@ vi.mock("@/lib/logger", () => {
   };
 });
 
-vi.mock("@/lib/claude", () => ({
-  CLAUDE_MODEL: "claude-sonnet-4-6",
-}));
-
 const { GET } = await import("@/app/api/health/route");
 const { logger } = await import("@/lib/logger");
 
@@ -73,35 +69,13 @@ describe("GET /api/health", () => {
     expect(body.data.environment).toBe("Production");
   });
 
-  it("returns healthMode as Dry Run when HEALTH_DRY_RUN is true", async () => {
-    vi.stubEnv("HEALTH_DRY_RUN", "true");
-    const response = await GET();
-    const body = await response.json();
-    expect(body.data.healthMode).toBe("Dry Run");
-  });
-
-  it("returns healthMode as Live when HEALTH_DRY_RUN is absent", async () => {
-    vi.stubEnv("HEALTH_DRY_RUN", "");
-    const response = await GET();
-    const body = await response.json();
-    expect(body.data.healthMode).toBe("Live");
-  });
-
-  it("returns claudeModel from claude.ts", async () => {
-    const response = await GET();
-    const body = await response.json();
-    expect(body.data.claudeModel).toBe("claude-sonnet-4-6");
-  });
-
-  it("returns all required about fields", async () => {
+  it("returns all required liveness fields", async () => {
     const response = await GET();
     const body = await response.json();
     expect(body.data).toMatchObject({
       status: "ok",
       version: expect.any(String),
       environment: expect.any(String),
-      healthMode: expect.any(String),
-      claudeModel: expect.any(String),
     });
   });
 
@@ -133,6 +107,20 @@ describe("GET /api/health", () => {
     const response = await GET();
     const body = await response.json();
     expect(body.data.commitHash).toBe("");
+  });
+
+  // FOO-1151: deployment config must not be disclosed on the public health endpoint
+  it("does not include healthMode in response", async () => {
+    vi.stubEnv("HEALTH_DRY_RUN", "true");
+    const response = await GET();
+    const body = await response.json();
+    expect(body.data).not.toHaveProperty("healthMode");
+  });
+
+  it("does not include claudeModel in response", async () => {
+    const response = await GET();
+    const body = await response.json();
+    expect(body.data).not.toHaveProperty("claudeModel");
   });
 
 });
