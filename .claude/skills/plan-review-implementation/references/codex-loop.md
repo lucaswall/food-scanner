@@ -130,84 +130,72 @@ is generous — Codex normally responds within 5–10 min.
 #### 3e. None of the above (eyes still on, or review pending)
 **Action:** End tick. Wait for the next firing.
 
-### Step 3.5 — Calibration (BEFORE acting on findings in 3b)
+### Step 3.5 — Calibration: FIX or REJECT (BEFORE acting on findings in 3b)
 
-Codex finds real bugs but does not calibrate severity to the project context.
-For a single-/family-scale production app like this one, race conditions
-requiring sub-second concurrent timing, edge cases of opt-in extreme
-configurations, and theme-cascade findings (the same root cause re-flagged
-in successively narrower call sites) hit diminishing returns fast. Apply
-this calibration before fixing in 3b — file-and-defer instead of fix-now
-when the rules below say so.
+**Every finding has exactly two dispositions: FIX it now, or REJECT it with
+reasoning. There is NO defer/Backlog path — the monitor creates NO Linear
+issues for Codex findings.** A deferred issue is just "fix it later" with
+overhead: the next `plan-backlog` pulls it straight back in, so either the
+finding is worth fixing (fix it now, on this PR) or it is not (reject it, file
+nothing). Plans/PRs complete — they do not spawn follow-up tickets.
 
-#### Track three signals across ticks (in your turn-to-turn context)
+Codex finds real bugs but does not calibrate to project context, so the only
+question this step answers is: **must we fix this?**
 
-- **Iteration count** on this PR (how many push→review cycles you have done since PR creation).
-- **Theme** of each finding (1-3 word root cause label, e.g. "non-positive engine output" or "stale-write race").
-- **Severity floor** crossed so far (P1 fixed? P2 fixed? P3 fixed?).
+- **FIX (now):** a real bug that can realistically occur and matters. Fix with
+  TDD, push, resolve the thread. This is the default for anything genuinely
+  wrong — regardless of severity, iteration count, or whether it is
+  pre-existing.
+- **REJECT (file nothing):** not something we have to fix. Resolve the thread
+  with a brief reasoned reply (do not silently dismiss). Reject ONLY for a
+  concrete reason:
+  - **False positive / misread** — the code is actually correct.
+  - **Accepted pattern** — listed in CLAUDE.md "KNOWN ACCEPTED PATTERNS",
+    project memory, or already adjudicated as accepted/discarded in a prior
+    plan-review/audit (e.g. a deliberate design tradeoff). *This is the check
+    that prevents re-filing an already-decided non-bug.*
+  - **Not realistically triggerable in context** — e.g. a race requiring
+    concurrent sub-second timing in this family-scale (2-user) app. CLAUDE.md
+    "STATUS: PRODUCTION" means deployed, not high-concurrency.
+  - **Style-only** — cosmetic, zero correctness impact, not enforced by CLAUDE.md.
 
-#### Decision matrix (apply per finding, not per-tick)
+"Low severity", "pre-existing", or "out of scope" are NOT reasons to reject —
+if it is a real bug, FIX it. When genuinely unsure whether it is a real bug,
+FIX it.
 
-| Iteration | Severity | Same theme as a prior fix on this PR? | Action |
-|---|---|---|---|
-| 1 (first review) | any | n/a | **Fix** |
-| 2 | P0/P1 | any | **Fix** |
-| 2 | P2 | no | **Fix** |
-| 2 | P2 | yes | **File and defer** — create Linear in `Backlog`, resolve thread with the link |
-| 2 | P3 | any | **File and defer** |
-| 3+ | P0/P1 | any | **Fix** |
-| 3+ | P2 | no | **Fix** |
-| 3+ | P2 | yes | **File and defer** |
-| 3+ | P3 | any | **File and defer** |
+#### Theme cascades — fix the root, never leave a tail
 
-"File and defer" means: create a Linear issue in `Backlog` (NOT Todo) labeled
-`Codex follow-up`, with the finding body and the `gh` thread URL. Resolve
-the Codex thread by replying with a link to the Linear issue, then resolve
-via `resolveReviewThread`. The PR proceeds to merge with the issue tracked
-for later prioritization.
+If Codex re-flags the same root cause at multiple call sites (a "theme
+cascade"), do not patch one site and abandon the rest, and do not file the
+tail as a Backlog issue. Either the sites are real bugs — fix them all, or fix
+the shared root cause in one change so the whole cascade is resolved on this PR
+— or they are not, and you reject them with reasoning. Track theme labels
+across ticks (1-3 word root-cause labels, e.g. "non-positive engine output",
+"stale-compute race", "missing exhaustive case") so you recognize a cascade and
+address it holistically instead of one site per iteration.
 
-#### Hard caps
+#### Hard caps — escalate to the user, never defer
 
-These bypass the matrix and force a stop:
+The caps are a runaway guard for the unsupervised cron, NOT a defer trigger:
 
-- **Iteration cap:** after 4 push→review cycles on a single PR, stop and
-  defer all remaining P2/P3 findings even if they're new themes.
-- **Time cap:** after 90 minutes of monitor uptime, stop. (The cron's
-  session-only nature already limits reach; this is the explicit upper bound
-  on engineering time.)
-- **Race-condition realism cap:** any race-condition finding requiring
-  concurrent sub-second timing is **automatically P3** for a
-  single-/family-scale app, regardless of Codex's posted severity. The
-  CLAUDE.md "STATUS: PRODUCTION" tag does not change this — production
-  here means "deployed", not "high-concurrency." File and defer.
+- **Iteration cap:** 4 push→review cycles on a single PR.
+- **Time cap:** 90 minutes of monitor uptime.
 
-#### Theme detection
-
-Track theme labels across the session. If you have already fixed 1 finding
-with theme T, and a new finding shares theme T:
-
-- The fact that Codex re-flagged a similar issue at a different site is
-  evidence the design (not the call site) needs revisiting — but a single
-  PR is not the venue for that. **File and defer.**
-- The deferred Linear issue should reference the prior fix(es) so the
-  follow-up author sees the cluster.
-
-Examples of "same theme":
-- "non-positive engine output" — every site filtering on `> 0` for a value
-  the engine permits to be ≤ 0.
-- "stale-compute race" — every code path where in-flight compute can race
-  with a concurrent invalidation/PATCH.
-- "missing exhaustive case" — every union-mapped switch missing a new
-  variant.
+If a cap is hit while **real, must-fix bugs remain**, STOP the monitor, leave
+the PR OPEN (do not merge), and report the outstanding findings to the user so
+they decide how to proceed. Never auto-merge over a known real bug and never
+create Backlog issues. A 4+-iteration cascade of genuine bugs signals a design
+problem that is the human's call. If the only things left at a cap are
+rejectable non-bugs, reject them with reasoning and proceed to merge as normal.
 
 #### Reporting
 
-When you defer a finding, include in the user-facing tick summary:
-> Deferred [Codex finding summary] to [Linear URL] under theme "[theme]"
-> (iteration N, severity P2). PR proceeds to merge.
+In each tick summary, state the disposition of every finding handled:
+> [finding summary]: FIXED in <sha> (theme "[theme]") — or — REJECTED:
+> [concrete reason]. No issue filed.
 
-This makes the calibration visible to the user; if they disagree, they can
-override and ask for the fix.
+This makes the calibration visible; if the user disagrees with a rejection
+they can override.
 
 ### Step 4 — Merge phase (when stopping)
 
