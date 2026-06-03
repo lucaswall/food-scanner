@@ -14,9 +14,66 @@ const TTL_1H = 60 * 60 * 1000;
 const TTL_10MIN = 10 * 60 * 1000;
 const TTL_5MIN = 5 * 60 * 1000;
 
-interface CacheEntry<T> {
-  value: T;
-  expiresAt: number;
+// ─── Shared TTL-cache helper ────────────────────────────────────────────────
+// Mirrors the canonical eviction shape from rate-limit.ts:
+//   cleanExpiredEntries, evictOldest, MAX_*_SIZE=1000, periodic CLEANUP_INTERVAL sweep + hard cap.
+
+const MAX_CACHE_SIZE = 1000;
+const CACHE_CLEANUP_INTERVAL = 100;
+
+class TtlCache<T> {
+  private readonly store = new Map<string, { value: T; expiresAt: number }>();
+  private callCount = 0;
+
+  /** Returns the cached value if present and not expired; deletes expired entries eagerly. */
+  get(key: string): T | undefined {
+    const entry = this.store.get(key);
+    if (!entry) return undefined;
+    if (entry.expiresAt <= Date.now()) {
+      this.store.delete(key);
+      return undefined;
+    }
+    return entry.value;
+  }
+
+  /** Stores a value with the given TTL, running periodic cleanup and enforcing the size cap. */
+  set(key: string, value: T, ttlMs: number): void {
+    const now = Date.now();
+    this.callCount++;
+    if (this.callCount % CACHE_CLEANUP_INTERVAL === 0 || this.store.size >= MAX_CACHE_SIZE) {
+      this.cleanExpired(now);
+    }
+    if (this.store.size >= MAX_CACHE_SIZE) {
+      this.evictOldest();
+    }
+    this.store.set(key, { value, expiresAt: now + ttlMs });
+  }
+
+  delete(key: string): void {
+    this.store.delete(key);
+  }
+
+  keys(): IterableIterator<string> {
+    return this.store.keys();
+  }
+
+  private cleanExpired(now: number): void {
+    for (const [k, v] of this.store) {
+      if (v.expiresAt <= now) this.store.delete(k);
+    }
+  }
+
+  private evictOldest(): void {
+    let oldestKey: string | null = null;
+    let oldestExpiry = Infinity;
+    for (const [k, v] of this.store) {
+      if (v.expiresAt < oldestExpiry) {
+        oldestExpiry = v.expiresAt;
+        oldestKey = k;
+      }
+    }
+    if (oldestKey) this.store.delete(oldestKey);
+  }
 }
 
 // Per-user generation, bumped on each invalidation. Each fetcher snapshots
@@ -34,7 +91,7 @@ function getUserGeneration(userId: string): number {
 
 // ─── Profile cache ─────────────────────────────────────────────────────────
 
-const profileCache = new Map<string, CacheEntry<HealthProfile>>();
+const profileCache = new TtlCache<HealthProfile>();
 const profileInFlight = new Map<string, Promise<HealthProfile>>();
 
 export async function getCachedHealthProfile(
@@ -45,8 +102,8 @@ export async function getCachedHealthProfile(
   const l = log ?? logger;
 
   const cached = profileCache.get(userId);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.value;
+  if (cached !== undefined) {
+    return cached;
   }
 
   const inflightKey = `${userId}:${criticality}`;
@@ -63,7 +120,7 @@ export async function getCachedHealthProfile(
       const accessToken = await ensureFreshToken(userId, l);
       const profile = await getHealthProfile(accessToken, l, userId, criticality);
       if (getUserGeneration(userId) === generationAtStart) {
-        profileCache.set(userId, { value: profile, expiresAt: Date.now() + TTL_24H });
+        profileCache.set(userId, profile, TTL_24H);
       }
       return profile;
     } finally {
@@ -79,7 +136,7 @@ export async function getCachedHealthProfile(
 
 // ─── Weight cache ───────────────────────────────────────────────────────────
 
-const weightCache = new Map<string, CacheEntry<HealthWeightLog | null>>();
+const weightCache = new TtlCache<HealthWeightLog | null>();
 const weightInFlight = new Map<string, Promise<HealthWeightLog | null>>();
 
 export async function getCachedHealthWeightKg(
@@ -92,8 +149,8 @@ export async function getCachedHealthWeightKg(
   const key = `${userId}:${targetDate}`;
 
   const cached = weightCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.value;
+  if (cached !== undefined) {
+    return cached;
   }
 
   const inflightKey = `${key}:${criticality}`;
@@ -111,7 +168,7 @@ export async function getCachedHealthWeightKg(
         // Keep null TTL short so the user-feedback loop is tight
         // when "no weight" is the blocking factor. Positive results stay 1h.
         const ttl = weight === null ? TTL_10MIN : TTL_1H;
-        weightCache.set(key, { value: weight, expiresAt: Date.now() + ttl });
+        weightCache.set(key, weight, ttl);
       }
       return weight;
     } finally {
@@ -127,7 +184,7 @@ export async function getCachedHealthWeightKg(
 
 // ─── Activity summary cache ─────────────────────────────────────────────────
 
-const activityCache = new Map<string, CacheEntry<ActivitySummary>>();
+const activityCache = new TtlCache<ActivitySummary>();
 const activityInFlight = new Map<string, Promise<ActivitySummary>>();
 
 export async function getCachedHealthActivitySummary(
@@ -144,8 +201,8 @@ export async function getCachedHealthActivitySummary(
   const key = `${userId}:${targetDate}:${zoneOffset ?? ""}`;
 
   const cached = activityCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.value;
+  if (cached !== undefined) {
+    return cached;
   }
 
   const inflightKey = `${key}:${criticality}`;
@@ -160,7 +217,7 @@ export async function getCachedHealthActivitySummary(
       const accessToken = await ensureFreshToken(userId, l);
       const activity = await getHealthActivitySummary(accessToken, targetDate, l, userId, criticality, zoneOffset);
       if (getUserGeneration(userId) === generationAtStart) {
-        activityCache.set(key, { value: activity, expiresAt: Date.now() + TTL_5MIN });
+        activityCache.set(key, activity, TTL_5MIN);
       }
       return activity;
     } finally {
