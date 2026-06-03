@@ -6,6 +6,7 @@ import { getDailyNutritionSummary } from "@/lib/food-log";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import { MEAL_TYPE_LABELS } from "@/types";
+import { wrapUntrusted, UNTRUSTED_DATA_INSTRUCTION } from "@/lib/prompt-safety";
 
 interface TopFood {
   foodName: string;
@@ -134,7 +135,7 @@ export async function buildUserProfile(
       const label = MEAL_TYPE_LABELS[group.mealTypeId] ?? `Meal ${group.mealTypeId}`;
       for (const entry of group.entries) {
         const timePart = entry.time ? ` at ${entry.time}` : "";
-        mealStrs.push(`${label}${timePart} — ${entry.foodName} (${entry.calories} cal)`);
+        mealStrs.push(`${label}${timePart} — ${wrapUntrusted("food_name", entry.foodName)} (${entry.calories} cal)`);
       }
     }
     sections.push(`Today's meals: ${mealStrs.join(", ")}`);
@@ -143,7 +144,7 @@ export async function buildUserProfile(
   // Section 4: Top foods (fourth priority)
   if (hasTopFoods) {
     const foodStrs = topFoods.map(
-      (f) => `${f.foodName} (×${f.count}, ${f.calories}cal)`
+      (f) => `${wrapUntrusted("food_name", f.foodName)} (×${f.count}, ${f.calories}cal)`
     );
     sections.push(`Top foods: ${foodStrs.join(", ")}`);
   }
@@ -163,6 +164,12 @@ export async function buildUserProfile(
       (s) => !s.startsWith("Top foods:") && !s.startsWith("Today's meals:")
     );
     profile = `User profile: ${withoutMeals.join(". ")}.`;
+  }
+
+  // Prepend the untrusted-data instruction when the profile contains wrapped food names.
+  // This ensures Claude treats user-controlled values as data, not instructions.
+  if (profile.includes("<user_provided_data")) {
+    profile = `${UNTRUSTED_DATA_INSTRUCTION}\n${profile}`;
   }
 
   l.debug(
