@@ -294,6 +294,36 @@ describe("google-health", () => {
       expect(recordResourceExhaustedCooldownMock).not.toHaveBeenCalled();
     });
 
+    it("aborts the 429 retry sleep promptly when the caller AbortSignal fires", async () => {
+      vi.useFakeTimers();
+      const controller = new AbortController();
+
+      // Retry-After: 1s (fits within deadline), second fetch returns 200 so a retry *would* succeed.
+      // Without the fix: sleep completes, retry fires, promise RESOLVES → rejects.toThrow() fails.
+      // With the fix: sleep detects signal.aborted → rejects with AbortError immediately.
+      fetchMock
+        .mockResolvedValueOnce(new Response(null, { status: 429, headers: { "Retry-After": "1" } }))
+        .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+      const promise = fetchWithRetry(
+        "https://example.com",
+        { signal: controller.signal },
+        0, Date.now(), fakeLog,
+      );
+
+      // Abort before the 429 response resolves — signal.aborted will be true when sleep starts
+      controller.abort();
+
+      // MUST set up rejection expect BEFORE advancing timers (CLAUDE.md fake-timers gotcha)
+      const rejection = expect(promise).rejects.toThrow();
+      // Advance 2s — enough to let the 1s sleep fire (without fix) or detect abort (with fix)
+      await vi.advanceTimersByTimeAsync(2000);
+      await rejection;
+
+      // With the fix: only 1 fetch (no retry after aborted sleep)
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it("does not call recordResourceExhaustedCooldown when userId is undefined on 403 RESOURCE_EXHAUSTED", async () => {
       fetchMock.mockResolvedValue(
         new Response(
@@ -715,6 +745,11 @@ describe("google-health", () => {
       expect(fetchMock).not.toHaveBeenCalled();
       vi.stubEnv("HEALTH_DRY_RUN", ""); // reset for next tests
     });
+
+    it("returns without making any API call when ids array is empty", async () => {
+      await deleteNutritionLogs("token", [], fakeLog, "user-1");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
   });
 
   // ─── ensureFreshToken ────────────────────────────────────────────────────────
@@ -822,6 +857,83 @@ describe("google-health", () => {
         "fresh-token",
         "fresh-token",
       ]);
+    });
+
+    it("dedup window brackets getHealthTokens — concurrent near-expiry callers share one in-flight (single getHealthTokens call)", async () => {
+      // Two concurrent callers with a near-expired token.
+      // The fix registers the in-flight promise BEFORE any getHealthTokens await,
+      // so the second caller joins immediately and getHealthTokens is called only ONCE.
+      getHealthTokensMock.mockResolvedValue(makeNearExpiredRow());
+      fetchMock.mockResolvedValue(makeJsonResponse({ access_token: "fresh", expires_in: 3600 }));
+
+      const [r1, r2] = await Promise.all([
+        ensureFreshToken("user-a", fakeLog),
+        ensureFreshToken("user-a", fakeLog),
+      ]);
+
+      // With the fixed dedup the second caller joins in-flight before the first outer await
+      // resolves — exactly ONE getHealthTokens DB read total.
+      expect(getHealthTokensMock).toHaveBeenCalledTimes(1);
+      expect(r1).toBe("fresh");
+      expect(r2).toBe("fresh");
+    });
+  });
+
+  // ─── durationMs observability (Task 17 / FOO-1139) ──────────────────────────
+
+  describe("durationMs on Google Health logs", () => {
+    it("createNutritionLog success log includes numeric durationMs (from startTimer)", async () => {
+      // Use a real dataPoint name so parseCreatedDataPointId succeeds → info log, not warn
+      fetchMock.mockResolvedValue(makeJsonResponse({
+        name: "users/me/dataTypes/nutrition-log/dataPoints/dp-123",
+      }));
+
+      await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
+
+      // startTimer mock returns () => 42, so durationMs must be 42
+      const successLog = infoMock.mock.calls.find(
+        (c) => (c[0] as { action?: string })?.action === "health_create_nutrition_log_success",
+      );
+      expect(successLog).toBeDefined();
+      expect((successLog![0] as { durationMs: unknown }).durationMs).toBe(42);
+    });
+
+    it("deleteNutritionLogs success log includes numeric durationMs", async () => {
+      fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
+
+      await deleteNutritionLogs("token", ["id-1"], fakeLog, "user-1");
+
+      const successLog = infoMock.mock.calls.find(
+        (c) => (c[0] as { action?: string })?.action === "health_delete_nutrition_logs_success",
+      );
+      expect(successLog).toBeDefined();
+      expect((successLog![0] as { durationMs: unknown }).durationMs).toBe(42);
+    });
+
+    it("getHealthProfile success log includes numeric durationMs", async () => {
+      fetchMock
+        .mockResolvedValueOnce(makeJsonResponse({ age: 30 }))
+        .mockResolvedValueOnce(makeJsonResponse({ dataPoints: [] }));
+
+      await getHealthProfile("token", fakeLog, "user-1");
+
+      const successLog = debugMock.mock.calls.find(
+        (c) => (c[0] as { action?: string })?.action === "health_get_profile_success",
+      );
+      expect(successLog).toBeDefined();
+      expect((successLog![0] as { durationMs: unknown }).durationMs).toBe(42);
+    });
+
+    it("refreshGoogleHealthToken success log includes numeric durationMs", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ access_token: "t", expires_in: 3600 }));
+
+      await refreshGoogleHealthToken("refresh", fakeLog);
+
+      const successLog = infoMock.mock.calls.find(
+        (c) => (c[0] as { action?: string })?.action === "google_health_token_refresh_success",
+      );
+      expect(successLog).toBeDefined();
+      expect((successLog![0] as { durationMs: unknown }).durationMs).toBe(42);
     });
   });
 
