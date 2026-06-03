@@ -79,11 +79,11 @@ describe("GET /api/health", () => {
     });
   });
 
-  it("includes commitHash in response when COMMIT_SHA is set", async () => {
+  it("does not include commitHash in response even when COMMIT_SHA is set", async () => {
     vi.stubEnv("COMMIT_SHA", "abc1234");
     const response = await GET();
     const body = await response.json();
-    expect(body.data.commitHash).toBe("abc1234");
+    expect(body.data).not.toHaveProperty("commitHash");
   });
 
   it("formats version with commit hash for staging when COMMIT_SHA is set", async () => {
@@ -102,11 +102,11 @@ describe("GET /api/health", () => {
     expect(body.data.version).toBe(packageJson.version);
   });
 
-  it("returns empty commitHash when COMMIT_SHA is empty", async () => {
+  it("does not include commitHash in response when COMMIT_SHA is empty", async () => {
     vi.stubEnv("COMMIT_SHA", "");
     const response = await GET();
     const body = await response.json();
-    expect(body.data.commitHash).toBe("");
+    expect(body.data).not.toHaveProperty("commitHash");
   });
 
   // FOO-1151: deployment config must not be disclosed on the public health endpoint
@@ -121,6 +121,23 @@ describe("GET /api/health", () => {
     const response = await GET();
     const body = await response.json();
     expect(body.data).not.toHaveProperty("claudeModel");
+  });
+
+  // FOO-1163: commitHash must not appear as a standalone field — it leaks deploy commit on production
+  it("does not include commitHash in production response even when COMMIT_SHA is set", async () => {
+    vi.stubEnv("COMMIT_SHA", "abc1234");
+    vi.stubEnv("APP_URL", "https://food.lucaswall.me");
+    const response = await GET();
+    const body = await response.json();
+    expect(body.data).not.toHaveProperty("commitHash");
+  });
+
+  it("does not include commitHash in staging response (hash is already embedded in version)", async () => {
+    vi.stubEnv("COMMIT_SHA", "abc1234");
+    vi.stubEnv("APP_URL", "https://food-test.lucaswall.me");
+    const response = await GET();
+    const body = await response.json();
+    expect(body.data).not.toHaveProperty("commitHash");
   });
 
 });

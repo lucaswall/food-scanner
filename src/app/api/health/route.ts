@@ -18,6 +18,5 @@ export async function GET() {
     status: "ok",
     version,
     environment,
-    commitHash,
   });
 }
