@@ -149,16 +149,25 @@ export async function buildUserProfile(
     sections.push(`Top foods: ${foodStrs.join(", ")}`);
   }
 
+  // Effective length of the returned profile, including the untrusted-data
+  // instruction prepended below whenever wrapped food-name data survives.
+  // Wrapped data only ever lives in the "Today's meals"/"Top foods" sections.
+  const finalLength = (p: string): number =>
+    p.includes("<user_provided_data")
+      ? UNTRUSTED_DATA_INSTRUCTION.length + 1 + p.length
+      : p.length;
+
   let profile = `User profile: ${sections.join(". ")}.`;
 
-  // Truncate to stay under 1200 characters — remove lowest priority sections first
-  if (profile.length > 1200) {
+  // Truncate to stay under 1200 characters (counting the untrusted-data prefix)
+  // — remove lowest priority sections first
+  if (finalLength(profile) > 1200) {
     // Remove top foods section and rebuild
     const withoutFoods = sections.filter((s) => !s.startsWith("Top foods:"));
     profile = `User profile: ${withoutFoods.join(". ")}.`;
   }
 
-  if (profile.length > 1200) {
+  if (finalLength(profile) > 1200) {
     // Remove today's meals section and rebuild
     const withoutMeals = sections.filter(
       (s) => !s.startsWith("Top foods:") && !s.startsWith("Today's meals:")

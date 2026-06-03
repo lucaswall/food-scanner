@@ -521,3 +521,50 @@ Summary: 7 issue(s) found, 13 discarded (Team: security, reliability, quality re
 **Linear Issue:** [FOO-1166](https://linear.app/lw-claude/issue/FOO-1166)
 
 1. RED/GREEN: insert an expired entry → read returns a miss and the entry is removed; insert > MAX entries → size stays bounded (oldest evicted); existing hit/invalidate tests still green.
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-06-03
+**Method:** Agent team (4 workers, worktree-isolated) — executes the Fix Plan (FOO-1160..1166)
+
+### Tasks Completed This Iteration
+- Fix 1: Prompt-injection delimiting — promoted `wrapUntrusted` + `UNTRUSTED_DATA_INSTRUCTION` from private `claude.ts` into new shared `src/lib/prompt-safety.ts`; wrapped user-controlled food names in `buildUserProfile` (Today's-meals + Top-foods) so `getSystemPrompt` embeds them as untrusted data (FOO-1160) (worker-1)
+- Fix 2: `getRecentFoods` pagination — replaced the `limit*3` row-fetch + in-memory dedup heuristic with a deterministic two-query approach (flat per-user entry fetch → latest-entry-per-food aggregation → cursor over the aggregate → food-detail fetch for the page); every unique food now reachable, `nextCursor` never prematurely null; `RecentFoodsCursor` shape preserved (FOO-1161) (worker-2)
+- Fix 3: `searchFoods` empty-keywords guard — `if (keywords.length === 0) return [];` at entry, before any DB access (FOO-1162) (worker-2)
+- Fix 4: Removed standalone `commitHash` field from public `/api/health` response (staging `version` already embeds it; prod no longer leaks the SHA) (FOO-1163) (worker-3)
+- Fix 5: Abortable 5xx retry sleep — replaced bare `setTimeout` at `google-health.ts:238` with `abortableSleep(delay, callerSignal)`, matching the 429 path (FOO-1164) (worker-4)
+- Fix 6: Test coverage for Claude tool strict mode — 14 assertions for `strict:true`/`additionalProperties:false` on `REPORT_NUTRITION_TOOL` + strict chat tools, `SEARCH_FOOD_LOG_TOOL.meal_type` null-compat; documented `SAVE_NUTRITION_LABEL_TOOL`/`MANAGE_NUTRITION_LABEL_TOOL` as intentionally non-strict (open `extra_nutrients` dict) (FOO-1165) (worker-3)
+- Fix 7: Test coverage for TtlCache bounded eviction (FOO-1166) — verified **already satisfied** by pre-existing tests in `health-cache.test.ts` (added in Iteration 1 with FOO-1147: "expired-entry eviction on read" + "bounded cache size"). The plan-review finding was a false negative; no new code required. worker-4 added only the FOO-1164 test (worker-4)
+
+### Files Modified
+- `src/lib/prompt-safety.ts` (new), `src/lib/claude.ts`, `src/lib/user-profile.ts`
+- `src/lib/food-log.ts`
+- `src/app/api/health/route.ts`
+- `src/lib/google-health.ts`
+- Tests: `src/lib/__tests__/user-profile.test.ts`, `src/lib/__tests__/food-log.test.ts`, `src/lib/__tests__/google-health.test.ts`, `src/lib/__tests__/claude-tools-schema.test.ts`, `src/app/api/health/__tests__/route.test.ts`
+
+### Linear Updates
+- FOO-1160, 1161, 1162, 1163, 1164, 1165, 1166 (all 7): Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 (LOW): `buildUserProfile` prepended the ~137-char `UNTRUSTED_DATA_INSTRUCTION` **after** the 1200-char truncation guard, so a logged-in user's profile could reach ~1338 chars. Fixed — truncation guards now count the untrusted-data prefix via a `finalLength()` helper. Confirmed FOO-1161 query is user-scoped (no cross-user leak; no repeat of Iteration-1's HIGH unscoped-history bug) and pagination is exhaustive.
+- verifier: unit/integration 3644 pass; lint zero warnings; production build zero warnings.
+- E2E: deferred to plan-review-implementation (no E2E specs written this iteration).
+
+### Work Partition
+- Worker 1: Fix 1 (Claude prompt-safety + user profile)
+- Worker 2: Fix 2 + Fix 3 (food-log query domain)
+- Worker 3: Fix 4 + Fix 6 (health route + tool-schema tests)
+- Worker 4: Fix 5 + Fix 7 (google-health service + cache tests)
+
+### Merge Summary
+- Worker 1: fast-forward (no conflicts)
+- Worker 2: merged (ort), no conflicts, typecheck clean
+- Worker 4: merged (ort), no conflicts, typecheck clean
+- Worker 3: merged (ort), no conflicts, typecheck clean
+- No cross-worker file overlap by design; post-merge full suite green (3644 tests).
+
+### Continuation Status
+All Fix Plan tasks (FOO-1160..1166) completed.
