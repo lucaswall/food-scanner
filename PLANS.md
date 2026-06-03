@@ -662,3 +662,32 @@ Summary: 6 issue(s) found, 4 discarded (Team: security, reliability, quality rev
 
 ### Continuation Status
 All Iteration-2 Fix Plan tasks (FOO-1167..1170) completed. No tasks remaining.
+
+### Review Findings
+
+Files reviewed: 6 (`src/lib/prompt-safety.ts`, `src/lib/claude.ts`, + 4 test files)
+Reviewers: security, reliability, quality (agent team via Workflow)
+Checks applied: Security (prompt-injection), Logic, Async, Type Safety, Conventions, Test Quality
+
+No issues requiring fix — all 13 raw findings (9 after dedup) classified as DISCARD. The escaping fix (FOO-1167), the 3 wrap sites (FOO-1168), and the test additions (FOO-1169/1170) are correct and the regression guards are sound.
+
+**Discarded findings (not bugs):**
+- [DISCARDED] MEDIUM SECURITY: `convertMessages`/`convertTriageMessages` assistant-message summaries wrap `food_name` but omit `UNTRUSTED_DATA_INSTRUCTION` (`claude.ts:1356,2072`) — flagged by 2 reviewers. Intentional, documented design: `escapeUntrusted` fully prevents structural tag-breakout, the value is explicitly `label="food_name"`, and the **conversation's system prompt** carries the instruction (verified at `:1438/:1768/:1783/:2111`). These are **assistant-role** history blocks; injecting an "IMPORTANT: untrusted" directive into the assistant's own turn is semantically inappropriate. FOO-1168's requirement ("wrap all food_name paths") is met — the debate is only about an additional adjacent marker that would not cleanly improve the prompt.
+- [DISCARDED] HIGH TEST: FOO-1169 truncation test "passes trivially" (`user-profile.test.ts:399`) — reviewer self-concedes the test **fails at ~1284 chars when the bug fires** (prefix excluded from `finalLength`). It is a valid regression guard for its target bug; a sharper "meals removed" assertion is a nice-to-have, not a defect.
+- [DISCARDED] MEDIUM SECURITY: `wrapUntrusted` doesn't escape `"` (`prompt-safety.ts:23`) — value is in XML **element content**, not an attribute; `label` is a hardcoded literal, never user-controlled. No current breakout vector; defense-in-depth for a hypothetical future attribute embedding.
+- [DISCARDED] LOW SECURITY: `entry.time`/`entry.date`/`entry.confidence` unwrapped in `editAnalysis` (`claude.ts:1774-1775`) — `confidence` is an enum (`"high"|"medium"|"low"`), `time`/`date` are format-validated (HH:mm / YYYY-MM-DD), not free text. The "legacy/bypassed DB row" scenario is speculative infra, not a code bug.
+- [DISCARDED] LOW EDGE-CASE: `escapeUntrusted` doesn't encode newlines/control chars (`prompt-safety.ts:11`) — escaping prevents **tag-breakout** (the FOO-1167 goal); plain-text inside a clearly-delimited, labeled block is the accepted residual the delimiter+instruction approach handles by design. You cannot escape your way out of plain-text social engineering.
+- [DISCARDED] MEDIUM TEST: FOO-1168 `convertMessages` describe block missing `beforeEach(setupMocks)` (`claude.test.ts:4970`) — reviewer concedes harmless; `convertMessages` is a pure function with no mocked dependencies.
+- [DISCARDED] MEDIUM TEST: pre-existing FOO-1146 test uses a no-angle-bracket payload (`claude.test.ts:4841`) — escaping is centrally tested in `prompt-safety.test.ts`; per-site tests verify the wrapper is applied. No real coverage gap.
+- [DISCARDED] LOW/MEDIUM TEST (×4): assorted test-sharpening suggestions — assert instruction-position, exact constant length/leading `\n`, empty-string `wrapUntrusted`, a standalone `escapeUntrusted` ordering case, compile-time `WEB_SEARCH_TOOL` type lock. All are enhancements to tests that already verify their target behavior; the `<&>` ordering test already covers the critical `&`-first invariant.
+
+### Linear Updates
+- FOO-1167, 1168, 1169, 1170 (all 4): Review → Merge
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues (FOO-1139, 1142–1158 original; FOO-1160–1166 Iteration-1 fixes; FOO-1167–1170 Iteration-2 fixes) moved to Merge.
