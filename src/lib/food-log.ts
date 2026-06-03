@@ -1,4 +1,4 @@
-import { eq, and, or, isNull, gte, lte, lt, gt, desc, asc, between, sql } from "drizzle-orm";
+import { eq, and, or, isNull, gte, lte, lt, gt, desc, asc, between, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
@@ -814,14 +814,21 @@ export async function searchFoods(
     return [];
   }
 
-  // Query 2: fetch all log entries for this user and aggregate per food.
-  // Using a separate query avoids materialising the full custom_foods × food_log_entries
-  // cross-join. Aggregation (count, maxDate, bestMealTypeId) happens in memory.
+  // Query 2: fetch log entries only for the matched foods and aggregate per food.
+  // Using a separate scoped query avoids materialising the full
+  // custom_foods × food_log_entries cross-join AND avoids loading the user's entire
+  // history — only entries for the filtered foods are fetched. Aggregation
+  // (count, maxDate, bestMealTypeId) happens in memory.
   const filteredIds = new Set(filtered.map(f => f.id));
   const logRows = await db
     .select()
     .from(foodLogEntries)
-    .where(eq(foodLogEntries.userId, userId));
+    .where(
+      and(
+        eq(foodLogEntries.userId, userId),
+        inArray(foodLogEntries.customFoodId, [...filteredIds]),
+      ),
+    );
 
   // Aggregate log data per customFoodId: count entries, track latest date and its mealTypeId
   const aggregated = new Map<number, { count: number; maxDate: string | null; bestMealTypeId: number }>();

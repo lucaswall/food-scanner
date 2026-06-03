@@ -358,3 +358,66 @@ Assign these same-file task sets to a **single implementer** to avoid merge conf
 - **FOO-1142** is migration-affecting (both prod users must re-link Google Health; env var must be set on Railway before deploy).
 - **FOO-1144** `next` major upgrade may introduce App Router breaking changes — full e2e gate required.
 - **FOO-1149** query rewrite must preserve the "show all logged foods" guarantee and identical grouping output.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-06-02
+**Method:** Agent team (4 workers, worktree-isolated) + lead-only dependency upgrade
+
+### Tasks Completed This Iteration
+- Task 1: Health-token encryption — HKDF-SHA256 from dedicated `HEALTH_TOKEN_ENCRYPTION_KEY`, 1-byte version prefix, `TokenDecryptionError`; accessor returns null on decrypt-fail (FOO-1142) (worker-1)
+- Task 2: Auth rate-limit client IP — new `src/lib/request-ip.ts` `getClientIp()` (rightmost XFF); both auth routes (FOO-1143) (worker-1)
+- Task 7: Dropped email (PII) from Sentry user context + call site (FOO-1153) (worker-1)
+- Task 8: CSP nonce feasibility — confirmed Sentry `/monitoring` tunnel; nonce deferred with documented rationale (FOO-1154) (worker-1)
+- Task 4: Delimit untrusted user data in Claude system prompts — `wrapUntrusted()` at all `food_name`/`notes` sites (FOO-1146) (worker-2)
+- Task 6: Replaced full `systemPrompt` with `systemPromptLength` in debug logs (FOO-1152) (worker-2)
+- Task 16: Warn log on `max_tokens` stop_reason for initial `analyzeFood`/`conversationalRefine` calls (FOO-1158) (worker-2)
+- Task 15: Claude tool schemas — descriptions on 6 numeric fields + `strict`/`additionalProperties:false` on chat tools; `meal_type` restructured (FOO-1157) (worker-2)
+- Task 5: Trimmed `healthMode`/`claudeModel` from public `/api/health` (FOO-1151) (worker-2)
+- Task 14: google-health reliability — refresh dedup window, abortable 429 sleep, empty-ids guard (FOO-1155) (worker-3)
+- Task 17: `durationMs` on all 6 Google Health functions (FOO-1139) (worker-3)
+- Task 9: Bounded health-cache via shared `TtlCache<T>` (evict + cap + eager expired-delete) (FOO-1147) (worker-3)
+- Task 10: SWR `apiFetcher` timeout via `AbortSignal.timeout(15000)` (FOO-1148) (worker-3)
+- Task 3: Per-user rate limiting on log-food/edit-food/food-history DELETE/api-keys POST (FOO-1145) (worker-4)
+- Task 12: Bounded log-food `idempotencyCache` (`MAX_IDEMPOTENCY_SIZE`, evict by `expiresAt`) (FOO-1156) (worker-4)
+- Task 13: Typed `expectedCalories` on `FoodLogRequest`, removed double cast, validator updated (FOO-1150) (worker-4)
+- Task 11: `searchFoods` — eliminated cross-join (two scoped queries + JS aggregation); zero-entry foods still returned (FOO-1149) (worker-4)
+- Task 18: Dependency upgrades — `npm audit fix` + `next 16.1.6→16.2.7`; 0 critical/high in prod deps (FOO-1144) (lead)
+
+### Files Modified
+- `src/lib/token-encryption.ts`, `src/lib/health-tokens.ts`, `src/lib/request-ip.ts` (new)
+- `src/app/api/auth/google/route.ts`, `src/app/api/auth/google/callback/route.ts`
+- `src/components/sentry-user-context.tsx`, `src/app/app/layout.tsx`, `next.config.ts`
+- `src/lib/claude.ts`, `src/lib/claude-tools-schema.ts`, `src/lib/chat-tools.ts`, `src/app/api/health/route.ts`
+- `src/lib/google-health.ts`, `src/lib/health-cache.ts`, `src/lib/swr.ts`
+- `src/app/api/log-food/route.ts`, `src/app/api/edit-food/route.ts`, `src/app/api/food-history/[id]/route.ts`, `src/app/api/api-keys/route.ts`, `src/lib/food-log.ts`, `src/types/index.ts`
+- `package.json`, `package-lock.json`
+- Docs: `.env.sample`, `README.md`, `DEVELOPMENT.md`, `MIGRATIONS.md`, `.env.test`
+- Plus colocated `__tests__/` for every touched module
+
+### Linear Updates
+- All 18 issues: Todo → In Progress → Review (FOO-1139, 1142–1158)
+
+### Pre-commit Verification
+- bug-hunter: Found 2 (1 HIGH: `searchFoods` Query 2 loaded entire user history instead of scoping to matched foods — fixed by adding `inArray(customFoodId, filteredIds)` WHERE clause; 1 MEDIUM `TtlCache` boundary — analyzed as non-defect, cache remains bounded at MAX). HIGH fixed.
+- verifier: typecheck clean; unit/integration 3623 pass; lint zero warnings; production build zero warnings; E2E 135/135 pass.
+- npm audit (prod): 0 critical / 0 high; 2 residual moderate (`postcss` via `next`, fixable only via next-canary) documented in DEVELOPMENT.md.
+
+### Work Partition
+- Worker 1: Tasks 1, 2, 7, 8 (crypto & auth security)
+- Worker 2: Tasks 4, 6, 16, 15, 5 (Claude AI layer + health endpoint)
+- Worker 3: Tasks 14, 17, 9, 10 (health service & client caches)
+- Worker 4: Tasks 3, 12, 13, 11 (write routes, types & query)
+- Lead: Task 18 (dependency upgrades, post-merge)
+
+### Merge Summary
+- Worker 1: fast-forward (no conflicts)
+- Worker 3: merged (ort), no conflicts, typecheck clean
+- Worker 2: merged (ort), no conflicts, typecheck clean
+- Worker 4: merged (ort), no conflicts, typecheck clean
+- Post-merge integration: 1 cross-domain test failure fixed (`settings/page.test.tsx` fetch assertion updated for the new SWR `AbortSignal` arg)
+
+### Continuation Status
+All tasks completed. Migration note (FOO-1142): both prod users must re-link Google Health after deploy; `HEALTH_TOKEN_ENCRYPTION_KEY` must be set on Railway (staging + production, independently) before release — logged in `MIGRATIONS.md`.
