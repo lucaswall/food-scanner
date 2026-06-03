@@ -235,7 +235,7 @@ export async function fetchWithRetry(
         },
         "server error, retrying",
       );
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      await abortableSleep(delay, callerSignal);
       return fetchWithRetry(url, options, retryCount + 1, startTime, l, userId, criticality);
     }
 
