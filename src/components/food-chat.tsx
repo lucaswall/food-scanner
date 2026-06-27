@@ -65,6 +65,14 @@ function entryDetailToAnalysis(entry: FoodLogEntryDetail): FoodAnalysis {
     notes: entry.notes ?? "",
     description: entry.description ?? "",
     keywords: entry.keywords,
+    // Preserve the entry's original date/time/meal so the AI's "baseline" for an edit
+    // matches reality. Without these, editAnalysis reported the baseline time as
+    // "null (not set)", causing the model to drop or guess the time on edits.
+    // time is sliced to HH:mm because that's the format validateFoodAnalysis accepts
+    // (the stored value is HH:mm:ss).
+    date: entry.date,
+    time: entry.time ? entry.time.slice(0, 5) : null,
+    mealTypeId: entry.mealTypeId,
   };
 }
 

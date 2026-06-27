@@ -2519,6 +2519,31 @@ describe("FoodChat edit mode", () => {
     expect(body.entryId).toBe(42);
   });
 
+  it("seeds the edit baseline (initialAnalysis) with the entry's original time/date/meal", async () => {
+    // Regression: entryDetailToAnalysis used to drop time/date/mealTypeId, so editAnalysis
+    // told the model the baseline time was "null (not set)" and it dropped/guessed the time.
+    // time must be HH:mm (validateFoodAnalysis rejects HH:mm:ss); stored value is "20:00:00".
+    mockFetch.mockResolvedValueOnce(makeSSEFetchResponse([
+      { type: "text_delta", text: "OK." },
+      { type: "done" },
+    ]));
+
+    render(<FoodChat {...editModeProps} />);
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "add cheese" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalled();
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.initialAnalysis.time).toBe("20:00");
+    expect(body.initialAnalysis.date).toBe("2026-02-15");
+    expect(body.initialAnalysis.mealTypeId).toBe(5);
+  });
+
   it("Save Changes calls POST /api/edit-food with correct data", async () => {
     // First send a message to get an analysis
     mockFetch.mockResolvedValueOnce(makeSSEFetchResponse([

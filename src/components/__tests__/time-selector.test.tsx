@@ -89,10 +89,26 @@ describe("TimeSelector", () => {
     expect(hourSelect.querySelectorAll("option")).toHaveLength(25);
   });
 
-  it("has 5-minute interval options", () => {
+  it("has 1-minute interval options (00–59)", () => {
     render(<TimeSelector value={null} onChange={vi.fn()} />);
     const minuteSelect = screen.getByLabelText("Minute");
-    // 12 intervals (0, 5, 10, ... 55) + 1 placeholder
-    expect(minuteSelect.querySelectorAll("option")).toHaveLength(13);
+    // 60 minutes (00..59) + 1 placeholder
+    expect(minuteSelect.querySelectorAll("option")).toHaveLength(61);
+  });
+
+  // Regression: a stored time whose minute isn't a multiple of 5 (e.g. 16:47) must
+  // display its real minute, not fall back to 00 (the user-reported "16:00" bug).
+  it("displays an off-5 minute like 16:47 correctly", () => {
+    render(<TimeSelector value="16:47" onChange={vi.fn()} />);
+    const hourSelect = screen.getByLabelText("Hour") as HTMLSelectElement;
+    const minuteSelect = screen.getByLabelText("Minute") as HTMLSelectElement;
+    expect(hourSelect.value).toBe("16");
+    expect(minuteSelect.value).toBe("47");
+  });
+
+  it("handles a stored HH:mm:ss value (e.g. 16:47:00 from the DB)", () => {
+    render(<TimeSelector value="16:47:00" onChange={vi.fn()} />);
+    const minuteSelect = screen.getByLabelText("Minute") as HTMLSelectElement;
+    expect(minuteSelect.value).toBe("47");
   });
 });

@@ -12,8 +12,11 @@ interface TimeSelectorProps {
 const HOURS = Array.from({ length: 24 }, (_, i) =>
   String(i).padStart(2, "0")
 );
-const MINUTES = Array.from({ length: 12 }, (_, i) =>
-  String(i * 5).padStart(2, "0")
+// 1-minute granularity (00–59). 5-minute steps could not represent times whose
+// minute isn't a multiple of 5 (e.g. a 16:47 entry rendered as 16:00 because the
+// controlled <select> had no matching option and fell back to the first one).
+const MINUTES = Array.from({ length: 60 }, (_, i) =>
+  String(i).padStart(2, "0")
 );
 
 export function TimeSelector({ value, onChange, disabled }: TimeSelectorProps) {
