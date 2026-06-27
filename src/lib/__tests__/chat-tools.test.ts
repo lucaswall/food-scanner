@@ -112,10 +112,12 @@ describe("Chat Tool Definitions", () => {
     expect(props.from_date.type).toEqual(["string", "null"]);
     expect(props.to_date.type).toEqual(["string", "null"]);
 
-    // meal_type: restructured for strict mode — uses type array instead of anyOf
-    expect(props.meal_type.anyOf).toBeUndefined();
-    const typeField = props.meal_type.type;
-    expect(Array.isArray(typeField) && typeField.includes("null")).toBe(true);
+    // meal_type: non-strict nullable enum expressed as anyOf[string-enum, null]
+    // (FOOD-SCANNER-6 — type-array + enum is rejected under strict mode).
+    expect(Array.isArray(props.meal_type.anyOf)).toBe(true);
+    const branches = props.meal_type.anyOf as Array<Record<string, unknown>>;
+    expect(branches.some((b) => Array.isArray(b.enum))).toBe(true);
+    expect(branches.some((b) => b.type === "null")).toBe(true);
 
     // limit should be nullable number
     expect(props.limit.type).toEqual(["number", "null"]);
@@ -146,40 +148,39 @@ describe("Chat Tool Definitions", () => {
   });
 });
 
-// FOO-1157: strict mode + nullable meal_type
-describe("Chat Tool strict mode (FOO-1157)", () => {
-  it("SEARCH_FOOD_LOG_TOOL has strict: true", () => {
-    expect(SEARCH_FOOD_LOG_TOOL.strict).toBe(true);
+// FOOD-SCANNER-6: data-query tools must stay NON-strict. strict mode 400s
+// POST /api/analyze-food (16-union-param cap + nullable-enum rejection). Regressed
+// 3× (PR #90/#113/#144); these assertions guard against a 4th reintroduction.
+describe("Chat Tool strict mode (FOOD-SCANNER-6)", () => {
+  it("SEARCH_FOOD_LOG_TOOL is NOT strict", () => {
+    expect(SEARCH_FOOD_LOG_TOOL.strict).toBeFalsy();
   });
 
-  it("SEARCH_FOOD_LOG_TOOL has additionalProperties: false", () => {
-    expect((SEARCH_FOOD_LOG_TOOL.input_schema as Record<string, unknown>).additionalProperties).toBe(false);
+  it("SEARCH_FOOD_LOG_TOOL does NOT set additionalProperties: false", () => {
+    expect((SEARCH_FOOD_LOG_TOOL.input_schema as Record<string, unknown>).additionalProperties).toBeUndefined();
   });
 
-  it("SEARCH_FOOD_LOG_TOOL meal_type accepts null (type includes null)", () => {
+  it("SEARCH_FOOD_LOG_TOOL meal_type accepts null via anyOf null branch", () => {
     const props = SEARCH_FOOD_LOG_TOOL.input_schema.properties as Record<string, Record<string, unknown>>;
-    const mealType = props.meal_type;
-    // After restructure for strict mode, meal_type should support null without anyOf
-    const typeField = mealType.type;
-    const hasNullType = Array.isArray(typeField) && typeField.includes("null");
-    const hasNullInEnum = Array.isArray(mealType.enum) && (mealType.enum as unknown[]).includes(null);
-    expect(hasNullType || hasNullInEnum).toBe(true);
+    const branches = props.meal_type.anyOf as Array<Record<string, unknown>>;
+    expect(Array.isArray(branches)).toBe(true);
+    expect(branches.some((b) => b.type === "null")).toBe(true);
   });
 
-  it("GET_NUTRITION_SUMMARY_TOOL has strict: true", () => {
-    expect(GET_NUTRITION_SUMMARY_TOOL.strict).toBe(true);
+  it("GET_NUTRITION_SUMMARY_TOOL is NOT strict", () => {
+    expect(GET_NUTRITION_SUMMARY_TOOL.strict).toBeFalsy();
   });
 
-  it("GET_NUTRITION_SUMMARY_TOOL has additionalProperties: false", () => {
-    expect((GET_NUTRITION_SUMMARY_TOOL.input_schema as Record<string, unknown>).additionalProperties).toBe(false);
+  it("GET_NUTRITION_SUMMARY_TOOL does NOT set additionalProperties: false", () => {
+    expect((GET_NUTRITION_SUMMARY_TOOL.input_schema as Record<string, unknown>).additionalProperties).toBeUndefined();
   });
 
-  it("GET_FASTING_INFO_TOOL has strict: true", () => {
-    expect(GET_FASTING_INFO_TOOL.strict).toBe(true);
+  it("GET_FASTING_INFO_TOOL is NOT strict", () => {
+    expect(GET_FASTING_INFO_TOOL.strict).toBeFalsy();
   });
 
-  it("GET_FASTING_INFO_TOOL has additionalProperties: false", () => {
-    expect((GET_FASTING_INFO_TOOL.input_schema as Record<string, unknown>).additionalProperties).toBe(false);
+  it("GET_FASTING_INFO_TOOL does NOT set additionalProperties: false", () => {
+    expect((GET_FASTING_INFO_TOOL.input_schema as Record<string, unknown>).additionalProperties).toBeUndefined();
   });
 
   // SAVE_NUTRITION_LABEL_TOOL and MANAGE_NUTRITION_LABEL_TOOL intentionally left

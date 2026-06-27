@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cn } from "../utils";
+import { cn, isLikelyNetworkError } from "../utils";
 
 describe("cn", () => {
   it("merges class names correctly", () => {
@@ -29,5 +29,41 @@ describe("cn", () => {
 
   it("keeps non-conflicting Tailwind classes", () => {
     expect(cn("p-4", "m-2")).toBe("p-4 m-2");
+  });
+});
+
+describe("isLikelyNetworkError", () => {
+  it("detects Safari 'Load failed' (FOOD-SCANNER-X)", () => {
+    expect(isLikelyNetworkError(new TypeError("Load failed"))).toBe(true);
+  });
+
+  it("detects Chrome 'Failed to fetch'", () => {
+    expect(isLikelyNetworkError(new TypeError("Failed to fetch"))).toBe(true);
+  });
+
+  it("detects Firefox 'NetworkError when attempting to fetch resource.'", () => {
+    expect(
+      isLikelyNetworkError(new TypeError("NetworkError when attempting to fetch resource.")),
+    ).toBe(true);
+  });
+
+  it("is case-insensitive", () => {
+    expect(isLikelyNetworkError(new TypeError("LOAD FAILED"))).toBe(true);
+  });
+
+  it("returns false for non-TypeError errors with matching text", () => {
+    // Only fetch's TypeError signals a network failure; a generic Error with the
+    // same words is an application error and must still reach Sentry.
+    expect(isLikelyNetworkError(new Error("Load failed"))).toBe(false);
+  });
+
+  it("returns false for unrelated TypeErrors", () => {
+    expect(isLikelyNetworkError(new TypeError("Cannot read properties of undefined"))).toBe(false);
+  });
+
+  it("returns false for non-error values", () => {
+    expect(isLikelyNetworkError("Load failed")).toBe(false);
+    expect(isLikelyNetworkError(null)).toBe(false);
+    expect(isLikelyNetworkError(undefined)).toBe(false);
   });
 });

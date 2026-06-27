@@ -52,9 +52,12 @@ describe("REPORT_NUTRITION_TOOL schema — numeric field descriptions", () => {
   }
 });
 
-// FOO-1165: Tools made strict in FOO-1157 must keep strict:true and
-// additionalProperties:false so regressions are caught by this suite.
-describe("Claude tool strict mode — FOO-1157 regression guard", () => {
+// Strict mode is for data-WRITING tools only. The data-QUERY tools
+// (search_food_log, get_nutrition_summary, get_fasting_info) MUST stay non-strict:
+// strict mode 400s POST /api/analyze-food via the 16-union-param cap and the
+// nullable-enum rejection (FOOD-SCANNER-6). This has regressed 3× (PR #90/#113/#144);
+// these assertions are the guard against a 4th.
+describe("Claude tool strict mode — FOOD-SCANNER-6 regression guard", () => {
   it("REPORT_NUTRITION_TOOL has strict:true", () => {
     expect(REPORT_NUTRITION_TOOL.strict).toBe(true);
   });
@@ -63,28 +66,28 @@ describe("Claude tool strict mode — FOO-1157 regression guard", () => {
     expect(REPORT_NUTRITION_TOOL.input_schema.additionalProperties).toBe(false);
   });
 
-  it("SEARCH_FOOD_LOG_TOOL has strict:true", () => {
-    expect(SEARCH_FOOD_LOG_TOOL.strict).toBe(true);
+  it("SEARCH_FOOD_LOG_TOOL is NOT strict (would 400 analyze-food)", () => {
+    expect(SEARCH_FOOD_LOG_TOOL.strict).toBeFalsy();
   });
 
-  it("SEARCH_FOOD_LOG_TOOL input_schema has additionalProperties:false", () => {
-    expect(SEARCH_FOOD_LOG_TOOL.input_schema.additionalProperties).toBe(false);
+  it("SEARCH_FOOD_LOG_TOOL input_schema does NOT set additionalProperties:false", () => {
+    expect(SEARCH_FOOD_LOG_TOOL.input_schema.additionalProperties).toBeUndefined();
   });
 
-  it("GET_NUTRITION_SUMMARY_TOOL has strict:true", () => {
-    expect(GET_NUTRITION_SUMMARY_TOOL.strict).toBe(true);
+  it("GET_NUTRITION_SUMMARY_TOOL is NOT strict (would 400 analyze-food)", () => {
+    expect(GET_NUTRITION_SUMMARY_TOOL.strict).toBeFalsy();
   });
 
-  it("GET_NUTRITION_SUMMARY_TOOL input_schema has additionalProperties:false", () => {
-    expect(GET_NUTRITION_SUMMARY_TOOL.input_schema.additionalProperties).toBe(false);
+  it("GET_NUTRITION_SUMMARY_TOOL input_schema does NOT set additionalProperties:false", () => {
+    expect(GET_NUTRITION_SUMMARY_TOOL.input_schema.additionalProperties).toBeUndefined();
   });
 
-  it("GET_FASTING_INFO_TOOL has strict:true", () => {
-    expect(GET_FASTING_INFO_TOOL.strict).toBe(true);
+  it("GET_FASTING_INFO_TOOL is NOT strict (would 400 analyze-food)", () => {
+    expect(GET_FASTING_INFO_TOOL.strict).toBeFalsy();
   });
 
-  it("GET_FASTING_INFO_TOOL input_schema has additionalProperties:false", () => {
-    expect(GET_FASTING_INFO_TOOL.input_schema.additionalProperties).toBe(false);
+  it("GET_FASTING_INFO_TOOL input_schema does NOT set additionalProperties:false", () => {
+    expect(GET_FASTING_INFO_TOOL.input_schema.additionalProperties).toBeUndefined();
   });
 
   it("SEARCH_NUTRITION_LABELS_TOOL has strict:true", () => {
@@ -127,19 +130,21 @@ describe("Claude tool strict mode — FOO-1157 regression guard", () => {
   });
 });
 
-// FOO-1165: SEARCH_FOOD_LOG_TOOL meal_type restructure for strict-mode compatibility
-describe("SEARCH_FOOD_LOG_TOOL meal_type strict-mode compatibility", () => {
-  it("meal_type type array includes null so Claude can omit filtering", () => {
-    const props = SEARCH_FOOD_LOG_TOOL.input_schema.properties as Record<string, { type: unknown; enum?: unknown[] }>;
+// FOOD-SCANNER-6: meal_type uses anyOf[string-enum, null] (the non-strict form).
+// A `type: ["string","null"]` + string `enum` combo is rejected by the API under
+// strict mode, so the nullable enum must be expressed via anyOf instead.
+describe("SEARCH_FOOD_LOG_TOOL meal_type nullable enum", () => {
+  it("meal_type uses anyOf with a string-enum branch and a null branch", () => {
+    const props = SEARCH_FOOD_LOG_TOOL.input_schema.properties as Record<string, { type?: unknown; enum?: unknown[]; anyOf?: Array<{ type?: unknown; enum?: unknown[] }> }>;
     const mealType = props.meal_type;
-    expect(Array.isArray(mealType.type)).toBe(true);
-    expect((mealType.type as string[]).includes("null")).toBe(true);
-  });
-
-  it("meal_type enum includes null as a valid value", () => {
-    const props = SEARCH_FOOD_LOG_TOOL.input_schema.properties as Record<string, { type: unknown; enum?: unknown[] }>;
-    const mealType = props.meal_type;
-    expect(mealType.enum).toBeDefined();
-    expect((mealType.enum as unknown[]).includes(null)).toBe(true);
+    expect(Array.isArray(mealType.anyOf)).toBe(true);
+    const branches = mealType.anyOf!;
+    const enumBranch = branches.find((b) => Array.isArray(b.enum));
+    const nullBranch = branches.find((b) => b.type === "null");
+    expect(enumBranch).toBeDefined();
+    expect(nullBranch).toBeDefined();
+    expect(enumBranch!.enum).toContain("breakfast");
+    // The enum branch must NOT itself include null — null is expressed by the separate branch.
+    expect((enumBranch!.enum as unknown[]).includes(null)).toBe(false);
   });
 });

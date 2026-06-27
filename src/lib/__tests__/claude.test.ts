@@ -3405,6 +3405,81 @@ describe("isOverloadedError", () => {
 });
 
 // =============================================================================
+// isTransientServerError (FOOD-SCANNER-Y) — wider retry net for transient 5xx
+// =============================================================================
+
+describe("isTransientServerError", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("returns true for APIError with status 500 (FOOD-SCANNER-Y)", async () => {
+    const APIError = await getMockAPIErrorCtor();
+    const { isTransientServerError } = await import("@/lib/claude");
+    expect(isTransientServerError(new APIError(500, "Internal Server Error"))).toBe(true);
+  });
+
+  it("returns true for APIError with status 502/503/504/529", async () => {
+    const APIError = await getMockAPIErrorCtor();
+    const { isTransientServerError } = await import("@/lib/claude");
+    for (const status of [502, 503, 504, 529]) {
+      expect(isTransientServerError(new APIError(status, "server error"))).toBe(true);
+    }
+  });
+
+  it("returns true for a mid-stream SSE api_error body (FOOD-SCANNER-Y)", async () => {
+    const { isTransientServerError } = await import("@/lib/claude");
+    // The exact shape Anthropic delivers mid-stream on an internal failure.
+    expect(
+      isTransientServerError({
+        type: "error",
+        error: { type: "api_error", message: "Internal server error" },
+      }),
+    ).toBe(true);
+  });
+
+  it("returns true for an SSE error nested one level deeper", async () => {
+    const APIError = await getMockAPIErrorCtor();
+    const { isTransientServerError } = await import("@/lib/claude");
+    const sseError = new APIError(undefined as unknown as number, "Internal server error", {
+      type: "error",
+      error: { type: "api_error", message: "Internal server error" },
+    });
+    expect(isTransientServerError(sseError)).toBe(true);
+  });
+
+  it("still matches overloaded_error bodies", async () => {
+    const { isTransientServerError } = await import("@/lib/claude");
+    expect(isTransientServerError({ error: { type: "overloaded_error" } })).toBe(true);
+  });
+
+  it("returns FALSE for the strict-schema 400 (invalid_request_error) — must not retry FOOD-SCANNER-6", async () => {
+    const APIError = await getMockAPIErrorCtor();
+    const { isTransientServerError } = await import("@/lib/claude");
+    expect(isTransientServerError(new APIError(400, "Bad Request"))).toBe(false);
+    expect(
+      isTransientServerError({
+        type: "error",
+        error: { type: "invalid_request_error", message: "Invalid schema" },
+      }),
+    ).toBe(false);
+  });
+
+  it("returns false for 429 rate-limit (handled elsewhere, not a retryable 5xx)", async () => {
+    const APIError = await getMockAPIErrorCtor();
+    const { isTransientServerError } = await import("@/lib/claude");
+    expect(isTransientServerError(new APIError(429, "Rate Limited"))).toBe(false);
+  });
+
+  it("returns false for generic Error, null, and non-error values", async () => {
+    const { isTransientServerError } = await import("@/lib/claude");
+    expect(isTransientServerError(new Error("boom"))).toBe(false);
+    expect(isTransientServerError(null)).toBe(false);
+    expect(isTransientServerError(undefined)).toBe(false);
+    expect(isTransientServerError("string error")).toBe(false);
+  });
+});
+
+// =============================================================================
 // Task 3: createStreamWithRetry
 // =============================================================================
 

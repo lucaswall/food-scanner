@@ -37,6 +37,7 @@ import { useLogFood } from "@/hooks/use-log-food";
 import { getLocalDateTime } from "@/lib/meal-type";
 import { getActiveSessionId } from "@/lib/analysis-session";
 import { safeResponseJson } from "@/lib/safe-json";
+import { isLikelyNetworkError } from "@/lib/utils";
 import { parseSSEEvents } from "@/lib/sse";
 import { saveAnalysisForLater } from "@/lib/save-for-later";
 import type { FoodLogResponse, FoodMatch, ConversationMessage } from "@/types";
@@ -371,8 +372,10 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         vibrateError();
         return;
       }
-      // Network errors (connectivity loss, device sleep) — user-friendly message, no Sentry
-      if (err instanceof TypeError && err.message.includes("network")) {
+      // Network errors (connectivity loss, device sleep) — user-friendly message, no Sentry.
+      // Covers all engines: "network" (Firefox), "Failed to fetch" (Chrome),
+      // "Load failed" (Safari) — FOOD-SCANNER-X.
+      if (isLikelyNetworkError(err)) {
         setError("Network error. Please check your connection and try again.");
         vibrateError();
         return;

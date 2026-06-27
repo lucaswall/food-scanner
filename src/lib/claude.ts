@@ -122,6 +122,45 @@ export function isOverloadedError(error: unknown): boolean {
   return false;
 }
 
+/**
+ * Returns true for transient Anthropic server-side failures that are SAFE to retry by
+ * replaying the request: HTTP 5xx (500/502/503/504/529) and SSE error events whose body
+ * type is `api_error` or `overloaded_error`. createStreamWithRetry recreates the stream
+ * from scratch on retry, so replaying after one of these cannot duplicate side effects.
+ *
+ * FOOD-SCANNER-Y: a mid-stream 500 —
+ * `{ type: "error", error: { type: "api_error", message: "Internal server error" } }` —
+ * was surfaced as an unhandled error instead of being retried. (HTTP 529 / overloaded_error
+ * is also matched by isOverloadedError, which adds user-facing copy; this wider net catches
+ * the remaining transient 5xx that previously bubbled up.)
+ */
+export function isTransientServerError(error: unknown): boolean {
+  // Check 1: Anthropic SDK APIError with any 5xx status
+  if (error instanceof Anthropic.APIError && typeof error.status === "number" && error.status >= 500) {
+    return true;
+  }
+  // Check 2/3: duck-type the SSE error body (optionally nested one level deeper) and match
+  // its `type` against the set of retryable server-error types.
+  const RETRYABLE_TYPES = new Set(["api_error", "overloaded_error"]);
+  if (error !== null && typeof error === "object" && "error" in error) {
+    const body = (error as Record<string, unknown>).error;
+    if (body !== null && typeof body === "object" && "type" in (body as object)) {
+      const bodyType = (body as Record<string, unknown>).type;
+      if (typeof bodyType === "string" && RETRYABLE_TYPES.has(bodyType)) {
+        return true;
+      }
+      if ("error" in (body as object)) {
+        const inner = (body as Record<string, unknown>).error;
+        if (inner !== null && typeof inner === "object" && "type" in (inner as object)) {
+          const innerType = (inner as Record<string, unknown>).type;
+          return typeof innerType === "string" && RETRYABLE_TYPES.has(innerType);
+        }
+      }
+    }
+  }
+  return false;
+}
+
 /** Returns true if the error is a client-initiated abort (user navigated away, closed the app). */
 function isAbortError(error: unknown): boolean {
   if (error instanceof Error) {
@@ -187,16 +226,19 @@ export async function* createStreamWithRetry(
       );
       return msg;
     } catch (error) {
-      if (isOverloadedError(error) && attempt < maxRetries) {
+      // Retry transient server-side failures: 529 overloaded plus other 5xx / SSE api_error
+      // (FOOD-SCANNER-Y). The stream is recreated from scratch above, so replay is safe.
+      const retryable = isOverloadedError(error) || isTransientServerError(error);
+      if (retryable && attempt < maxRetries) {
         const delayMs = RETRY_DELAYS_MS[attempt] ?? 3000;
-        log.warn({ action: "stream_retry", attempt, delayMs }, "Claude API overloaded, retrying stream");
+        log.warn({ action: "stream_retry", attempt, delayMs }, "Claude API transient error, retrying stream");
         attempt++;
         yield { type: "text_delta", text: "\n\n*The AI service is momentarily busy, retrying...*\n\n" };
         await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
         continue;
       }
-      if (isOverloadedError(error)) {
-        log.warn({ action: "stream_retry_exhausted", attempt }, "Claude API persistently overloaded, exhausted retries");
+      if (retryable) {
+        log.warn({ action: "stream_retry_exhausted", attempt }, "Claude API persistently failing, exhausted retries");
         throw new ClaudeApiError("The AI service is temporarily overloaded. Please try again in a moment.", extractRequestId(error));
       }
       throw error;
