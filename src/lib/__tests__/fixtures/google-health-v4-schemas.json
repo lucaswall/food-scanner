@@ -1,0 +1,110 @@
+{
+  "_comment": "Pinned subset of the Google Health API v4 discovery-doc schemas (health.googleapis.com/$discovery/rest?version=v4) that the production write/read code in src/lib/google-health.ts builds request bodies for. This is the SOURCE OF TRUTH for the contract test (google-health-contract.test.ts): it must be updated DELIBERATELY whenever the real wire contract changes. A field appearing in a request body that is NOT listed here, or an enum value not in the enum lists, fails the contract test. CRITICAL: CivilDateTime intentionally has ONLY a `date` field (NO utcOffset) — the schema forbids timezone/offset on civil time (P0-4). field def forms: {\"type\":\"string|number|boolean\"} | {\"type\":\"array\",\"items\":<def>} | {\"ref\":\"<SchemaName>\"} | {\"enum\":\"<EnumName>\"}.",
+  "schemas": {
+    "DataPointCreateRequest": {
+      "type": "object",
+      "fields": {
+        "nutritionLog": { "ref": "NutritionLog" }
+      }
+    },
+    "NutritionLog": {
+      "type": "object",
+      "fields": {
+        "foodDisplayName": { "type": "string" },
+        "energy": { "ref": "EnergyQuantity" },
+        "energyFromFat": { "ref": "EnergyQuantity" },
+        "totalFat": { "ref": "WeightQuantity" },
+        "totalCarbohydrate": { "ref": "WeightQuantity" },
+        "serving": { "ref": "Serving" },
+        "nutrients": { "type": "array", "items": { "ref": "NutrientQuantity" } },
+        "interval": { "ref": "SessionTimeInterval" },
+        "mealType": { "enum": "MealType" }
+      }
+    },
+    "EnergyQuantity": {
+      "type": "object",
+      "fields": {
+        "kcal": { "type": "number" }
+      }
+    },
+    "WeightQuantity": {
+      "type": "object",
+      "fields": {
+        "grams": { "type": "number" }
+      }
+    },
+    "Serving": {
+      "type": "object",
+      "fields": {
+        "amount": { "type": "number" },
+        "foodMeasurementUnit": { "type": "string" }
+      }
+    },
+    "NutrientQuantity": {
+      "type": "object",
+      "fields": {
+        "nutrient": { "enum": "Nutrient" },
+        "quantity": { "ref": "WeightQuantity" }
+      }
+    },
+    "SessionTimeInterval": {
+      "type": "object",
+      "fields": {
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "startUtcOffset": { "type": "string" },
+        "endUtcOffset": { "type": "string" }
+      }
+    },
+    "DailyRollUpRequest": {
+      "type": "object",
+      "fields": {
+        "range": { "ref": "CivilTimeInterval" },
+        "windowSizeDays": { "type": "number" }
+      }
+    },
+    "CivilTimeInterval": {
+      "type": "object",
+      "fields": {
+        "start": { "ref": "CivilDateTime" },
+        "end": { "ref": "CivilDateTime" }
+      }
+    },
+    "CivilDateTime": {
+      "type": "object",
+      "fields": {
+        "date": { "ref": "GoogleTypeDate" }
+      }
+    },
+    "GoogleTypeDate": {
+      "type": "object",
+      "fields": {
+        "year": { "type": "number" },
+        "month": { "type": "number" },
+        "day": { "type": "number" }
+      }
+    }
+  },
+  "enums": {
+    "MealType": [
+      "MEAL_TYPE_UNSPECIFIED",
+      "BEFORE_BREAKFAST",
+      "BREAKFAST",
+      "BEFORE_LUNCH",
+      "LUNCH",
+      "BEFORE_DINNER",
+      "DINNER",
+      "AFTER_DINNER",
+      "SNACK",
+      "ANYTIME"
+    ],
+    "Nutrient": [
+      "PROTEIN",
+      "DIETARY_FIBER",
+      "SODIUM",
+      "SATURATED_FAT",
+      "TRANS_FAT",
+      "SUGAR"
+    ]
+  }
+}

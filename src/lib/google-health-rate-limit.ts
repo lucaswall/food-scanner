@@ -97,6 +97,11 @@ export function recordRateLimitHeaders(
  * Returns the current rate-limit snapshot for a user, or null if no active cooldown.
  * A cooldown is active only when cooldownUntil > Date.now().
  * Evicts stale (expired) entries on access so the map does not grow unboundedly.
+ *
+ * Exported for tests only — it is the breaker's internal headroom probe (used by
+ * `assertRateLimitAllowed` below) and has no production consumer outside this module.
+ * The unit tests read it as a white-box assertion of the cooldown/eviction state. Keep
+ * exported rather than inlining so that state stays directly testable (P2-13).
  */
 export function getRateLimitSnapshot(
   userId: string,
@@ -118,9 +123,16 @@ export function getRateLimitSnapshot(
  *
  * Rules:
  *   - No active cooldown (cold start or elapsed) → allow all.
- *   - In cooldown + 'important' → throw HEALTH_RATE_LIMIT_LOW (blocked, per CLAUDE.md spec).
+ *   - In cooldown + 'important' → throw HEALTH_RATE_LIMIT_LOW.
  *   - In cooldown + 'optional' → throw HEALTH_RATE_LIMIT_LOW.
  *   - In cooldown + 'critical' → allow + warn log.
+ *
+ * NOTE: 'important' and 'optional' are CURRENTLY EQUIVALENT — the breaker is purely
+ * reactive (binary: in-cooldown rejects non-critical, otherwise proceeds). There is no
+ * headroom accounting that would shed 'optional' ahead of 'important'. This is adequate at
+ * single-user / family scale; revisit (and shed 'optional' first against the per-minute
+ * budget) only if real per-user headroom tracking is added. The three tier names are kept
+ * because callers already pass them — keep CLAUDE.md's rate-limit table in sync with this.
  *
  * NEVER blocks 'critical' writes — a wrong tuning degrades to extra 429 retries,
  * not lost food logs.
@@ -147,7 +159,8 @@ export function assertRateLimitAllowed(
     return;
   }
 
-  // important and optional: reject to protect quota during cooldown window.
+  // important and optional are treated identically here: reject to protect quota during
+  // the cooldown window (see assertRateLimitAllowed doc — no headroom tier exists yet).
   (log ?? defaultLogger).warn(
     {
       action: "health_breaker_reject",

@@ -327,6 +327,9 @@ export interface FoodLogEntryDetail {
   mealTypeId: number;
   date: string;
   time: string | null;
+  // Optional so existing FoodLogEntryDetail literals (tests/consumers) stay valid;
+  // getFoodLogEntryDetail always populates it (string | null) for the P2-4 offset fallback.
+  zoneOffset?: string | null;
   healthLogId: string | null;
   confidence: string;
   isFavorite: boolean;

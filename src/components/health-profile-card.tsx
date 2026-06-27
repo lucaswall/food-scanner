@@ -2,12 +2,28 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { apiFetcher, HEALTH_BACKED_SWR_CONFIG } from "@/lib/swr";
+import Link from "next/link";
+import { apiFetcher, ApiError, HEALTH_BACKED_SWR_CONFIG } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { HealthProfileData } from "@/types";
 
 const NOT_SET = "Not set in Google Health";
+
+// Connect-flow page (POSTs to /api/auth/google-health). Shared with HealthStatusBanner.
+const RECONNECT_HEALTH_HREF = "/app/connect-health";
+
+/**
+ * A broken Google Health connection reaches this read surface as HEALTH_NOT_CONNECTED
+ * (token revoked/deleted → needs_reconnect) or HEALTH_SCOPE_MISSING (scope_mismatch).
+ * Both are resolved by reconnecting, so we show a reconnect CTA rather than a retry (P1-5).
+ */
+function isHealthReconnectError(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.code === "HEALTH_NOT_CONNECTED" || error.code === "HEALTH_SCOPE_MISSING")
+  );
+}
 
 function formatSex(sex: "MALE" | "FEMALE" | "NA" | undefined): string {
   if (!sex || sex === "NA") return NOT_SET;
@@ -69,6 +85,21 @@ export function HealthProfileCard() {
   }
 
   if (error) {
+    // A revoked/deleted token (needs_reconnect) or missing scopes are not retryable —
+    // surface a clear reconnect CTA to the connect flow instead of a retry button (P1-5).
+    if (isHealthReconnectError(error)) {
+      return (
+        <div className="flex flex-col gap-4 rounded-xl border bg-card p-6" role="alert">
+          <h2 className="text-lg font-semibold">Google Health Profile</h2>
+          <p className="text-sm text-muted-foreground">
+            Google Health needs to be reconnected to load your profile.
+          </p>
+          <Button asChild variant="outline" className="min-h-[44px] self-start">
+            <Link href={RECONNECT_HEALTH_HREF}>Reconnect Google Health</Link>
+          </Button>
+        </div>
+      );
+    }
     const isTimeout =
       error instanceof DOMException &&
       (error.name === "TimeoutError" || error.name === "AbortError");

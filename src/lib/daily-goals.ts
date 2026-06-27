@@ -1,6 +1,6 @@
 import { getDb } from "@/db/index";
 import { dailyCalorieGoals, users } from "@/db/schema";
-import { eq, and, gte, sql } from "drizzle-orm";
+import { eq, and, gte, lte, sql, desc, isNotNull } from "drizzle-orm";
 import { getTodayDate } from "@/lib/date-utils";
 import { computeMacroTargets } from "@/lib/macro-engine";
 import {
@@ -20,6 +20,26 @@ import type { ActivityLevel, NutritionGoals, NutritionGoalsAudit } from "@/types
  * fallback is never used.
  */
 const FALLBACK_HEIGHT_CM = 170;
+
+// ─── Transient-error classification (P1-9) ───────────────────────────────────
+// TRANSIENT Google Health read errors (5xx / timeout / rate-limit) should NOT
+// hard-fail the dashboard during the v4 cutover; doCompute falls back to the
+// last-known-good daily_calorie_goals row instead. Token-invalid / scope-missing
+// are NOT transient (user must reconnect) and must keep surfacing as before.
+// NOTE: health-cache.ts keeps an identical set for its serve-stale path; keep the
+// two in sync. The proper long-term home is a shared helper in
+// `src/lib/health-error-response.ts`.
+const TRANSIENT_HEALTH_CODES = new Set<string>([
+  "HEALTH_API_ERROR",
+  "HEALTH_TIMEOUT",
+  "HEALTH_RATE_LIMIT",
+  "HEALTH_RATE_LIMIT_LOW",
+  "HEALTH_REFRESH_TRANSIENT",
+]);
+
+function isTransientHealthError(errorMessage: string): boolean {
+  return TRANSIENT_HEALTH_CODES.has(errorMessage);
+}
 
 // ─── DB row shape ─────────────────────────────────────────────────────────────
 
@@ -52,6 +72,13 @@ export type ComputeResult =
       audit?: NutritionGoalsAudit;
       /** True when the weight log used is > 7 days older than the target date (FOO-1010). */
       weightStale?: boolean;
+      /**
+       * True when these goals are the last-known-good row served because a
+       * TRANSIENT Google Health read error blocked a fresh compute (P1-9). The
+       * values may be out of date (a different day / older weight); the UI should
+       * surface a "showing last saved values" indicator.
+       */
+      stale?: boolean;
     }
   | {
       status: "blocked";
@@ -110,25 +137,52 @@ function buildAuditFromRow(row: DbRow): NutritionGoalsAudit | undefined {
   };
 }
 
+/** Column projection for a full {@link DbRow} — shared by the per-date and last-good reads. */
+const DB_ROW_SELECT = {
+  calorieGoal:       dailyCalorieGoals.calorieGoal,
+  proteinGoal:       dailyCalorieGoals.proteinGoal,
+  carbsGoal:         dailyCalorieGoals.carbsGoal,
+  fatGoal:           dailyCalorieGoals.fatGoal,
+  weightKg:          dailyCalorieGoals.weightKg,
+  rmr:               dailyCalorieGoals.rmr,
+  weightLoggedDate:  dailyCalorieGoals.weightLoggedDate,
+  activityLevel:     dailyCalorieGoals.activityLevel,
+  goalWeightKg:      dailyCalorieGoals.goalWeightKg,
+  goalRateKgPerWeek: dailyCalorieGoals.goalRateKgPerWeek,
+  tdee:              dailyCalorieGoals.tdee,
+  deficitKcal:       dailyCalorieGoals.deficitKcal,
+} as const;
+
 /** Read the existing daily_calorie_goals row for (userId, date). Returns null if absent. */
 async function queryRow(userId: string, date: string): Promise<DbRow | null> {
   const rows = await getDb()
-    .select({
-      calorieGoal:       dailyCalorieGoals.calorieGoal,
-      proteinGoal:       dailyCalorieGoals.proteinGoal,
-      carbsGoal:         dailyCalorieGoals.carbsGoal,
-      fatGoal:           dailyCalorieGoals.fatGoal,
-      weightKg:          dailyCalorieGoals.weightKg,
-      rmr:               dailyCalorieGoals.rmr,
-      weightLoggedDate:  dailyCalorieGoals.weightLoggedDate,
-      activityLevel:     dailyCalorieGoals.activityLevel,
-      goalWeightKg:      dailyCalorieGoals.goalWeightKg,
-      goalRateKgPerWeek: dailyCalorieGoals.goalRateKgPerWeek,
-      tdee:              dailyCalorieGoals.tdee,
-      deficitKcal:       dailyCalorieGoals.deficitKcal,
-    })
+    .select(DB_ROW_SELECT)
     .from(dailyCalorieGoals)
     .where(and(eq(dailyCalorieGoals.userId, userId), eq(dailyCalorieGoals.date, date)));
+
+  return (rows[0] as DbRow) ?? null;
+}
+
+/**
+ * Read the most recent engine-written daily_calorie_goals row at or before
+ * `date` (P1-9 serve-last-known-good). `proteinGoal IS NOT NULL` is the
+ * "written by the engine" sentinel (invalidated rows null all macro columns),
+ * so this never returns a zeroed/invalidated row. Returns null when the user has
+ * no usable prior row.
+ */
+async function queryMostRecentGoodRow(userId: string, date: string): Promise<DbRow | null> {
+  const rows = await getDb()
+    .select(DB_ROW_SELECT)
+    .from(dailyCalorieGoals)
+    .where(
+      and(
+        eq(dailyCalorieGoals.userId, userId),
+        lte(dailyCalorieGoals.date, date),
+        isNotNull(dailyCalorieGoals.proteinGoal),
+      ),
+    )
+    .orderBy(desc(dailyCalorieGoals.date))
+    .limit(1);
 
   return (rows[0] as DbRow) ?? null;
 }
@@ -188,8 +242,12 @@ interface WeightLog {
   loggedDate: string;
 }
 
-/** Build the success response from a stored DB row (legacy or new engine output). */
-function buildOkResponseFromRow(row: DbRow, date: string): ComputeResult {
+/**
+ * Build the success response from a stored DB row (legacy or new engine output).
+ * `stale` flags a last-known-good row served because a transient health error
+ * blocked a fresh compute (P1-9).
+ */
+function buildOkResponseFromRow(row: DbRow, date: string, stale = false): ComputeResult {
   return {
     status: "ok",
     goals: {
@@ -200,6 +258,7 @@ function buildOkResponseFromRow(row: DbRow, date: string): ComputeResult {
     },
     audit: buildAuditFromRow(row),
     ...(computeWeightStale(date, row.weightLoggedDate) ? { weightStale: true } : {}),
+    ...(stale ? { stale: true } : {}),
   };
 }
 
@@ -503,6 +562,28 @@ async function doCompute(
       );
       return { status: "blocked", reason };
     }
+
+    // ── P1-9: serve last-known-good goals on TRANSIENT health errors ──────────
+    // A transient upstream failure (5xx / timeout / rate-limit) after the short
+    // cache TTLs would otherwise hard-fail the dashboard (502/503/504). Instead,
+    // degrade gracefully: serve the most recent engine-written daily_calorie_goals
+    // row flagged `stale: true`. This consciously trades the CLAUDE.md "freshness
+    // preferred" default for availability during the v4 cutover window. The trade
+    // is intentionally narrow:
+    //   - ONLY transient codes (token-invalid keeps propagating → reconnect;
+    //     scope/invalid_profile/no_weight/goals_not_set remain real blocked states).
+    //   - ONLY when a real prior engine row exists; otherwise the error propagates.
+    if (isTransientHealthError(errorMessage)) {
+      const lastGood = await queryMostRecentGoodRow(userId, date);
+      if (lastGood !== null) {
+        l.warn(
+          { action: "daily_goals_serve_stale", userId, date, errorMessage },
+          "transient Google Health error — serving last-known-good daily goals (stale)",
+        );
+        return buildOkResponseFromRow(lastGood, date, true);
+      }
+    }
+
     throw error;
   }
 }

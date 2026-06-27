@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
+import { ApiError } from "@/lib/swr";
 import type { HealthProfileData } from "@/types";
 
 const mockFetch = vi.fn();
@@ -113,6 +114,40 @@ describe("HealthProfileCard", () => {
       expect.anything(),
       expect.anything(),
     );
+  });
+
+  // P1-5: a revoked/deleted token (needs_reconnect) or missing scopes surface as typed
+  // API errors → show a reconnect CTA to the connect flow instead of a retry button.
+  it("shows the Reconnect Google Health CTA when SWR errors with HEALTH_NOT_CONNECTED", async () => {
+    const reconnectError = new ApiError("Google Health account not connected", "HEALTH_NOT_CONNECTED");
+    mockUseSWRImplementation.mockImplementation((key: string) => {
+      if (key === "/api/health-profile") {
+        return { data: null, error: reconnectError, isLoading: false, mutate: mockMutate };
+      }
+      return { data: null, error: null, isLoading: false };
+    });
+
+    const { HealthProfileCard } = await import("@/components/health-profile-card");
+    render(<HealthProfileCard />);
+    const link = screen.getByRole("link", { name: /reconnect google health/i });
+    expect(link).toHaveAttribute("href", "/app/connect-health");
+    // Reconnect-worthy errors are not retryable — no generic Retry button.
+    expect(screen.queryByRole("button", { name: /^retry$/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the Reconnect Google Health CTA when SWR errors with HEALTH_SCOPE_MISSING", async () => {
+    const scopeError = new ApiError("Missing required scopes", "HEALTH_SCOPE_MISSING");
+    mockUseSWRImplementation.mockImplementation((key: string) => {
+      if (key === "/api/health-profile") {
+        return { data: null, error: scopeError, isLoading: false, mutate: mockMutate };
+      }
+      return { data: null, error: null, isLoading: false };
+    });
+
+    const { HealthProfileCard } = await import("@/components/health-profile-card");
+    render(<HealthProfileCard />);
+    const link = screen.getByRole("link", { name: /reconnect google health/i });
+    expect(link).toHaveAttribute("href", "/app/connect-health");
   });
 
   it("shows distinct timeout message when SWR errors with TimeoutError", async () => {

@@ -42,7 +42,7 @@ export function isNutritionUnchanged(analysis: FoodAnalysis, entry: FoodLogEntry
   );
 }
 
-/** Build a FoodAnalysis from an existing entry's stored nutrients (for compensation/fast-path recreate). */
+/** Build a FoodAnalysis from an existing entry's stored nutrients (fast-path re-create — nutrition unchanged). */
 export function buildAnalysisFromEntry(entry: FoodLogEntryDetail): FoodAnalysis {
   return {
     food_name: entry.foodName,
@@ -137,7 +137,7 @@ export async function POST(request: Request) {
   const mealTypeId = data.mealTypeId as number;
   const date = data.date as string;
   const time = data.time as string;
-  const zoneOffset = (data.zoneOffset as string | undefined) ?? null;
+  const requestZoneOffset = (data.zoneOffset as string | undefined) ?? null;
   const userId = session!.userId;
 
   // Look up existing entry
@@ -146,10 +146,12 @@ export async function POST(request: Request) {
     return errorResponse("NOT_FOUND", "Food log entry not found", 404);
   }
 
-  // Health-write timing: primary creates use the edited request values; compensation
-  // re-creates restore the entry's original date/time/meal (FOO-1113).
+  // P2-4: prefer the request's explicit offset, else preserve the entry's stored offset,
+  // so a non-UTC meal is written at the correct instant instead of the `...Z` UTC fallback.
+  const zoneOffset = requestZoneOffset ?? entry.zoneOffset;
+
+  // Health-write timing for the new log: edited request values, with the resolved offset.
   const requestTiming = { date, time, zoneOffset, mealTypeId };
-  const entryTiming = { date: entry.date, time: entry.time, mealTypeId: entry.mealTypeId };
 
   log.info(
     { action: "edit_food_request", entryId, foodName: analysis.food_name, mealTypeId },
@@ -159,13 +161,16 @@ export async function POST(request: Request) {
   const isDryRun = process.env.HEALTH_DRY_RUN === "true";
   const calories = Math.round(analysis.calories);
 
-  // ── Fast path: nutrition unchanged — delete+relog from entry's own nutrients ─
+  // ── Fast path: nutrition unchanged — create-new-first, then delete-old ───────
+  // Ordering is create → DB-flip → delete-old (P1-7). A crash/timeout in any gap
+  // leaves at worst a recoverable duplicate, never the data loss the old
+  // delete-then-create ordering risked.
 
   if (isNutritionUnchanged(analysis, entry)) {
     let fastPathHealthLogId: string | null = entry.healthLogId;
+    let accessToken: string | null = null;
 
     if (!isDryRun) {
-      let accessToken: string;
       try {
         accessToken = await ensureFreshToken(userId, log);
       } catch (tokenErr) {
@@ -173,153 +178,104 @@ export async function POST(request: Request) {
         return mapHealthError(tokenErr);
       }
 
-      // Delete old health log if exists (user-initiated: 404 → HEALTH_LOG_NOT_FOUND, not silent)
-      if (entry.healthLogId) {
-        try {
-          await deleteNutritionLogs(accessToken, [entry.healthLogId], log, userId, "user");
-        } catch (deleteErr) {
-          const errMsg = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
-          if (errMsg === "HEALTH_LOG_NOT_FOUND") {
-            // Data drift: the old Google Health entry is already gone. The delete's goal is
-            // achieved, so proceed with the re-create rather than failing the edit with a
-            // misleading 500 (mirrors food-history's drift handling — never strand the user).
-            log.error(
-              { action: "edit_food_fast_path_delete_drift", entryId, healthLogId: entry.healthLogId },
-              "CRITICAL: old Google Health entry already gone (data drift) — proceeding with re-create",
-            );
-          } else {
-            log.error({ action: "edit_food_fast_path_delete_failed", error: errMsg }, "failed to delete old health log");
-            return mapHealthError(deleteErr);
-          }
-        }
-      }
-
-      // Re-create with entry's stored nutrition (anonymous logs aren't editable in place)
+      // CREATE-new-FIRST with the entry's stored nutrition (anonymous logs aren't
+      // editable in place). The old log is untouched, so a failure here strands
+      // nothing — old log + old DB row remain intact.
       try {
         const createResult = await createNutritionLog(accessToken, buildAnalysisFromEntry(entry), requestTiming, log, userId);
         fastPathHealthLogId = createResult.healthLogId;
       } catch (logErr) {
-        const errMsg = logErr instanceof Error ? logErr.message : String(logErr);
-        log.error({ action: "edit_food_fast_path_relog_failed", error: errMsg }, "fast path re-create failed, attempting compensation");
-
-        // Compensation: re-create original health log
-        if (entry.healthLogId) {
-          try {
-            const freshToken = await ensureFreshToken(userId, log);
-            const compensationResult = await createNutritionLog(freshToken, buildAnalysisFromEntry(entry), entryTiming, log, userId);
-            const compensationHealthLogId = compensationResult.healthLogId;
-            try {
-              await updateFoodLogEntryMetadata(userId, entryId, {
-                mealTypeId: entry.mealTypeId,
-                date: entry.date,
-                time: entry.time ?? time,
-                healthLogId: compensationHealthLogId,
-              }, log);
-            } catch (dbUpdateErr) {
-              log.error(
-                { action: "edit_food_fast_path_compensation_db_failed", error: dbUpdateErr instanceof Error ? dbUpdateErr.message : String(dbUpdateErr) },
-                "failed to update healthLogId after fast path compensation"
-              );
-              return errorResponse("PARTIAL_ERROR", "Food restored in Google Health but local ID link failed. Manual cleanup may be needed.", 500);
-            }
-            log.info({ action: "edit_food_fast_path_compensation_success" }, "fast path compensation succeeded");
-          } catch (compensationErr) {
-            log.error(
-              {
-                action: "edit_food_fast_path_compensation_failed",
-                oldHealthLogId: entry.healthLogId,
-                error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr),
-              },
-              "CRITICAL: fast path compensation failed after health log deleted — original could not be restored"
-            );
-            return errorResponse("PARTIAL_ERROR", "Health entry deleted but original could not be restored. Manual recovery needed.", 500);
-          }
-        }
-
+        log.error({ action: "edit_food_fast_path_relog_failed", error: logErr instanceof Error ? logErr.message : String(logErr) }, "fast path create failed — old log left intact, no compensation needed");
         return mapHealthError(logErr);
       }
     }
 
+    // DB-flip: point the entry at the new log. This is the source-of-truth commit.
     try {
       await updateFoodLogEntryMetadata(userId, entryId, { mealTypeId, date, time, healthLogId: fastPathHealthLogId, zoneOffset }, log);
+    } catch (dbErr) {
+      log.error({ action: "edit_food_fast_path_db_error", error: dbErr instanceof Error ? dbErr.message : String(dbErr) }, "fast path DB update failed after create — cleaning up new log (old log + DB row intact)");
 
-      // Update custom_foods metadata if it changed
-      const metadataChanged =
-        analysis.notes !== (entry.notes ?? "") ||
-        analysis.description !== (entry.description ?? "") ||
-        analysis.confidence !== entry.confidence ||
-        JSON.stringify(analysis.keywords) !== JSON.stringify(entry.keywords);
+      // DB never flipped: the old log is still authoritative. Delete the new orphan
+      // log (cleanup mode). No re-create — the old log was never touched.
+      if (!isDryRun && accessToken && fastPathHealthLogId !== null && fastPathHealthLogId !== entry.healthLogId) {
+        try {
+          await deleteNutritionLogs(accessToken, [fastPathHealthLogId], log, userId, "cleanup");
+          log.info({ action: "edit_food_fast_path_db_cleanup_success" }, "deleted orphaned new health log after DB failure");
+        } catch (cleanupErr) {
+          log.error(
+            { action: "edit_food_fast_path_db_cleanup_failed", newHealthLogId: fastPathHealthLogId, error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr) },
+            "CRITICAL: new health log orphaned — DB update failed and orphan cleanup failed; manual cleanup may be needed"
+          );
+          return errorResponse("PARTIAL_ERROR", "Food created in Google Health but local save failed and cleanup failed. Manual cleanup may be needed.", 500);
+        }
+      }
 
-      if (metadataChanged) {
+      return errorResponse("INTERNAL_ERROR", "Failed to save food edit", 500);
+    }
+
+    // ── Committed past here: the DB points at the new log. The tail is best-effort;
+    //    failures leave a recoverable duplicate, never data loss, so they must NOT
+    //    fail the request.
+
+    // Cosmetic custom_foods metadata (notes/description/keywords/confidence).
+    const metadataChanged =
+      analysis.notes !== (entry.notes ?? "") ||
+      analysis.description !== (entry.description ?? "") ||
+      analysis.confidence !== entry.confidence ||
+      JSON.stringify(analysis.keywords) !== JSON.stringify(entry.keywords);
+
+    if (metadataChanged) {
+      try {
         await updateCustomFoodMetadata(userId, entry.customFoodId, {
           notes: analysis.notes || null,
           description: analysis.description || null,
           keywords: analysis.keywords,
           confidence: analysis.confidence,
         }, log);
+      } catch (metaErr) {
+        log.warn(
+          { action: "edit_food_fast_path_metadata_failed", error: metaErr instanceof Error ? metaErr.message : String(metaErr) },
+          "fast path custom-food metadata update failed after edit committed — non-fatal"
+        );
       }
-
-      log.info(
-        { action: "edit_food_fast_path_success", entryId, dryRun: isDryRun || undefined },
-        isDryRun ? "food edit metadata saved in dry-run mode (fast path)" : "food edit metadata saved via fast path"
-      );
-
-      return successResponse({
-        healthLogId: fastPathHealthLogId ?? undefined,
-        foodLogId: entryId,
-        reusedFood: true,
-        ...(isDryRun && { dryRun: true }),
-      });
-    } catch (dbErr) {
-      const errMsg = dbErr instanceof Error ? dbErr.message : String(dbErr);
-      log.error({ action: "edit_food_fast_path_db_error", error: errMsg }, "fast path DB update failed after health log creation, attempting compensation");
-
-      // Compensation: delete new health log + re-create original
-      if (!isDryRun && fastPathHealthLogId !== null && fastPathHealthLogId !== entry.healthLogId) {
-        try {
-          const freshToken = await ensureFreshToken(userId, log);
-          await deleteNutritionLogs(freshToken, [fastPathHealthLogId!], log, userId, "cleanup");
-          const compensationResult = await createNutritionLog(freshToken, buildAnalysisFromEntry(entry), entryTiming, log, userId);
-          const compensationHealthLogId = compensationResult.healthLogId;
-          try {
-            await updateFoodLogEntryMetadata(userId, entryId, {
-              mealTypeId: entry.mealTypeId,
-              date: entry.date,
-              time: entry.time ?? time,
-              healthLogId: compensationHealthLogId,
-            }, log);
-          } catch (dbUpdateErr) {
-            log.error(
-              { action: "edit_food_fast_path_db_compensation_failed", error: dbUpdateErr instanceof Error ? dbUpdateErr.message : String(dbUpdateErr) },
-              "failed to update healthLogId after fast path DB compensation"
-            );
-            return errorResponse("PARTIAL_ERROR", "Food restored in Google Health but local ID link failed. Manual cleanup may be needed.", 500);
-          }
-          log.info({ action: "edit_food_fast_path_db_compensation_success" }, "fast path DB compensation succeeded");
-        } catch (compensationErr) {
-          log.error(
-            {
-              action: "edit_food_fast_path_db_compensation_failed",
-              healthLogId: fastPathHealthLogId,
-              oldHealthLogId: entry.healthLogId,
-              error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr),
-            },
-            "CRITICAL: fast path health log compensation failed after DB error — orphaned health log may exist"
-          );
-          return errorResponse("PARTIAL_ERROR", "Food updated in Google Health but local save failed. Manual cleanup may be needed.", 500);
-        }
-      }
-
-      return errorResponse("INTERNAL_ERROR", "Failed to save food edit", 500);
     }
+
+    // DELETE-old-LAST (cleanup): only now that the DB points at the new log. A failure
+    // here may leave a duplicate old log (double-count, user-removable) — strictly
+    // better than the data loss the old ordering risked, so do NOT fail the request.
+    if (!isDryRun && accessToken && entry.healthLogId && entry.healthLogId !== fastPathHealthLogId) {
+      try {
+        await deleteNutritionLogs(accessToken, [entry.healthLogId], log, userId, "cleanup");
+      } catch (deleteErr) {
+        log.error(
+          { action: "edit_food_fast_path_old_delete_failed", oldHealthLogId: entry.healthLogId, newHealthLogId: fastPathHealthLogId, error: deleteErr instanceof Error ? deleteErr.message : String(deleteErr) },
+          "CRITICAL: failed to delete old Google Health log after edit committed — a duplicate/orphan old log may remain (user-removable double-count)"
+        );
+      }
+    }
+
+    log.info(
+      { action: "edit_food_fast_path_success", entryId, dryRun: isDryRun || undefined },
+      isDryRun ? "food edit metadata saved in dry-run mode (fast path)" : "food edit metadata saved via fast path"
+    );
+
+    return successResponse({
+      healthLogId: fastPathHealthLogId ?? undefined,
+      foodLogId: entryId,
+      reusedFood: true,
+      ...(isDryRun && { dryRun: true }),
+    });
   }
 
-  // ── Regular path: nutrition changed — delete+create ──────────────────────────
+  // ── Regular path: nutrition changed — create-new-first, then delete-old ──────
+  // Same inversion as the fast path (P1-7): create → DB-flip → delete-old, so a
+  // crash/timeout in any gap leaves a recoverable duplicate, never data loss.
 
   let newHealthLogId: string | undefined;
+  let accessToken: string | null = null;
 
   if (!isDryRun) {
-    let accessToken: string;
     try {
       accessToken = await ensureFreshToken(userId, log);
     } catch (tokenErr) {
@@ -327,29 +283,8 @@ export async function POST(request: Request) {
       return mapHealthError(tokenErr);
     }
 
-    // Delete old health log if exists (user-initiated: 404 → HEALTH_LOG_NOT_FOUND, not silent)
-    if (entry.healthLogId) {
-      try {
-        await deleteNutritionLogs(accessToken, [entry.healthLogId], log, userId, "user");
-        log.info({ action: "edit_food_old_health_deleted", healthLogId: entry.healthLogId }, "old health log deleted");
-      } catch (deleteErr) {
-        const errMsg = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
-        if (errMsg === "HEALTH_LOG_NOT_FOUND") {
-          // Data drift: the old Google Health entry is already gone. Proceed with creating the
-          // new log instead of failing the edit with a misleading 500 (mirrors food-history's
-          // drift handling — never strand the user with an uneditable entry).
-          log.error(
-            { action: "edit_food_delete_drift", entryId, healthLogId: entry.healthLogId },
-            "CRITICAL: old Google Health entry already gone (data drift) — proceeding with create",
-          );
-        } else {
-          log.error({ action: "edit_food_delete_failed", error: errMsg }, "failed to delete old health log");
-          return mapHealthError(deleteErr);
-        }
-      }
-    }
-
-    // Create new health log
+    // CREATE-new-FIRST. The old log is untouched, so a failure here strands nothing —
+    // old log + old DB row remain intact.
     try {
       const createResult = await createNutritionLog(
         accessToken,
@@ -360,50 +295,15 @@ export async function POST(request: Request) {
       );
       newHealthLogId = createResult.healthLogId ?? undefined;
     } catch (logErr) {
-      const errMsg = logErr instanceof Error ? logErr.message : String(logErr);
-      log.error({ action: "edit_food_relog_failed", error: errMsg }, "failed to create new health log, attempting compensation");
-
-      // Compensation: re-create the original entry's health log
-      if (entry.healthLogId) {
-        try {
-          const freshToken = await ensureFreshToken(userId, log);
-          const compensationResult = await createNutritionLog(freshToken, buildAnalysisFromEntry(entry), entryTiming, log, userId);
-          const compensationHealthLogId = compensationResult.healthLogId;
-          try {
-            await updateFoodLogEntryMetadata(userId, entryId, {
-              mealTypeId: entry.mealTypeId,
-              date: entry.date,
-              time: entry.time ?? time,
-              healthLogId: compensationHealthLogId,
-            }, log);
-          } catch (dbUpdateErr) {
-            log.error(
-              { action: "edit_food_compensation_db_failed", error: dbUpdateErr instanceof Error ? dbUpdateErr.message : String(dbUpdateErr) },
-              "failed to update healthLogId after regular path compensation"
-            );
-            return errorResponse("PARTIAL_ERROR", "Food restored in Google Health but local ID link failed. Manual cleanup may be needed.", 500);
-          }
-          log.info({ action: "edit_food_compensation_success" }, "original health log restored");
-        } catch (compensationErr) {
-          log.error(
-            {
-              action: "edit_food_compensation_failed",
-              oldHealthLogId: entry.healthLogId,
-              error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr),
-            },
-            "CRITICAL: compensation failed after health log deleted — original could not be restored"
-          );
-          return errorResponse("PARTIAL_ERROR", "Health entry deleted but original could not be restored. Manual recovery needed.", 500);
-        }
-      }
-
+      log.error({ action: "edit_food_relog_failed", error: logErr instanceof Error ? logErr.message : String(logErr) }, "failed to create new health log — old log left intact, no compensation needed");
       return mapHealthError(logErr);
     }
   }
 
-  // Update DB
+  // DB-flip: persist the edit, pointing the entry at the new log. Source-of-truth commit.
+  let result: Awaited<ReturnType<typeof updateFoodLogEntry>>;
   try {
-    const result = await updateFoodLogEntry(
+    result = await updateFoodLogEntry(
       userId,
       entryId,
       {
@@ -432,58 +332,66 @@ export async function POST(request: Request) {
       },
       log,
     );
-
-    if (!result) {
-      return errorResponse("NOT_FOUND", "Food log entry not found during update", 404);
-    }
-
-    log.info(
-      { action: "edit_food_success", entryId, newCustomFoodId: result.newCustomFoodId, healthLogId: result.healthLogId, dryRun: isDryRun || undefined },
-      isDryRun ? "food edit saved in dry-run mode" : "food edit saved successfully"
-    );
-
-    return successResponse({
-      healthLogId: result.healthLogId ?? undefined,
-      foodLogId: entryId,
-      reusedFood: false,
-      ...(isDryRun && { dryRun: true }),
-    });
   } catch (dbErr) {
-    const errMsg = dbErr instanceof Error ? dbErr.message : String(dbErr);
-    log.error({ action: "edit_food_db_error", error: errMsg }, "DB update failed after health log creation, attempting compensation");
+    log.error({ action: "edit_food_db_error", error: dbErr instanceof Error ? dbErr.message : String(dbErr) }, "DB update failed after create — cleaning up new log (old log + DB row intact)");
 
-    // Compensation: delete new health log + re-create original (mirrors fast-path pattern)
-    if (newHealthLogId !== undefined && !isDryRun) {
+    // DB never flipped: the old log is still authoritative. Delete the new orphan log
+    // (cleanup mode). No re-create — the old log was never touched.
+    if (!isDryRun && accessToken && newHealthLogId !== undefined) {
       try {
-        const freshToken = await ensureFreshToken(userId, log);
-        await deleteNutritionLogs(freshToken, [newHealthLogId], log, userId, "cleanup");
-        // Re-create the original health log from the entry's stored nutrients
-        const compensationResult = await createNutritionLog(freshToken, buildAnalysisFromEntry(entry), entryTiming, log, userId);
-        const compensationHealthLogId = compensationResult.healthLogId;
-        try {
-          await updateFoodLogEntryMetadata(userId, entryId, {
-            mealTypeId: entry.mealTypeId,
-            date: entry.date,
-            time: entry.time ?? time,
-            healthLogId: compensationHealthLogId,
-          }, log);
-        } catch (dbUpdateErr) {
-          log.error(
-            { action: "edit_food_db_compensation_db_failed", error: dbUpdateErr instanceof Error ? dbUpdateErr.message : String(dbUpdateErr) },
-            "failed to update healthLogId after regular path DB compensation"
-          );
-          return errorResponse("PARTIAL_ERROR", "Food restored in Google Health but local ID link failed. Manual cleanup may be needed.", 500);
-        }
-        log.info({ action: "edit_food_db_compensation_success", healthLogId: compensationHealthLogId }, "original health log restored after DB failure");
-      } catch (compensationErr) {
+        await deleteNutritionLogs(accessToken, [newHealthLogId], log, userId, "cleanup");
+        log.info({ action: "edit_food_db_cleanup_success", healthLogId: newHealthLogId }, "deleted orphaned new health log after DB failure");
+      } catch (cleanupErr) {
         log.error(
-          { action: "edit_food_db_compensation_failed", healthLogId: newHealthLogId, error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr) },
-          "CRITICAL: new health log exists but DB update failed and compensation failed"
+          { action: "edit_food_db_cleanup_failed", newHealthLogId, error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr) },
+          "CRITICAL: new health log orphaned — DB update failed and orphan cleanup failed; manual cleanup may be needed"
         );
-        return errorResponse("PARTIAL_ERROR", "Food updated in Google Health but local save failed. Manual cleanup may be needed.", 500);
+        return errorResponse("PARTIAL_ERROR", "Food created in Google Health but local save failed and cleanup failed. Manual cleanup may be needed.", 500);
       }
     }
 
     return errorResponse("INTERNAL_ERROR", "Failed to save food edit", 500);
   }
+
+  if (!result) {
+    // The entry vanished between lookup and update. The new log (if any) is now an
+    // orphan — clean it up so it doesn't double-count, then report NOT_FOUND.
+    if (!isDryRun && accessToken && newHealthLogId !== undefined) {
+      try {
+        await deleteNutritionLogs(accessToken, [newHealthLogId], log, userId, "cleanup");
+      } catch (cleanupErr) {
+        log.error(
+          { action: "edit_food_missing_entry_cleanup_failed", newHealthLogId, error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr) },
+          "CRITICAL: entry missing on update and orphan new-log cleanup failed; manual cleanup may be needed"
+        );
+      }
+    }
+    return errorResponse("NOT_FOUND", "Food log entry not found during update", 404);
+  }
+
+  // ── Committed: the DB points at the new log. DELETE-old-LAST (cleanup): a failure
+  //    here may leave a duplicate old log (user-removable double-count) — strictly
+  //    better than data loss, so do NOT fail the request.
+  if (!isDryRun && accessToken && entry.healthLogId && entry.healthLogId !== newHealthLogId) {
+    try {
+      await deleteNutritionLogs(accessToken, [entry.healthLogId], log, userId, "cleanup");
+    } catch (deleteErr) {
+      log.error(
+        { action: "edit_food_old_delete_failed", oldHealthLogId: entry.healthLogId, newHealthLogId, error: deleteErr instanceof Error ? deleteErr.message : String(deleteErr) },
+        "CRITICAL: failed to delete old Google Health log after edit committed — a duplicate/orphan old log may remain (user-removable double-count)"
+      );
+    }
+  }
+
+  log.info(
+    { action: "edit_food_success", entryId, newCustomFoodId: result.newCustomFoodId, healthLogId: result.healthLogId, dryRun: isDryRun || undefined },
+    isDryRun ? "food edit saved in dry-run mode" : "food edit saved successfully"
+  );
+
+  return successResponse({
+    healthLogId: result.healthLogId ?? undefined,
+    foodLogId: entryId,
+    reusedFood: false,
+    ...(isDryRun && { dryRun: true }),
+  });
 }

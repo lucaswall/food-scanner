@@ -34,10 +34,12 @@ vi.mock("@sentry/nextjs", () => ({
 
 const getHealthTokensMock = vi.fn();
 const upsertHealthTokensMock = vi.fn();
+const deleteHealthTokensMock = vi.fn();
 
 vi.mock("@/lib/health-tokens", () => ({
   getHealthTokens: (...args: unknown[]) => getHealthTokensMock(...args),
   upsertHealthTokens: (...args: unknown[]) => upsertHealthTokensMock(...args),
+  deleteHealthTokens: (...args: unknown[]) => deleteHealthTokensMock(...args),
 }));
 
 // ─── google-health-rate-limit mock ───────────────────────────────────────────
@@ -142,6 +144,7 @@ describe("google-health", () => {
     // Restore default return value after clearAllMocks
     getRateLimitSnapshotMock.mockReturnValue(null);
     upsertHealthTokensMock.mockResolvedValue(undefined);
+    deleteHealthTokensMock.mockResolvedValue(undefined);
     const mod = await import("@/lib/google-health");
     fetchWithRetry = mod.fetchWithRetry;
     refreshGoogleHealthToken = mod.refreshGoogleHealthToken;
@@ -888,6 +891,50 @@ describe("google-health", () => {
 
       const upsertArg = upsertHealthTokensMock.mock.calls[0][1] as Record<string, unknown>;
       expect(upsertArg.refreshToken).toBe("my-refresh-token");
+    });
+
+    // P1-5: a revoked/expired refresh token (400/401 → HEALTH_TOKEN_INVALID from
+    // refreshGoogleHealthToken) is reconciled by deleting the dead token row so the
+    // next checkHealthConnection flips to needs_reconnect.
+    it("deletes the dead token row and rethrows when refresh returns HEALTH_TOKEN_INVALID (revoked)", async () => {
+      getHealthTokensMock.mockResolvedValue(makeNearExpiredRow());
+      // 401 from the token endpoint → refreshGoogleHealthToken throws HEALTH_TOKEN_INVALID
+      fetchMock.mockResolvedValue(new Response(null, { status: 401 }));
+
+      await expect(ensureFreshToken("user-a", fakeLog)).rejects.toThrow("HEALTH_TOKEN_INVALID");
+
+      expect(deleteHealthTokensMock).toHaveBeenCalledTimes(1);
+      expect(deleteHealthTokensMock).toHaveBeenCalledWith("user-a", fakeLog);
+      // No token was stored after a revoked refresh
+      expect(upsertHealthTokensMock).not.toHaveBeenCalled();
+    });
+
+    it("does NOT delete the token row on a transient refresh failure (HEALTH_REFRESH_TRANSIENT)", async () => {
+      getHealthTokensMock.mockResolvedValue(makeNearExpiredRow());
+      // 503 → refreshGoogleHealthToken throws HEALTH_REFRESH_TRANSIENT
+      fetchMock.mockResolvedValue(new Response(null, { status: 503 }));
+
+      await expect(ensureFreshToken("user-a", fakeLog)).rejects.toThrow("HEALTH_REFRESH_TRANSIENT");
+
+      expect(deleteHealthTokensMock).not.toHaveBeenCalled();
+    });
+
+    it("does NOT delete on the no-token-row case (nothing to reconcile)", async () => {
+      getHealthTokensMock.mockResolvedValue(null);
+
+      await expect(ensureFreshToken("user-a", fakeLog)).rejects.toThrow("HEALTH_TOKEN_INVALID");
+
+      expect(deleteHealthTokensMock).not.toHaveBeenCalled();
+    });
+
+    it("still rethrows HEALTH_TOKEN_INVALID even if the reconcile delete itself fails (best-effort)", async () => {
+      getHealthTokensMock.mockResolvedValue(makeNearExpiredRow());
+      fetchMock.mockResolvedValue(new Response(null, { status: 400 }));
+      deleteHealthTokensMock.mockRejectedValue(new Error("DB connection lost"));
+
+      // The original auth error must surface, not the delete error.
+      await expect(ensureFreshToken("user-a", fakeLog)).rejects.toThrow("HEALTH_TOKEN_INVALID");
+      expect(deleteHealthTokensMock).toHaveBeenCalledTimes(1);
     });
 
     it("throws HEALTH_TOKEN_SAVE_FAILED when upsert fails twice", async () => {

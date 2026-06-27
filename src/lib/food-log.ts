@@ -615,6 +615,7 @@ export async function getFoodLogEntryDetail(
     mealTypeId: row.food_log_entries.mealTypeId,
     date: row.food_log_entries.date,
     time: row.food_log_entries.time,
+    zoneOffset: row.food_log_entries.zoneOffset ?? null,
     healthLogId: row.food_log_entries.healthLogId,
     confidence: row.custom_foods.confidence,
     isFavorite: row.custom_foods.isFavorite,

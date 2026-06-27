@@ -24,9 +24,18 @@ export async function checkHealthConnection(userId: string, log?: Logger): Promi
     return { status: "needs_reconnect" };
   }
 
-  // Null scope = RFC 6749 §3.3: omitted scope means all requested scopes were granted
+  // A null stored scope is treated as a corrupt/legacy row, NOT as an RFC 6749 §3.3
+  // omitted-scope grant. Google's token response ALWAYS returns `scope` for these
+  // restricted Google Health scopes (verified against the v4 discovery doc), so the
+  // only way `scope` ends up null is a pre-migration row or a callback that failed to
+  // persist it. We cannot prove the required scopes were granted, so surface it as
+  // needs_reconnect (fail-closed) — a reconnect repopulates the scope correctly. (P2-3)
   if (tokenRow.scope === null) {
-    return { status: "healthy" };
+    l.warn(
+      { action: "health_connection_null_scope", userId },
+      "health token row has null scope — treating as needs_reconnect (corrupt/legacy row)",
+    );
+    return { status: "needs_reconnect" };
   }
   const grantedScopes = new Set(tokenRow.scope.split(/\s+/).filter(Boolean));
   const missingScopes = GOOGLE_HEALTH_SCOPES.filter((s) => !grantedScopes.has(s));

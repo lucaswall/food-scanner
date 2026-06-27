@@ -101,6 +101,7 @@ const existingEntry: FoodLogEntryDetail = {
   mealTypeId: 5,
   date: "2026-02-15",
   time: "20:00:00",
+  zoneOffset: "-03:00",
   healthLogId: "health-log-old-12345",
   confidence: "high",
   isFavorite: false,
@@ -236,18 +237,25 @@ describe("POST /api/edit-food", () => {
     expect(body.error.code).toBe("NOT_FOUND");
   });
 
-  it("regular path: deletes old healthLogId then calls createNutritionLog once", async () => {
+  it("regular path: creates the new log FIRST, then deletes the old log (cleanup) LAST", async () => {
     const response = await POST(createMockRequest(validBody));
     expect(response.status).toBe(200);
 
+    // New ordering (P1-7): create new → DB flip → delete old. A single create, and the
+    // old-log delete is cleanup mode (idempotent) and runs last.
+    expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
+    expect(mockDeleteNutritionLogs).toHaveBeenCalledTimes(1);
     expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
       "access-token-abc",
       ["health-log-old-12345"],
       expect.any(Object),
       "user-uuid-123",
-      "user",
+      "cleanup",
     );
-    expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
+    // create strictly precedes the old-log delete
+    expect(mockCreateNutritionLog.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDeleteNutritionLogs.mock.invocationCallOrder[0],
+    );
   });
 
   it("regular path: persists new string healthLogId from createNutritionLog", async () => {
@@ -277,94 +285,94 @@ describe("POST /api/edit-food", () => {
     expect(body.data.reusedFood).toBe(false);
   });
 
-  it("regular path: DB failure calls deleteNutritionLogs on new health log (compensation)", async () => {
-    mockCreateNutritionLog.mockResolvedValue({ healthLogId: "new-log-to-delete" });
-    mockUpdateFoodLogEntry.mockRejectedValue(new Error("DB error"));
-
-    const response = await POST(createMockRequest(validBody));
-    expect(response.status).toBe(500);
-
-    const body = await response.json();
-    // Either INTERNAL_ERROR or PARTIAL_ERROR depending on compensation result
-    expect(["INTERNAL_ERROR", "PARTIAL_ERROR"]).toContain(body.error.code);
-    expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
-      "access-token-abc",
-      ["new-log-to-delete"],
-      expect.any(Object),
-      "user-uuid-123",
-      "cleanup",
-    );
-  });
-
-  it("regular path: DB failure re-creates original health log and updates DB metadata (full compensation)", async () => {
-    // Setup: new createNutritionLog succeeds, DB update fails
-    mockCreateNutritionLog
-      .mockResolvedValueOnce({ healthLogId: "new-log-to-delete" }) // initial create
-      .mockResolvedValueOnce({ healthLogId: "compensation-log-id" }); // re-create original
-    mockUpdateFoodLogEntry.mockRejectedValue(new Error("DB error"));
-    // compensation ensureFreshToken (second call)
-    mockEnsureFreshToken
-      .mockResolvedValueOnce("access-token-abc")
-      .mockResolvedValueOnce("fresh-token-compensation");
-
-    const response = await POST(createMockRequest(validBody));
-    expect(response.status).toBe(500);
-    const body = await response.json();
-    expect(body.error.code).toBe("INTERNAL_ERROR");
-
-    // delete the new log (cleanup mode — idempotent, no throw on 404)
-    expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
-      "fresh-token-compensation",
-      ["new-log-to-delete"],
-      expect.any(Object),
-      "user-uuid-123",
-      "cleanup",
-    );
-    // re-create original from entry's nutrients
-    expect(mockCreateNutritionLog).toHaveBeenCalledTimes(2);
-    // persist compensation id to DB
-    expect(mockUpdateFoodLogEntryMetadata).toHaveBeenCalledWith(
-      "user-uuid-123",
-      42,
-      expect.objectContaining({ healthLogId: "compensation-log-id" }),
-      expect.anything(),
-    );
-  });
-
-  it("regular path: relog failure + compensation success → original error propagated (HEALTH_API_ERROR)", async () => {
-    // Relog fails, compensation re-creates original successfully → original health error propagated
-    mockCreateNutritionLog
-      .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")) // relog fails
-      .mockResolvedValueOnce({ healthLogId: "compensation-restored-log" }); // compensation succeeds
-    mockEnsureFreshToken
-      .mockResolvedValueOnce("token-primary")
-      .mockResolvedValueOnce("token-compensation");
+  it("regular path: create failure → maps health error and never deletes (old log intact)", async () => {
+    // Create is first; if it fails, nothing was deleted — old log + DB row untouched.
+    mockCreateNutritionLog.mockRejectedValue(new Error("HEALTH_API_ERROR"));
 
     const response = await POST(createMockRequest(validBody));
     expect(response.status).toBe(502);
     const body = await response.json();
     expect(body.error.code).toBe("HEALTH_API_ERROR");
-    // Verify compensation was triggered (2 createNutritionLog calls)
-    expect(mockCreateNutritionLog).toHaveBeenCalledTimes(2);
+
+    // No compensation, no deletes — the old log was never touched.
+    expect(mockDeleteNutritionLogs).not.toHaveBeenCalled();
+    expect(mockUpdateFoodLogEntry).not.toHaveBeenCalled();
   });
 
-  it("regular path: delete failure with HEALTH_SCOPE_MISSING returns 403", async () => {
-    // deleteNutritionLogs (for old log) fails with scope error
-    mockDeleteNutritionLogs.mockRejectedValue(new Error("HEALTH_SCOPE_MISSING"));
+  it("regular path: create failure with HEALTH_SCOPE_MISSING returns 403 (no delete)", async () => {
+    mockCreateNutritionLog.mockRejectedValue(new Error("HEALTH_SCOPE_MISSING"));
 
     const response = await POST(createMockRequest(validBody));
     expect(response.status).toBe(403);
     const body = await response.json();
     expect(body.error.code).toBe("HEALTH_SCOPE_MISSING");
+    expect(mockDeleteNutritionLogs).not.toHaveBeenCalled();
   });
 
-  it("regular path: delete failure with HEALTH_TIMEOUT returns 504", async () => {
-    mockDeleteNutritionLogs.mockRejectedValue(new Error("HEALTH_TIMEOUT"));
+  it("regular path: DB failure after create → deletes the NEW orphan log (cleanup), returns INTERNAL_ERROR", async () => {
+    mockCreateNutritionLog.mockResolvedValue({ healthLogId: "new-log-orphan" });
+    mockUpdateFoodLogEntry.mockRejectedValue(new Error("DB error"));
 
     const response = await POST(createMockRequest(validBody));
-    expect(response.status).toBe(504);
+    expect(response.status).toBe(500);
     const body = await response.json();
-    expect(body.error.code).toBe("HEALTH_TIMEOUT");
+    // Clean rollback: only the new (orphan) log is deleted, old log + DB row intact.
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+    expect(mockDeleteNutritionLogs).toHaveBeenCalledTimes(1);
+    expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
+      "access-token-abc",
+      ["new-log-orphan"],
+      expect.any(Object),
+      "user-uuid-123",
+      "cleanup",
+    );
+    // The old log was never deleted (still authoritative); no re-create attempted.
+    expect(mockDeleteNutritionLogs).not.toHaveBeenCalledWith(
+      expect.anything(),
+      ["health-log-old-12345"],
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
+  });
+
+  it("regular path: DB failure + new-log cleanup also fails → PARTIAL_ERROR", async () => {
+    mockCreateNutritionLog.mockResolvedValue({ healthLogId: "new-log-orphan" });
+    mockUpdateFoodLogEntry.mockRejectedValue(new Error("DB error"));
+    mockDeleteNutritionLogs.mockRejectedValue(new Error("HEALTH_API_ERROR"));
+
+    const response = await POST(createMockRequest(validBody));
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.error.code).toBe("PARTIAL_ERROR");
+  });
+
+  it("regular path: old-log delete failure AFTER commit → still returns 200 (logged orphan warning)", async () => {
+    // Create + DB flip both succeed; only the final old-log cleanup fails. A recoverable
+    // duplicate is strictly better than data loss, so the request must NOT fail.
+    mockDeleteNutritionLogs.mockRejectedValue(new Error("HEALTH_API_ERROR"));
+
+    const response = await POST(createMockRequest(validBody));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.reusedFood).toBe(false);
+
+    const { logger } = await import("@/lib/logger") as unknown as { logger: { error: ReturnType<typeof vi.fn> } };
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ oldHealthLogId: "health-log-old-12345" }),
+      expect.stringContaining("CRITICAL"),
+    );
+  });
+
+  it("regular path: old-log delete drift (HEALTH_LOG_NOT_FOUND) is swallowed by cleanup mode → 200", async () => {
+    // cleanup mode already treats NOT_FOUND as already-deleted inside deleteNutritionLogs;
+    // the route never needs special drift handling on the old log anymore.
+    mockDeleteNutritionLogs.mockResolvedValue(undefined);
+
+    const response = await POST(createMockRequest(validBody));
+    expect(response.status).toBe(200);
+    expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
   });
 
   describe("fast path (nutrition unchanged)", () => {
@@ -393,18 +401,22 @@ describe("POST /api/edit-food", () => {
       time: "20:00:00",
     };
 
-    it("fast path: deletes old healthLogId and creates new via createNutritionLog (entry's own nutrients)", async () => {
+    it("fast path: creates new log FIRST (entry's own nutrients), then deletes old (cleanup) LAST", async () => {
       const response = await POST(createMockRequest(unchangedBody));
       expect(response.status).toBe(200);
 
+      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
+      expect(mockDeleteNutritionLogs).toHaveBeenCalledTimes(1);
       expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
         "access-token-abc",
         ["health-log-old-12345"],
         expect.any(Object),
         "user-uuid-123",
-        "user",
+        "cleanup",
       );
-      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
+      expect(mockCreateNutritionLog.mock.invocationCallOrder[0]).toBeLessThan(
+        mockDeleteNutritionLogs.mock.invocationCallOrder[0],
+      );
     });
 
     it("fast path: returns new healthLogId string in response", async () => {
@@ -417,95 +429,63 @@ describe("POST /api/edit-food", () => {
       expect(body.data.reusedFood).toBe(true);
     });
 
-    it("fast path: DB failure after relog calls deleteNutritionLogs on new log (compensation)", async () => {
-      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "fast-path-new-rollback" });
-      mockUpdateFoodLogEntryMetadata.mockRejectedValue(new Error("DB error"));
-
-      const response = await POST(createMockRequest(unchangedBody));
-      expect(response.status).toBe(500);
-      const body = await response.json();
-      // Both the primary DB update AND the compensation's id-link update fail here,
-      // leaving an orphaned compensation log + stale DB pointer → PARTIAL_ERROR so the
-      // client knows manual cleanup may be needed (not a silent INTERNAL_ERROR).
-      expect(body.error.code).toBe("PARTIAL_ERROR");
-      // Compensation: delete new log (cleanup mode — idempotent)
-      expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
-        expect.any(String),
-        ["fast-path-new-rollback"],
-        expect.any(Object),
-        "user-uuid-123",
-        "cleanup",
-      );
-    });
-
-    it("fast path: relog failure + compensation success → original error propagated (HEALTH_API_ERROR)", async () => {
-      // Fast-path relog fails, but compensation re-create succeeds (original restored)
-      // When compensation succeeds, the original health error is returned (502 HEALTH_API_ERROR)
-      mockCreateNutritionLog
-        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")) // fast-path relog fails
-        .mockResolvedValueOnce({ healthLogId: "compensation-restored-log" }); // compensation succeeds
-      mockEnsureFreshToken
-        .mockResolvedValueOnce("token-fast-path")
-        .mockResolvedValueOnce("token-compensation");
+    it("fast path: create failure → maps health error and never deletes (old log intact)", async () => {
+      mockCreateNutritionLog.mockRejectedValue(new Error("HEALTH_API_ERROR"));
 
       const response = await POST(createMockRequest(unchangedBody));
       expect(response.status).toBe(502);
       const body = await response.json();
       expect(body.error.code).toBe("HEALTH_API_ERROR");
-      // Verify compensation was triggered (2 createNutritionLog calls)
-      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(2);
+      // Nothing deleted — the old log and DB row are untouched.
+      expect(mockDeleteNutritionLogs).not.toHaveBeenCalled();
+      expect(mockUpdateFoodLogEntryMetadata).not.toHaveBeenCalled();
     });
 
-    it("fast path: relog-failure compensation re-creates original but DB id-link update fails → PARTIAL_ERROR", async () => {
-      // Fast-path relog (1st create) fails → compensation re-creates the original (2nd create)
-      // succeeds, but persisting the compensation id to the DB fails. The client must see
-      // PARTIAL_ERROR (orphaned compensation log + stale DB pointer), not a misleading
-      // success log followed by a generic health error. Mirrors the regular-path contract.
-      mockCreateNutritionLog
-        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")) // fast-path relog fails
-        .mockResolvedValueOnce({ healthLogId: "fp-compensation-log" }); // compensation re-create succeeds
+    it("fast path: DB failure after create → deletes the NEW orphan log (cleanup), returns INTERNAL_ERROR", async () => {
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "fast-path-new-orphan" });
       mockUpdateFoodLogEntryMetadata.mockRejectedValue(new Error("DB error"));
 
       const response = await POST(createMockRequest(unchangedBody));
       expect(response.status).toBe(500);
       const body = await response.json();
-      expect(body.error.code).toBe("PARTIAL_ERROR");
-      // Compensation re-created the original log before the DB link failed
-      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(2);
+      // Clean rollback: new orphan deleted, old log + DB row intact.
+      expect(body.error.code).toBe("INTERNAL_ERROR");
+      expect(mockDeleteNutritionLogs).toHaveBeenCalledTimes(1);
+      expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
+        "access-token-abc",
+        ["fast-path-new-orphan"],
+        expect.any(Object),
+        "user-uuid-123",
+        "cleanup",
+      );
+      // Single create — no re-create of the original (it was never touched).
+      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
     });
 
-    it("fast path: DB failure + compensation re-create itself throws → PARTIAL_ERROR (not INTERNAL_ERROR)", async () => {
-      // Relog succeeds (new log created) → primary DB update fails → compensation attempts to
-      // delete the new log + re-create the original, but the re-create THROWS. The new health
-      // log is orphaned, so the client must see PARTIAL_ERROR consistent with the regular path
-      // (previously this fell through to a misleading INTERNAL_ERROR). (bug-hunter HIGH)
-      mockCreateNutritionLog
-        .mockResolvedValueOnce({ healthLogId: "fp-relog-orphan" }) // fast-path relog succeeds
-        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")); // compensation re-create throws
-      mockUpdateFoodLogEntryMetadata.mockRejectedValueOnce(new Error("DB error")); // primary DB update fails
+    it("fast path: DB failure + new-log cleanup also fails → PARTIAL_ERROR", async () => {
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "fast-path-new-orphan" });
+      mockUpdateFoodLogEntryMetadata.mockRejectedValue(new Error("DB error"));
+      mockDeleteNutritionLogs.mockRejectedValue(new Error("HEALTH_API_ERROR"));
 
       const response = await POST(createMockRequest(unchangedBody));
       expect(response.status).toBe(500);
       const body = await response.json();
       expect(body.error.code).toBe("PARTIAL_ERROR");
-      // Compensation tried to clean up the orphaned new log
-      expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
-        expect.any(String),
-        ["fp-relog-orphan"],
-        expect.any(Object),
-        "user-uuid-123",
-        "cleanup",
-      );
     });
 
-    it("fast path: delete failure with HEALTH_SCOPE_MISSING returns 403", async () => {
-      // deleteNutritionLogs (for old log) fails with scope error
-      mockDeleteNutritionLogs.mockRejectedValue(new Error("HEALTH_SCOPE_MISSING"));
+    it("fast path: old-log delete failure AFTER commit → still returns 200 (logged orphan warning)", async () => {
+      mockDeleteNutritionLogs.mockRejectedValue(new Error("HEALTH_API_ERROR"));
 
       const response = await POST(createMockRequest(unchangedBody));
-      expect(response.status).toBe(403);
+      expect(response.status).toBe(200);
       const body = await response.json();
-      expect(body.error.code).toBe("HEALTH_SCOPE_MISSING");
+      expect(body.data.reusedFood).toBe(true);
+
+      const { logger } = await import("@/lib/logger") as unknown as { logger: { error: ReturnType<typeof vi.fn> } };
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ oldHealthLogId: "health-log-old-12345" }),
+        expect.stringContaining("CRITICAL"),
+      );
     });
 
     it("HEALTH_DRY_RUN: skips remote calls on fast path", async () => {
@@ -581,202 +561,6 @@ describe("POST /api/edit-food", () => {
 
       const body = await response.json();
       expect(body.data.dryRun).toBe(true);
-    });
-  });
-
-  // ── FOO-1129: compensation contract + CRITICAL logging ──────────────────────
-
-  describe("fast path: compensation failure contract (FOO-1129)", () => {
-    const unchangedBodyFP = {
-      entryId: 42,
-      food_name: "Empanada de carne",
-      amount: 150,
-      unit_id: "g",
-      calories: 320,
-      protein_g: 12,
-      carbs_g: 28,
-      fat_g: 18,
-      fiber_g: 2,
-      sodium_mg: 450,
-      saturated_fat_g: null,
-      trans_fat_g: null,
-      sugars_g: null,
-      calories_from_fat: null,
-      confidence: "high" as const,
-      notes: "Baked style",
-      description: "Standard Argentine beef empanada",
-      keywords: ["empanada", "carne"],
-      mealTypeId: 5,
-      date: "2026-02-15",
-      time: "20:00:00",
-    };
-
-    it("delete-ok + relog-fail + compensation-fail → PARTIAL_ERROR (not the original health error) (FOO-1129)", async () => {
-      // Delete succeeds, fast-path relog fails, compensation re-create also fails
-      mockCreateNutritionLog
-        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")) // fast-path relog fails
-        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")); // compensation re-create fails
-      mockEnsureFreshToken
-        .mockResolvedValueOnce("token-fast-path")
-        .mockResolvedValueOnce("token-compensation");
-
-      const response = await POST(createMockRequest(unchangedBodyFP));
-      expect(response.status).toBe(500);
-      const body = await response.json();
-      // Must be PARTIAL_ERROR, not the original HEALTH_API_ERROR (which would be 502)
-      expect(body.error.code).toBe("PARTIAL_ERROR");
-    });
-
-    it("delete-ok + relog-fail + compensation-fail → CRITICAL log includes oldHealthLogId (FOO-1129)", async () => {
-      mockCreateNutritionLog
-        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR"))
-        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR"));
-      mockEnsureFreshToken
-        .mockResolvedValueOnce("token-fast-path")
-        .mockResolvedValueOnce("token-compensation");
-
-      await POST(createMockRequest(unchangedBodyFP));
-
-      const { logger } = await import("@/lib/logger") as unknown as { logger: { error: ReturnType<typeof vi.fn> } };
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.objectContaining({ oldHealthLogId: "health-log-old-12345" }),
-        expect.stringContaining("CRITICAL"),
-      );
-    });
-
-    it("fast path: primary delete uses mode=user (throws on 404 drift) (FOO-1129)", async () => {
-      await POST(createMockRequest(unchangedBodyFP));
-      // Primary delete should use mode "user" so a 404 surfaces as HEALTH_LOG_NOT_FOUND
-      expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
-        expect.any(String),
-        ["health-log-old-12345"],
-        expect.any(Object),
-        "user-uuid-123",
-        "user",
-      );
-    });
-  });
-
-  describe("regular path: compensation failure contract (FOO-1129)", () => {
-    it("delete-ok + relog-fail + compensation-fail → PARTIAL_ERROR (not the original health error) (FOO-1129)", async () => {
-      // Delete succeeds, new log creation fails, compensation re-create also fails
-      mockCreateNutritionLog
-        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")) // relog fails
-        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")); // compensation re-create fails
-      mockEnsureFreshToken
-        .mockResolvedValueOnce("token-primary")
-        .mockResolvedValueOnce("token-compensation");
-
-      const response = await POST(createMockRequest(validBody));
-      expect(response.status).toBe(500);
-      const body = await response.json();
-      expect(body.error.code).toBe("PARTIAL_ERROR");
-    });
-
-    it("delete-ok + relog-fail + compensation-fail → CRITICAL log includes oldHealthLogId (FOO-1129)", async () => {
-      mockCreateNutritionLog
-        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR"))
-        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR"));
-      mockEnsureFreshToken
-        .mockResolvedValueOnce("token-primary")
-        .mockResolvedValueOnce("token-compensation");
-
-      await POST(createMockRequest(validBody));
-
-      const { logger } = await import("@/lib/logger") as unknown as { logger: { error: ReturnType<typeof vi.fn> } };
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.objectContaining({ oldHealthLogId: "health-log-old-12345" }),
-        expect.stringContaining("CRITICAL"),
-      );
-    });
-
-    it("regular path: primary delete uses mode=user (throws on 404 drift) (FOO-1129)", async () => {
-      await POST(createMockRequest(validBody));
-      expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
-        expect.any(String),
-        ["health-log-old-12345"],
-        expect.any(Object),
-        "user-uuid-123",
-        "user",
-      );
-    });
-
-    it("DB compensation: delete-fail → PARTIAL_ERROR (FOO-1129)", async () => {
-      // New log created, DB update fails, then compensation deleteNutritionLogs also fails
-      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "new-log-123" });
-      mockUpdateFoodLogEntry.mockRejectedValue(new Error("DB error"));
-      mockDeleteNutritionLogs
-        .mockResolvedValueOnce(undefined)  // primary delete succeeds
-        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR")); // compensation delete fails
-      mockEnsureFreshToken
-        .mockResolvedValueOnce("token-primary")
-        .mockResolvedValueOnce("token-compensation");
-
-      const response = await POST(createMockRequest(validBody));
-      expect(response.status).toBe(500);
-      const body = await response.json();
-      expect(body.error.code).toBe("PARTIAL_ERROR");
-    });
-  });
-
-  // ── HEALTH_LOG_NOT_FOUND drift on the old-log delete (review fix) ────────────
-  // A user-initiated delete of the OLD health log can 404 when the entry drifted
-  // (externally deleted from Google Health). The old entry is definitively gone, so
-  // the edit must PROCEED to create the new log — not fail with a misleading 500.
-  // Mirrors food-history's drift handling.
-
-  describe("old-log delete drift (HEALTH_LOG_NOT_FOUND) proceeds with re-create", () => {
-    const unchangedBodyFP = {
-      entryId: 42,
-      food_name: "Empanada de carne",
-      amount: 150,
-      unit_id: "g",
-      calories: 320,
-      protein_g: 12,
-      carbs_g: 28,
-      fat_g: 18,
-      fiber_g: 2,
-      sodium_mg: 450,
-      saturated_fat_g: null,
-      trans_fat_g: null,
-      sugars_g: null,
-      calories_from_fat: null,
-      confidence: "high" as const,
-      notes: "Baked style",
-      description: "Standard Argentine beef empanada",
-      keywords: ["empanada", "carne"],
-      mealTypeId: 5,
-      date: "2026-02-15",
-      time: "20:00:00",
-    };
-
-    it("fast path: delete drift → creates new log and returns 200 (not 500)", async () => {
-      mockDeleteNutritionLogs.mockRejectedValueOnce(new Error("HEALTH_LOG_NOT_FOUND"));
-      const response = await POST(createMockRequest(unchangedBodyFP));
-      expect(response.status).toBe(200);
-      // The old entry is gone, so we still re-create the log.
-      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
-      const body = await response.json();
-      expect(body.data.reusedFood).toBe(true);
-    });
-
-    it("regular path: delete drift → creates new log and returns 200 (not 500)", async () => {
-      mockDeleteNutritionLogs.mockRejectedValueOnce(new Error("HEALTH_LOG_NOT_FOUND"));
-      const response = await POST(createMockRequest(validBody));
-      expect(response.status).toBe(200);
-      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
-      const body = await response.json();
-      expect(body.data.reusedFood).toBe(false);
-    });
-
-    it("regular path: delete drift logs CRITICAL drift with the stale healthLogId", async () => {
-      mockDeleteNutritionLogs.mockRejectedValueOnce(new Error("HEALTH_LOG_NOT_FOUND"));
-      await POST(createMockRequest(validBody));
-      const { logger } = await import("@/lib/logger") as unknown as { logger: { error: ReturnType<typeof vi.fn> } };
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.objectContaining({ healthLogId: "health-log-old-12345" }),
-        expect.stringContaining("CRITICAL"),
-      );
     });
   });
 

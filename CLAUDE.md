@@ -100,13 +100,15 @@ Do NOT flag these in code reviews:
 
 ## GOOGLE HEALTH RATE-LIMIT CRITICALITY
 
-All Google Health reads/writes route through the rate-limit layer in `src/lib/google-health-rate-limit.ts`. Each call carries a `HealthCallCriticality` (`"critical"` / `"important"` / `"optional"`) that gates execution against the per-user rate-limit headroom snapshot.
+All Google Health reads/writes route through the rate-limit layer in `src/lib/google-health-rate-limit.ts`. Each call carries a `HealthCallCriticality` (`"critical"` / `"important"` / `"optional"`) that gates execution against the per-user 429-cooldown snapshot.
 
 | Criticality | When | Breaker behavior |
 |---|---|---|
-| `critical` | Writes (`createNutritionLog`, `deleteNutritionLogs`) and OAuth refresh | Always proceed; 429 cooldown honored |
-| `important` | User-driven explicit reads (settings refresh, today's first goals compute) | Proceed unless rate limit is cooling down |
-| `optional` | Background revalidations (cache-hit fast path re-fetches, periodic polls) | Proceed only when ample headroom |
+| `critical` | Writes (`createNutritionLog`, `deleteNutritionLogs`) and OAuth refresh | Always proceeds, even during a 429 cooldown (logs a bypass warning) |
+| `important` | User-driven explicit reads (settings refresh, today's first goals compute) | Rejected while a 429 cooldown is active |
+| `optional` | Background revalidations (cache-hit fast path re-fetches, periodic polls) | Rejected while a 429 cooldown is active (currently identical to `important`) |
+
+**Note:** `important` and `optional` are runtime-identical today — the breaker is purely reactive (binary: in-cooldown rejects, otherwise proceeds), with no headroom-based shedding of `optional` ahead of `important`. The tier names are retained because callers pass them; revisit if real per-user headroom accounting is added.
 
 When the breaker rejects, it throws `HEALTH_RATE_LIMIT_LOW`. Route handlers map this to **HTTP 503** with the typed error code so clients can back off.
 

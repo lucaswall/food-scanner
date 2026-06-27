@@ -86,7 +86,7 @@ describe("checkHealthConnection", () => {
     expect(result.status).not.toBe("needs_setup");
   });
 
-  it("returns healthy when scope is null (RFC 6749: omitted scope = all requested scopes granted)", async () => {
+  it("returns needs_reconnect when scope is null (corrupt/legacy row — Google always returns scope) (P2-3)", async () => {
     mockGetHealthTokens.mockResolvedValue({
       id: 1,
       userId: "user-1",
@@ -94,13 +94,14 @@ describe("checkHealthConnection", () => {
       accessToken: "tok",
       refreshToken: "ref",
       expiresAt: new Date(),
-      // scope omitted by provider → stored as null
+      // Google always returns `scope` for restricted Google Health scopes, so a null
+      // stored scope is a corrupt/legacy row, not an RFC 6749 §3.3 omitted-scope grant.
       scope: null,
       updatedAt: new Date(),
     });
 
     const result = await checkHealthConnection("user-1");
-    expect(result.status).toBe("healthy");
+    expect(result.status).toBe("needs_reconnect");
   });
 
   it("still returns scope_mismatch for a non-null partial scope string", async () => {

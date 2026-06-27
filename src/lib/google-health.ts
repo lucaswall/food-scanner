@@ -1,7 +1,7 @@
 import * as Sentry from "@sentry/nextjs";
 import { logger, startTimer } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
-import { getHealthTokens, upsertHealthTokens } from "@/lib/health-tokens";
+import { getHealthTokens, upsertHealthTokens, deleteHealthTokens } from "@/lib/health-tokens";
 import {
   assertRateLimitAllowed,
   recordRateLimitHeaders,
@@ -59,8 +59,14 @@ const TOKEN_EXPIRY_SKEW_MS = 5 * 60 * 1000;
 
 /**
  * Returns true if a parsed 403 response body signals Google Cloud quota exhaustion.
- * Quota-403 shape: `{ error: { status: "RESOURCE_EXHAUSTED" } }`.
- * Scope-403 (PERMISSION_DENIED etc.) is NOT quota exhaustion and must map differently.
+ * Quota-exhaustion RESOURCE_EXHAUSTED shape: `{ error: { status: "RESOURCE_EXHAUSTED" } }`.
+ *
+ * NOTE: Google Health quota exhaustion almost always arrives as HTTP 429, not 403 (see
+ * the §6 discovery-doc ground truth: "Quota exhaustion returns 429"). A RESOURCE_EXHAUSTED
+ * body carried on a 403 is a rare, defensive case — this predicate exists so that branch
+ * is treated as a rate limit rather than a scope error, not because 403 is the normal
+ * quota path. A 403 WITHOUT RESOURCE_EXHAUSTED (PERMISSION_DENIED etc.) is a scope/permission
+ * problem and must map differently.
  */
 function isResourceExhaustedBody(body: unknown): boolean {
   if (!body || typeof body !== "object") return false;
@@ -198,9 +204,11 @@ export async function fetchWithRetry(
     }
 
     if (response.status === 403) {
-      // Read body once to distinguish quota-403 from scope-403.
-      // Google Cloud quota exhaustion: { error: { status: "RESOURCE_EXHAUSTED" } }
+      // A 403 is almost always a scope/permission error — quota exhaustion comes back
+      // as 429 (handled below), not 403. We still read the body once to catch the rare,
+      // defensive case where Google attaches a RESOURCE_EXHAUSTED status to a 403.
       // Scope/permission error: { error: { status: "PERMISSION_DENIED" } } or similar.
+      // Defensive quota case: { error: { status: "RESOURCE_EXHAUSTED" } }.
       const rawBody = await parseErrorBody(response);
       if (isResourceExhaustedBody(rawBody)) {
         // Treat like 429: record a cooldown so the breaker blocks cheap calls.
@@ -422,7 +430,37 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
 
       // Still near-expired — proceed with refresh.
       // Google does NOT rotate the refresh token — preserve the existing one.
-      const tokens = await refreshGoogleHealthToken(tokenRow.refreshToken, l);
+      let tokens: { access_token: string; expires_in: number };
+      try {
+        tokens = await refreshGoogleHealthToken(tokenRow.refreshToken, l);
+      } catch (refreshError) {
+        // A DEFINITIVE HEALTH_TOKEN_INVALID (the 400/401 path) means the refresh
+        // token is revoked/expired and will never recover. Delete the dead token
+        // row so the next checkHealthConnection flips to `needs_reconnect` and the
+        // UI prompts a reconnect — otherwise the row lingers and the connection is
+        // silently reported `healthy` forever (P1-5). Best-effort: a delete failure
+        // must NOT mask the original auth error. HEALTH_REFRESH_TRANSIENT is left
+        // untouched (the token may still be valid on the next attempt).
+        if (refreshError instanceof Error && refreshError.message === "HEALTH_TOKEN_INVALID") {
+          try {
+            await deleteHealthTokens(userId, l);
+            l.warn(
+              { action: "health_token_revoked_reconciled", userId },
+              "refresh token revoked/expired — deleted dead token row to force reconnect",
+            );
+          } catch (deleteError) {
+            l.error(
+              {
+                action: "health_token_revoked_reconcile_failed",
+                userId,
+                error: deleteError instanceof Error ? deleteError.message : String(deleteError),
+              },
+              "failed to delete revoked token row — connection may still report healthy",
+            );
+          }
+        }
+        throw refreshError;
+      }
 
       const tokenData = {
         healthUserId: tokenRow.healthUserId,

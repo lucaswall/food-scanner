@@ -1,13 +1,41 @@
 "use client";
 
 import useSWR from "swr";
-import { apiFetcher, HEALTH_BACKED_SWR_CONFIG } from "@/lib/swr";
+import Link from "next/link";
+import { apiFetcher, ApiError, HEALTH_BACKED_SWR_CONFIG } from "@/lib/swr";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 import { ACTIVITY_LEVEL_LABELS } from "@/lib/macro-engine";
 import type { NutritionGoals } from "@/types";
 import type { GoalBlockedReason } from "@/components/goals-setup-banner";
+
+// Connect-flow page (POSTs to /api/auth/google-health). Shared with HealthStatusBanner.
+const RECONNECT_HEALTH_HREF = "/app/connect-health";
+
+/**
+ * A broken Google Health connection surfaces to read-surface routes as one of these
+ * API error codes: HEALTH_NOT_CONNECTED (token revoked/deleted → needs_reconnect) or
+ * HEALTH_SCOPE_MISSING (scope_mismatch). Both are resolved by reconnecting (P1-5).
+ */
+function isHealthReconnectError(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.code === "HEALTH_NOT_CONNECTED" || error.code === "HEALTH_SCOPE_MISSING")
+  );
+}
+
+/** Compact, consistent "Reconnect Google Health" CTA for read-surface cards (P1-5). */
+function ReconnectHealthCta({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col gap-2 p-3 rounded-lg bg-muted/50">
+      <span className="text-sm text-muted-foreground">{message}</span>
+      <Button variant="outline" size="sm" asChild className="min-h-[44px] self-start">
+        <Link href={RECONNECT_HEALTH_HREF}>Reconnect Google Health</Link>
+      </Button>
+    </div>
+  );
+}
 
 interface TargetsCardProps {
   date: string;
@@ -24,7 +52,7 @@ const BLOCKED_MESSAGES: Record<GoalBlockedReason, string> = {
   goals_not_set: "Set up your daily goals in Settings to enable targets.",
   no_weight: "Log your weight in Google Health to enable macro targets.",
   sex_unset: "Set your biological sex in Settings to enable macro targets.",
-  scope_mismatch: "Reconnect Google Health to enable macro targets.",
+  scope_mismatch: "Google Health is missing the permissions needed to compute macro targets.",
   invalid_profile:
     "Your Google Health profile has invalid values (height, weight, or age). Update your profile in Google Health.",
 };
@@ -55,6 +83,13 @@ export function TargetsCard({ date }: TargetsCardProps) {
   }
 
   if (error) {
+    // A revoked/deleted token (needs_reconnect) or missing scopes surface as typed
+    // reconnect errors — show the reconnect CTA instead of a futile retry (P1-5).
+    if (isHealthReconnectError(error)) {
+      return (
+        <ReconnectHealthCta message="Google Health needs to be reconnected to load your targets." />
+      );
+    }
     return (
       <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
         <span className="text-sm text-muted-foreground">Could not load targets</span>
@@ -75,6 +110,10 @@ export function TargetsCard({ date }: TargetsCardProps) {
   if (!goals || !goals.status) return null;
 
   if (goals.status === "blocked") {
+    // A scope_mismatch is reconnect-resolvable — pair the message with the CTA (P1-5).
+    if (goals.reason === "scope_mismatch") {
+      return <ReconnectHealthCta message={getBlockedMessage(goals.reason)} />;
+    }
     return (
       <div className="p-3 rounded-lg bg-muted/50 text-sm text-muted-foreground">
         {getBlockedMessage(goals.reason)}

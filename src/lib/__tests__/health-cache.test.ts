@@ -364,6 +364,129 @@ describe("health-cache", () => {
     });
   });
 
+  // ─── serve-stale-on-transient-error (P1-9) ───────────────────────────────────
+
+  describe("serve-stale-on-transient-error (P1-9)", () => {
+    it("serves the stale cached profile when a later fetch throws a TRANSIENT error", async () => {
+      const now = Date.now();
+      vi.setSystemTime(now);
+
+      mockGetHealthProfile.mockResolvedValueOnce(mockProfile);
+      const first = await getCachedHealthProfile("user-stale");
+      expect(first).toEqual(mockProfile);
+
+      // Past the 24h fresh TTL → cache miss, but still within the stale window.
+      vi.setSystemTime(now + 25 * 60 * 60 * 1000);
+      mockGetHealthProfile.mockRejectedValueOnce(new Error("HEALTH_API_ERROR"));
+
+      const second = await getCachedHealthProfile("user-stale");
+      expect(second).toEqual(mockProfile); // served stale, not thrown
+      expect(mockGetHealthProfile).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+      "HEALTH_TIMEOUT",
+      "HEALTH_RATE_LIMIT",
+      "HEALTH_RATE_LIMIT_LOW",
+      "HEALTH_REFRESH_TRANSIENT",
+    ])("serves stale profile on %s", async (code) => {
+      const now = Date.now();
+      vi.setSystemTime(now);
+      mockGetHealthProfile.mockResolvedValueOnce(mockProfile);
+      await getCachedHealthProfile("user-stale");
+
+      vi.setSystemTime(now + 25 * 60 * 60 * 1000);
+      mockGetHealthProfile.mockRejectedValueOnce(new Error(code));
+
+      const result = await getCachedHealthProfile("user-stale");
+      expect(result).toEqual(mockProfile);
+    });
+
+    it("does NOT serve stale for HEALTH_TOKEN_INVALID — propagates (reconnect required)", async () => {
+      const now = Date.now();
+      vi.setSystemTime(now);
+      mockGetHealthProfile.mockResolvedValueOnce(mockProfile);
+      await getCachedHealthProfile("user-tok");
+
+      vi.setSystemTime(now + 25 * 60 * 60 * 1000);
+      mockGetHealthProfile.mockRejectedValueOnce(new Error("HEALTH_TOKEN_INVALID"));
+
+      await expect(getCachedHealthProfile("user-tok")).rejects.toThrow("HEALTH_TOKEN_INVALID");
+    });
+
+    it("does NOT serve stale for HEALTH_SCOPE_MISSING — propagates (reconnect required)", async () => {
+      const now = Date.now();
+      vi.setSystemTime(now);
+      mockGetHealthProfile.mockResolvedValueOnce(mockProfile);
+      await getCachedHealthProfile("user-scope");
+
+      vi.setSystemTime(now + 25 * 60 * 60 * 1000);
+      mockGetHealthProfile.mockRejectedValueOnce(new Error("HEALTH_SCOPE_MISSING"));
+
+      await expect(getCachedHealthProfile("user-scope")).rejects.toThrow("HEALTH_SCOPE_MISSING");
+    });
+
+    it("propagates the transient error when there is NO prior cached value", async () => {
+      mockGetHealthProfile.mockRejectedValueOnce(new Error("HEALTH_API_ERROR"));
+      await expect(getCachedHealthProfile("user-none")).rejects.toThrow("HEALTH_API_ERROR");
+    });
+
+    it("serves the stale weight log on a transient error", async () => {
+      const now = Date.now();
+      vi.setSystemTime(now);
+      mockGetHealthLatestWeightKg.mockResolvedValueOnce(mockWeightLog);
+      await getCachedHealthWeightKg("user-w", "2024-01-15");
+
+      vi.setSystemTime(now + 2 * 60 * 60 * 1000); // past the 1h positive-result TTL
+      mockGetHealthLatestWeightKg.mockRejectedValueOnce(new Error("HEALTH_RATE_LIMIT"));
+
+      const result = await getCachedHealthWeightKg("user-w", "2024-01-15");
+      expect(result).toEqual(mockWeightLog);
+    });
+
+    it("serves a stale null weight (a real last-known 'no weight' value) on a transient error", async () => {
+      const now = Date.now();
+      vi.setSystemTime(now);
+      mockGetHealthLatestWeightKg.mockResolvedValueOnce(null);
+      const first = await getCachedHealthWeightKg("user-wnull", "2024-01-15");
+      expect(first).toBeNull();
+
+      vi.setSystemTime(now + 11 * 60 * 1000); // past the 10min null-result TTL
+      mockGetHealthLatestWeightKg.mockRejectedValueOnce(new Error("HEALTH_TIMEOUT"));
+
+      const second = await getCachedHealthWeightKg("user-wnull", "2024-01-15");
+      expect(second).toBeNull(); // stale null served, not thrown
+    });
+
+    it("serves the stale activity summary on a transient error", async () => {
+      const now = Date.now();
+      vi.setSystemTime(now);
+      mockGetHealthActivitySummary.mockResolvedValueOnce(mockActivity);
+      await getCachedHealthActivitySummary("user-a", "2024-01-15");
+
+      vi.setSystemTime(now + 6 * 60 * 1000); // past the 5min TTL
+      mockGetHealthActivitySummary.mockRejectedValueOnce(new Error("HEALTH_REFRESH_TRANSIENT"));
+
+      const result = await getCachedHealthActivitySummary("user-a", "2024-01-15");
+      expect(result).toEqual(mockActivity);
+    });
+
+    it("does not serve stale once the stale-retention window has elapsed", async () => {
+      const now = Date.now();
+      vi.setSystemTime(now);
+      mockGetHealthActivitySummary.mockResolvedValueOnce(mockActivity);
+      await getCachedHealthActivitySummary("user-a2", "2024-01-15");
+
+      // Past the 6h activity stale-retention window — nothing left to serve.
+      vi.setSystemTime(now + 7 * 60 * 60 * 1000);
+      mockGetHealthActivitySummary.mockRejectedValueOnce(new Error("HEALTH_API_ERROR"));
+
+      await expect(
+        getCachedHealthActivitySummary("user-a2", "2024-01-15"),
+      ).rejects.toThrow("HEALTH_API_ERROR");
+    });
+  });
+
   describe("bounded cache size", () => {
     it("profile cache evicts oldest entries when size cap is exceeded", async () => {
       mockGetHealthProfile.mockResolvedValue(mockProfile);

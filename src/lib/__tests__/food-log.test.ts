@@ -1771,6 +1771,7 @@ describe("getFoodLogEntryDetail", () => {
       confidence: "high",
       isFavorite: false,
       keywords: [],
+      zoneOffset: null,
     });
   });
 

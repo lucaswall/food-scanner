@@ -359,7 +359,7 @@ describe("TargetsCard", () => {
     });
   });
 
-  it("renders scope_mismatch blocked message", async () => {
+  it("renders scope_mismatch blocked state with a Reconnect Google Health CTA", async () => {
     mockFetch.mockResolvedValueOnce(
       goalsResponse({
         calories: null,
@@ -372,7 +372,45 @@ describe("TargetsCard", () => {
     );
     renderTargetsCard();
     await waitFor(() => {
-      expect(screen.getByText(/reconnect google health/i)).toBeInTheDocument();
+      const link = screen.getByRole("link", { name: /reconnect google health/i });
+      expect(link).toHaveAttribute("href", "/app/connect-health");
+    });
+  });
+
+  // P1-5: a revoked/deleted token surfaces as a HEALTH_NOT_CONNECTED API error →
+  // show the reconnect CTA instead of a generic retry.
+  it("shows the Reconnect Google Health CTA when the API returns HEALTH_NOT_CONNECTED", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      json: () =>
+        Promise.resolve({
+          success: false,
+          error: { code: "HEALTH_NOT_CONNECTED", message: "Google Health account not connected" },
+        }),
+    });
+    renderTargetsCard();
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: /reconnect google health/i });
+      expect(link).toHaveAttribute("href", "/app/connect-health");
+    });
+    // It must NOT show the generic retry button for a reconnect-worthy error.
+    expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
+  });
+
+  // P1-5: scope-missing read errors are also reconnect-resolvable.
+  it("shows the Reconnect Google Health CTA when the API returns HEALTH_SCOPE_MISSING", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      json: () =>
+        Promise.resolve({
+          success: false,
+          error: { code: "HEALTH_SCOPE_MISSING", message: "Missing required scopes" },
+        }),
+    });
+    renderTargetsCard();
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: /reconnect google health/i });
+      expect(link).toHaveAttribute("href", "/app/connect-health");
     });
   });
 

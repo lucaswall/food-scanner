@@ -21,11 +21,13 @@ const mockDb = {
 vi.mock("@/db/index", () => ({ getDb: () => mockDb }));
 
 vi.mock("drizzle-orm", () => ({
-  eq:   vi.fn((_col: unknown, val: unknown) => `eq:${val}`),
-  and:  vi.fn((...args: unknown[]) => `and:(${args.join(",")})`),
-  gte:  vi.fn((_col: unknown, val: unknown) => `gte:${val}`),
-  lt:   vi.fn((_col: unknown, val: unknown) => `lt:${val}`),
-  desc: vi.fn((col: unknown) => `desc:${String(col)}`),
+  eq:        vi.fn((_col: unknown, val: unknown) => `eq:${val}`),
+  and:       vi.fn((...args: unknown[]) => `and:(${args.join(",")})`),
+  gte:       vi.fn((_col: unknown, val: unknown) => `gte:${val}`),
+  lte:       vi.fn((_col: unknown, val: unknown) => `lte:${val}`),
+  lt:        vi.fn((_col: unknown, val: unknown) => `lt:${val}`),
+  desc:      vi.fn((col: unknown) => `desc:${String(col)}`),
+  isNotNull: vi.fn((col: unknown) => `isNotNull:${String(col)}`),
   // The `sql` tag is a template-literal function; for the EXISTS-subquery
   // setWhere we just need a recognizable token. Real shape is verified at
   // the integration level, not unit-test level.
@@ -50,6 +52,19 @@ function mockSelectOnce(rows: Record<string, unknown>[] = []) {
   const from = vi.fn().mockReturnValue({ where });
   mockDb.select.mockReturnValueOnce({ from });
   return { where };
+}
+
+/**
+ * Queue a `.select({}).from(t).where(...).orderBy(...).limit(n)` returning `rows`.
+ * Used by `queryMostRecentGoodRow` (the P1-9 last-known-good fallback).
+ */
+function mockSelectOrderedOnce(rows: Record<string, unknown>[] = []) {
+  const limit = vi.fn().mockResolvedValueOnce(rows);
+  const orderBy = vi.fn().mockReturnValue({ limit });
+  const where = vi.fn().mockReturnValue({ orderBy });
+  const from = vi.fn().mockReturnValue({ where });
+  mockDb.select.mockReturnValueOnce({ from });
+  return { where, orderBy, limit };
 }
 
 /**
@@ -460,6 +475,78 @@ describe("getOrComputeDailyGoals — blocked reasons", () => {
 
     const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
     expect(result).toEqual({ status: "blocked", reason: "invalid_profile" });
+  });
+});
+
+// ─── P1-9: serve last-known-good row on transient health errors ──────────────
+describe("getOrComputeDailyGoals — serve last-known-good on transient health error (P1-9)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReset();
+    mockDb.insert.mockReset();
+    mockDb.update.mockReset();
+    mockDb.delete.mockReset();
+  });
+
+  it("falls back to the most recent good row (flagged stale) on a transient health error", async () => {
+    mockSelectOnce([USER_SETTINGS]); // Step 1: users
+    mockSelectOnce([]); // Step 2: queryRow — no row for today
+    // Step 3: health read throws a transient error
+    mockGetCachedHealthProfile.mockRejectedValueOnce(new Error("HEALTH_API_ERROR"));
+    mockGetCachedHealthWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
+    // Catch: queryMostRecentGoodRow returns a prior engine-written row
+    mockSelectOrderedOnce([CACHED_ROW]);
+
+    const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.stale).toBe(true);
+      expect(result.goals.calorieGoal).toBe(CACHED_ROW.calorieGoal);
+      expect(result.goals.proteinGoal).toBe(CACHED_ROW.proteinGoal);
+    }
+    // Must NOT write to DB on the degraded path
+    expect(mockDb.insert).not.toHaveBeenCalled();
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("propagates the transient error when there is NO prior good row to serve", async () => {
+    mockSelectOnce([USER_SETTINGS]);
+    mockSelectOnce([]);
+    mockGetCachedHealthProfile.mockRejectedValueOnce(new Error("HEALTH_TIMEOUT"));
+    mockGetCachedHealthWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
+    mockSelectOrderedOnce([]); // no prior good row
+
+    await expect(getOrComputeDailyGoals("user-1", "2026-05-08")).rejects.toThrow("HEALTH_TIMEOUT");
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it("does NOT serve stale for HEALTH_TOKEN_INVALID — propagates (reconnect required)", async () => {
+    mockSelectOnce([USER_SETTINGS]);
+    mockSelectOnce([]);
+    mockGetCachedHealthProfile.mockRejectedValueOnce(new Error("HEALTH_TOKEN_INVALID"));
+    mockGetCachedHealthWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
+    // No mockSelectOrderedOnce queued — the fallback query must NOT run for a
+    // non-transient (reconnect) error.
+
+    await expect(getOrComputeDailyGoals("user-1", "2026-05-08")).rejects.toThrow("HEALTH_TOKEN_INVALID");
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it("logs a warn with action=daily_goals_serve_stale when degrading", async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+    mockSelectOnce([USER_SETTINGS]);
+    mockSelectOnce([]);
+    mockGetCachedHealthProfile.mockRejectedValueOnce(new Error("HEALTH_RATE_LIMIT_LOW"));
+    mockGetCachedHealthWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
+    mockSelectOrderedOnce([CACHED_ROW]);
+
+    await getOrComputeDailyGoals("user-1", "2026-05-08", log as unknown as Logger);
+
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "daily_goals_serve_stale" }),
+      expect.any(String),
+    );
   });
 });
 

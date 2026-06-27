@@ -8,6 +8,8 @@ Log potential production data migrations here during development. These notes ar
 
 ## ⚠️ RELEASE RUNBOOK — Google Health migration (READ FIRST)
 
+> **Cutover-hardening status (2026-06-27):** the post-cutover backlog-assessment remediation (batches 1 & 2) has landed on `main`/staging. It adds **NO new DB migrations** (`drizzle-kit generate` → "nothing to migrate") — the `0027`/`0028` plan below is unchanged. Env-var requirements are consolidated in the **FOO-1130 / P1-11 / P1-12 / P2-7** section. **Hard gates remaining before `main`→`release`:** (1) the live nutrition WRITE smoke test (P0-5, below); (2) GCP OAuth — consent screen set to **"In production"** (NOT "Testing", which revokes refresh tokens every 7 days), plus OAuth verification + the annual **CASA** assessment (all `googlehealth.*` scopes are *restricted*); (3) both users set biological sex + activity level after re-consent.
+
 This release promotes the entire Fitbit→Google Health cutover. **Classification: `Simple`** (table/column renames, an integer→text type change with a value backfill, plus JSONB data remapping) — `push-to-production` must build a **manual migration script with Drizzle journal inserts** (skill Phase 3), NOT rely on Drizzle's generated SQL alone.
 
 **Drizzle migration file:** `drizzle/0027_google_health_migration.sql` is generated and committed (Task 29 — done). It is **correct for a fresh/empty DB** (CI, E2E, local) — the app's startup-migrate builds the full current schema by running `0001…0027`, verified green by the unit, integration (20), and E2E (135) suites.
@@ -43,7 +45,7 @@ This release promotes the entire Fitbit→Google Health cutover. **Classificatio
 **🔴 PRE-PROMOTION LIVE VALIDATION GATES (must pass before merging `main`→`release`):**
 The Google Health REST request/response shapes are now **confirmed against the v4 discovery document** (commit history; see Phase-3 notes) — NOT guesses. But two things can only be verified against the LIVE API, because **staging skips writes** (`HEALTH_DRY_RUN=true`):
 1. **Nutrition WRITE end-to-end (the core gate).** Temporarily set `HEALTH_DRY_RUN=false` on staging, connect Google Health, then log → edit → delete a food. Confirm the dataPoint is created with correct nutrients/time/meal-type (check via the Google Health app or a direct `GET .../dataTypes/nutrition-log/dataPoints`), and that `batchDelete` removes it. If a field is rejected, correct ONLY the isolated `buildNutritionLogBody`/parser helpers in `google-health.ts`. Re-enable `HEALTH_DRY_RUN=true` on staging afterward.
-2. **`getHealthActivitySummary` dailyRollUp range body** (`/api/v1/activity-summary`, optional/non-blocking — degrades to null). The `CivilTimeInterval` field names (`start`/`end` vs `startTime`/`endTime`, exclusive-end) and the `total-calories` data-type id are unconfirmed; validate live if/when the external activity API is needed. (Codex finding, deferred.)
+2. **`getHealthActivitySummary` dailyRollUp range body** (`/api/v1/activity-summary`, optional/non-blocking — degrades to null). **CONFIRMED** against the v4 discovery doc: `CivilTimeInterval { start, end }` of `CivilDateTime { date }` — timezone-naive (**no `utcOffset`** — the schema forbids it; the invalid offset that 400'd this read was removed in P0-4), exclusive end = next civil day; `total-calories` data-type id; response `rollupDataPoints[].totalCalories.kcalSum`. Only live data *presence* now needs a real account.
 
 **🔴 POST-CUTOVER USER ACTION (or daily goals stay blocked):** both Lucas and Mariana must, after re-consenting, **set their biological sex AND activity level** in Settings → Daily Goals (FOO-1116/FOO-1131 — the v4 profile does not expose sex; activity level is required by the macro engine). Until both are set, `getOrComputeDailyGoals` returns `goals_not_set`, the save button is disabled in the UI, and the home banner shows. Neither field has a default — each user must explicitly choose.
 
@@ -128,12 +130,12 @@ Nullable, no backfill. The Google Health v4 Profile resource does NOT expose bio
 
 ### Task 16 / 18 — Google Health API body shapes (FOO-1086, FOO-1088, FOO-1115)
 The Google Health REST request/response field paths are now **confirmed against the v4 discovery document** (`health.googleapis.com/$discovery/rest?version=v4`), corrected in commit df1361b/this branch:
-- `createNutritionLog` / `deleteNutritionLogs` — `POST .../dataTypes/nutrition-log/dataPoints` with a DataPoint `{ name, nutritionLog }`; NutritionLog = `foodDisplayName`, `energy`/`energyFromFat` (`{kcal}`), `totalCarbohydrate`/`totalFat` (`{grams}`), `serving` (`{amount, foodMeasurementUnit}`), `interval` (SessionTimeInterval), `mealType` (BREAKFAST/LUNCH/DINNER/SNACK/ANYTIME), `nutrients[]` (`{nutrient, quantity:{grams}}` keyed PROTEIN/DIETARY_FIBER/SODIUM/SATURATED_FAT/TRANS_FAT/SUGAR — sodium mg→grams). Delete = `:batchDelete` with `{ names: [resourceName] }`. Create returns a long-running Operation, so the dataPoint id is client-generated.
+- `createNutritionLog` / `deleteNutritionLogs` — `POST .../dataTypes/nutrition-log/dataPoints` with a DataPoint `{ nutritionLog }` (POST-to-collection; the client does NOT send a name); NutritionLog = `foodDisplayName`, `energy`/`energyFromFat` (`{kcal}`), `totalCarbohydrate`/`totalFat` (`{grams}`), `serving` (`{amount, foodMeasurementUnit}`), `interval` (SessionTimeInterval), `mealType` (full enum incl. BEFORE_LUNCH/BEFORE_DINNER/ANYTIME), `nutrients[]` (`{nutrient, quantity:{grams}}` keyed PROTEIN/DIETARY_FIBER/SODIUM/SATURATED_FAT/TRANS_FAT/SUGAR — sodium mg→grams). Delete = `:batchDelete` with `{ names: [resourceName] }`. **Both `create` and `batchDelete` return a long-running `Operation`** — the SERVER assigns the dataPoint id and it is parsed from `operation.response.name`; NOT_FOUND/errors surface in `Operation.error.code` (google.rpc.Code) with HTTP 200, not an HTTP status. There is NO `operations.get` method and nutrition is write-only (no read-back), so an incomplete (`done:false`) or errored create/delete **fails loudly** rather than silently storing a null id (P0-2/P0-3) — create must complete synchronously, which is what the FOO-1115 live smoke test confirms.
 - `getHealthProfile` — `GET /v4/users/me/profile` (exposes `age` only — NO sex/height). **sex is a local setting (FOO-1116)**; height read from the `height` data type (`heightMillimeters` → cm).
 - `getHealthLatestWeightKg` — `GET .../dataTypes/weight/dataPoints` (`weightGrams`→kg, `sampleTime.physicalTime`), client-side filtered to `[targetDate-13d, targetDate]`.
 - `getHealthActivitySummary` — `POST .../dataTypes/total-calories/dataPoints:dailyRollUp`, response `rollupDataPoints[]` summed by `kcalSum`.
 
-**Remaining LIVE-only validation (FOO-1115):** staging runs `HEALTH_DRY_RUN=true`, so the WRITE path (create/batchDelete) is never exercised there — to confirm it against the live API, flip `HEALTH_DRY_RUN` off on staging (real writes) before promoting. Also unconfirmed: the exact `dailyRollUp` request body + the `total-calories` data-type id (optional, non-blocking read). The request-body construction is isolated in `buildNutritionLogBody` / per-read parser helpers so any remaining mismatch has a contained blast radius.
+**Remaining LIVE-only validation (FOO-1115 / P0-5):** staging runs `HEALTH_DRY_RUN=true`, so the WRITE path (create/batchDelete) is never exercised there — to confirm it against the live API, flip `HEALTH_DRY_RUN` off on staging (real writes) before promoting, then log → edit → delete a food and confirm the create `Operation` returns `done:true` with a `response.name` (the code now FAILS LOUDLY if create comes back async, since there is no `operations.get` and nutrition is write-only). The `dailyRollUp` body + `total-calories` id are now confirmed against the discovery doc (P0-4). Request-body construction is isolated in `buildNutritionLogBody` / per-read parser helpers, and a discovery-doc contract test (`src/lib/__tests__/google-health-contract.test.ts`, P1-14) guards against schema drift.
 
 ### Task 17 — write-route contract (FOO-1087)
 `POST /api/log-food` gains an **optional `clientToken`** for idempotency (per-user, in-memory, ~5-min TTL, resets on deploy — acceptable for the 2-user app). Responses now expose **`healthLogId` (string)** in place of the old numeric Fitbit ids. Pre-existing rows carrying legacy numeric ids hold stale, string-incompatible handles — they are replaced on the next edit/delete. (DB column change itself is Task 7 / Phase 1.)
@@ -201,15 +203,15 @@ docker stop pg-integration
 
 ## Post-review fixes (FOO-1129..1133, fix/google-health-migration-review-fixes)
 
-### FOO-1130 — HEALTH_DRY_RUN boot invariant
-**No SQL.** New `validateHealthDryRunEnv()` in `src/lib/env.ts` enforces at boot that:
-- Staging (APP_URL contains `food-test`): `HEALTH_DRY_RUN` must be `"true"`.
-- Production (APP_URL contains `food.lucaswall.me`): `HEALTH_DRY_RUN` must be `"true"` or `"false"` explicitly.
-- Unrecognized values (`"TRUE"`, `"1"`, etc.) abort the boot on every environment.
+### FOO-1130 / P1-11 / P1-12 / P2-7 — boot guards (hardened)
+**No SQL.** Boot guards in `src/lib/env.ts` + `src/lib/token-encryption.ts`, run from `instrumentation.ts`:
+- `validateHealthDryRunEnv()` parses the **APP_URL hostname** (exact match — NOT a substring) and is **default-deny**: every non-local host MUST set `HEALTH_DRY_RUN` explicitly (`"true"`/`"false"`); staging (`food-test.lucaswall.me`) must be `"true"`; unrecognized values abort the boot on any host. A renamed/misconfigured prod-like `APP_URL` can no longer silently enable live writes.
+- `validateTestAuthEnv()` aborts the boot if `ENABLE_TEST_AUTH="true"` on production (`food.lucaswall.me`) — the test-login bypass must never ship to prod.
+- `validateEncryptionKey()` aborts the boot unless `HEALTH_TOKEN_ENCRYPTION_KEY` base64-decodes to exactly 32 bytes.
 
 **Deployment action required:**
-- **Staging** (`food-test.lucaswall.me`): Set `HEALTH_DRY_RUN=true` before deploying this change (already noted in the main runbook; now boot-enforced).
-- **Production** (`food.lucaswall.me`): Set `HEALTH_DRY_RUN=false` (or `HEALTH_DRY_RUN=true` for a pre-production test). The env var must be present — the server will not start without it.
+- **Staging** (`food-test.lucaswall.me`): `HEALTH_DRY_RUN=true` (boot-enforced) + `HEALTH_TOKEN_ENCRYPTION_KEY` set.
+- **Production** (`food.lucaswall.me`): `HEALTH_DRY_RUN=false` (must be present — the server will not start without it) + `HEALTH_TOKEN_ENCRYPTION_KEY` set (independent from staging) + `ENABLE_TEST_AUTH` NOT set to `true`.
 
 ---
 
