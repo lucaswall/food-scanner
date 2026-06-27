@@ -114,7 +114,7 @@ export function HealthProfileCard() {
         <div className="flex flex-col gap-2 text-sm">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Age</span>
-            <span>{data.ageYears} years</span>
+            <span>{data.ageYears > 0 ? `${data.ageYears} years` : "—"}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Sex</span>

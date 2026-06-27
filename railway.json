@@ -14,5 +14,8 @@
       "postcss.config.mjs",
       "eslint.config.mjs"
     ]
+  },
+  "deploy": {
+    "numReplicas": 1
   }
 }

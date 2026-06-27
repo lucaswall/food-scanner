@@ -22,7 +22,6 @@ export { parseErrorBody, sanitizeErrorBody, jsonWithTimeout };
 const GOOGLE_HEALTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const MAX_RETRIES = 3;
 const DEADLINE_MS = 30_000;
-const RATE_LIMIT_NO_HEADER_DELAY_MS = 1_000;
 
 /**
  * Sleep for `ms` milliseconds, but abort early if `signal` fires.
@@ -52,9 +51,11 @@ function abortableSleep(ms: number, signal?: AbortSignal | null): Promise<void> 
 
 /**
  * If the token expires within this window, we treat it as near-expired and
- * proactively refresh it. Uses a 1-hour skew window to pre-empt near-expiry.
+ * proactively refresh it. 5 minutes — must stay well BELOW the ~1h access-token
+ * lifetime, otherwise a freshly minted token never satisfies the fast-return
+ * check and every Health op forces a refresh + DB upsert (P1-6).
  */
-const TOKEN_EXPIRY_SKEW_MS = 60 * 60 * 1000;
+const TOKEN_EXPIRY_SKEW_MS = 5 * 60 * 1000;
 
 /**
  * Returns true if a parsed 403 response body signals Google Cloud quota exhaustion.
@@ -88,6 +89,31 @@ function parseRetryAfter(value: string | null): number | null {
 }
 
 /**
+ * Extract a back-off duration (ms) from a `google.rpc.RetryInfo` entry in the error body's
+ * `error.details[]`. Google Cloud conveys the suggested wait here (e.g. `retryDelay: "30s"`)
+ * far more often than via a `Retry-After` header (P1-4). Returns null when absent/malformed.
+ */
+function parseRetryDelayMs(body: unknown): number | null {
+  if (!body || typeof body !== "object") return null;
+  const err = (body as Record<string, unknown>).error;
+  if (!err || typeof err !== "object") return null;
+  const details = (err as Record<string, unknown>).details;
+  if (!Array.isArray(details)) return null;
+  for (const det of details) {
+    if (det && typeof det === "object") {
+      const dd = det as Record<string, unknown>;
+      const type = typeof dd["@type"] === "string" ? (dd["@type"] as string) : "";
+      if (type.includes("RetryInfo") && typeof dd.retryDelay === "string") {
+        // google.protobuf.Duration string, e.g. "30s" or "1.500s".
+        const m = /^([\d.]+)s$/.exec(dd.retryDelay.trim());
+        if (m) return Math.ceil(Number(m[1]) * 1000);
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Fetch with retry logic tailored for Google Health / Google Cloud APIs.
  *
  * - Checks the DEADLINE_MS budget at the start of each attempt.
@@ -105,6 +131,7 @@ export async function fetchWithRetry(
   l: Logger = logger,
   userId?: string,
   criticality: HealthCallCriticality = "optional",
+  idempotent = true,
 ): Promise<Response> {
   // Extract the caller's AbortSignal (if any) for use in retry sleeps.
   // Note: each fetch attempt uses its own internal timeout controller, so options.signal
@@ -125,10 +152,24 @@ export async function fetchWithRetry(
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      // The per-request timeout (controller) fired — surface a typed timeout rather than a
+      // bare AbortError that the route layer would map to a generic 500 (P1-15).
+      if (err instanceof Error && err.name === "AbortError" && controller.signal.aborted) {
+        l.warn(
+          { action: "health_request_timeout", url, timeoutMs: REQUEST_TIMEOUT_MS },
+          "per-request timeout aborted the Google Health fetch",
+        );
+        throw new Error("HEALTH_TIMEOUT");
+      }
+      throw err;
+    }
 
     // Always record rate-limit headers so even error responses (including 429)
     // update the per-user cooldown snapshot.
@@ -186,46 +227,47 @@ export async function fetchWithRetry(
         throw new Error("HEALTH_RATE_LIMIT");
       }
 
-      const retryAfterMs = parseRetryAfter(response.headers.get("Retry-After"));
-      const deadlineRemaining = DEADLINE_MS - (Date.now() - startTime);
+      // Google conveys the back-off via a Retry-After header (rare) OR a
+      // google.rpc.RetryInfo.retryDelay inside the error body (common). Prefer whichever
+      // is present; with NEITHER, do not do a futile sub-second retry inside the same
+      // per-minute window — give up and let the recorded cooldown gate further calls (P1-4).
+      const retryAfterMs =
+        parseRetryAfter(response.headers.get("Retry-After")) ??
+        parseRetryDelayMs(await parseErrorBody(response));
 
-      if (retryAfterMs !== null) {
-        if (retryAfterMs > deadlineRemaining) {
-          l.warn(
-            {
-              action: "health_rate_limit_no_retry",
-              retryAfterMs,
-              deadlineRemaining,
-            },
-            "rate limited; Retry-After exceeds deadline, giving up",
-          );
-          throw new Error("HEALTH_RATE_LIMIT");
-        }
+      if (retryAfterMs === null) {
         l.warn(
-          { action: "health_rate_limit", retryAfterMs, source: "header" },
-          "rate limited, sleeping per Retry-After header",
+          { action: "health_rate_limit_no_backoff_hint" },
+          "rate limited with no Retry-After/RetryInfo; not retrying (cooldown active)",
         );
-        await abortableSleep(retryAfterMs, callerSignal);
-      } else {
-        l.warn(
-          {
-            action: "health_rate_limit",
-            retryAfterMs: RATE_LIMIT_NO_HEADER_DELAY_MS,
-            source: "default",
-          },
-          "rate limited (no Retry-After), brief retry",
-        );
-        await abortableSleep(RATE_LIMIT_NO_HEADER_DELAY_MS, callerSignal);
+        throw new Error("HEALTH_RATE_LIMIT");
       }
 
-      return fetchWithRetry(url, options, retryCount + 1, startTime, l, userId, criticality);
+      const deadlineRemaining = DEADLINE_MS - (Date.now() - startTime);
+      if (retryAfterMs > deadlineRemaining) {
+        l.warn(
+          { action: "health_rate_limit_no_retry", retryAfterMs, deadlineRemaining },
+          "rate limited; back-off exceeds deadline, giving up",
+        );
+        throw new Error("HEALTH_RATE_LIMIT");
+      }
+      l.warn(
+        { action: "health_rate_limit", retryAfterMs },
+        "rate limited, sleeping per back-off hint",
+      );
+      await abortableSleep(retryAfterMs, callerSignal);
+      return fetchWithRetry(url, options, retryCount + 1, startTime, l, userId, criticality, idempotent);
     }
 
     if (response.status >= 500) {
-      if (retryCount >= MAX_RETRIES) {
+      // Never retry a non-idempotent request (e.g. nutrition create): a 5xx may mean the
+      // write committed before the response failed, so a retry would duplicate it (P1-8).
+      if (!idempotent || retryCount >= MAX_RETRIES) {
         return response;
       }
-      const delay = Math.pow(2, retryCount) * 1000;
+      // Exponential back-off with full jitter to avoid synchronized retry storms (P2-14).
+      const base = Math.pow(2, retryCount) * 1000;
+      const delay = Math.floor(base / 2 + Math.random() * (base / 2));
       l.warn(
         {
           action: "health_server_error",
@@ -236,7 +278,7 @@ export async function fetchWithRetry(
         "server error, retrying",
       );
       await abortableSleep(delay, callerSignal);
-      return fetchWithRetry(url, options, retryCount + 1, startTime, l, userId, criticality);
+      return fetchWithRetry(url, options, retryCount + 1, startTime, l, userId, criticality, idempotent);
     }
 
     return response;
@@ -451,31 +493,79 @@ function dataPointName(dataType: string, id: string): string {
 }
 
 /**
- * Extract the server-assigned dataPoint id from a `create` (POST) response. Per the v4
- * discovery doc, `create` returns a long-running `Operation` ({ name: "operations/…",
- * done, response }); the created DataPoint (with its server-assigned `name`) is in
- * `response`. A done-inline create may instead return the DataPoint directly
- * (`{ name: "users/.../dataPoints/{id}", … }`). Returns the dataPoint id, or null when
- * the response carries no dataPoint name (e.g. an Operation still in progress) — the
- * server assigns the id, so there is no client fallback.
+ * gRPC status codes (google.rpc.Code) used in `Operation.error.code`. The Google Health
+ * API surfaces long-running-operation failures INSIDE the Operation envelope (HTTP 200 +
+ * `{ done, error: { code, message } }`), NOT as an HTTP status — so these are how we
+ * distinguish "already gone" (NOT_FOUND) from a hard failure.
  */
-function parseCreatedDataPointId(data: unknown): string | null {
-  const idFromName = (name: unknown): string | null => {
-    if (typeof name !== "string") return null;
-    const m = /\/dataPoints\/([^/]+)$/.exec(name);
-    return m ? m[1] : null;
-  };
-  if (data && typeof data === "object") {
-    const d = data as Record<string, unknown>;
-    const fromTop = idFromName(d.name);
-    if (fromTop) return fromTop;
-    const resp = d.response;
-    if (resp && typeof resp === "object") {
-      const fromResp = idFromName((resp as Record<string, unknown>).name);
-      if (fromResp) return fromResp;
-    }
+const GRPC_INVALID_ARGUMENT = 3;
+const GRPC_NOT_FOUND = 5;
+const GRPC_PERMISSION_DENIED = 7;
+
+interface ParsedOperation {
+  /** True when the payload looks like an Operation (boolean `done` or an `operations/…` name). */
+  isOperation: boolean;
+  /** Operation completion. A direct (non-Operation) DataPoint payload is treated as done. */
+  done: boolean;
+  /** google.rpc.Code from `Operation.error.code`, or null when there is no error. */
+  errorCode: number | null;
+  errorMessage: string | null;
+  /**
+   * The created resource name: `Operation.response.name` (done-inline LRO) or the
+   * top-level `name` when the payload is a direct DataPoint. Null for an `operations/…`
+   * name (the Operation's own name is not the created resource name).
+   */
+  resourceName: string | null;
+}
+
+/**
+ * Parse a `create`/`batchDelete` 2xx body. Both methods return a long-running `Operation`
+ * (`{ name: "operations/…", done, response, error }`); a synchronously-completed call may
+ * instead return the resource (DataPoint) inline. The Google Health API exposes NO
+ * `operations.get` method, so an incomplete (`done:false`) Operation is UNRECOVERABLE —
+ * callers must fail loudly rather than treat it as success (P0-2/P0-3).
+ */
+function parseOperation(data: unknown): ParsedOperation {
+  if (!data || typeof data !== "object") {
+    // A non-JSON / empty 2xx body cannot be confirmed — treat as not-done so callers fail loud.
+    return { isOperation: false, done: false, errorCode: null, errorMessage: null, resourceName: null };
   }
-  return null;
+  const d = data as Record<string, unknown>;
+  const hasDone = typeof d.done === "boolean";
+  const nameIsOperation = typeof d.name === "string" && (d.name as string).startsWith("operations/");
+
+  let errorCode: number | null = null;
+  let errorMessage: string | null = null;
+  const err = d.error;
+  if (err && typeof err === "object") {
+    const e = err as Record<string, unknown>;
+    if (typeof e.code === "number") errorCode = e.code;
+    if (typeof e.message === "string") errorMessage = e.message;
+  }
+
+  let resourceName: string | null = null;
+  const resp = d.response;
+  if (resp && typeof resp === "object" && typeof (resp as Record<string, unknown>).name === "string") {
+    resourceName = (resp as Record<string, unknown>).name as string;
+  } else if (typeof d.name === "string" && !nameIsOperation) {
+    resourceName = d.name as string;
+  }
+
+  return {
+    isOperation: hasDone || nameIsOperation,
+    // A direct DataPoint (no `done` field, real resource name) is complete by definition.
+    done: hasDone ? (d.done as boolean) : true,
+    errorCode,
+    errorMessage,
+    resourceName,
+  };
+}
+
+/** Extract the trailing dataPoint id from a resource name `users/.../dataPoints/{id}`. */
+function extractDataPointId(name: string | null): string | null {
+  if (typeof name !== "string") return null;
+  const m = /\/dataPoints\/([^/]+)$/.exec(name);
+  return m ? m[1] : null;
 }
 
 /** Module-level dry-run gate — single source of truth for both write functions. */
@@ -637,45 +727,68 @@ export async function createNutritionLog(
       },
       body: JSON.stringify(body),
     },
-    0, Date.now(), l, userId, "critical",
+    // create is NOT idempotent — never retry on 5xx (would duplicate the log). P1-8.
+    0, Date.now(), l, userId, "critical", false,
   );
 
   if (!response.ok) {
     const rawBody = await parseErrorBody(response);
     const errorBody = sanitizeErrorBody(rawBody);
     l.error(
-      // Log the request body too so a field-level rejection can be diagnosed against what
-      // we sent (nutritionLog carries no tokens/PII beyond the food name + macros).
-      { action: "health_create_nutrition_log_failed", status: response.status, errorBody, requestBody: body, durationMs: elapsed() },
+      // Log the request-body field shape (not values) so a field-level rejection is
+      // diagnosable without forwarding the food name/macros (PII) to logs/Sentry (P1-10).
+      {
+        action: "health_create_nutrition_log_failed",
+        status: response.status,
+        errorBody,
+        requestBodyKeys: Object.keys((body.nutritionLog as Record<string, unknown> | undefined) ?? {}),
+        durationMs: elapsed(),
+      },
       "nutrition log creation failed",
     );
     throw new Error(response.status < 500 ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR");
   }
 
-  // Read the server-assigned dataPoint id from the Operation/DataPoint response.
+  // create returns a long-running Operation. There is NO operations.get method and
+  // nutrition is writeonly (no read-back), so the server-assigned dataPoint id is
+  // recoverable ONLY from a done-inline Operation (done:true + response.name). An errored
+  // or still-in-progress Operation is unrecoverable and FAILS LOUDLY rather than silently
+  // persisting a write we can never reference for edit/delete (P0-2). The FOO-1115 live
+  // smoke test confirms create completes synchronously.
   let parsed: unknown = null;
   try {
     parsed = await response.json();
   } catch {
     parsed = null;
   }
-  const healthLogId = parseCreatedDataPointId(parsed);
+  const op = parseOperation(parsed);
+  // Log only the response key shape (not the body) so the live sync-vs-async behavior is
+  // diagnosable without forwarding any payload to logs/Sentry.
+  const responseKeys = parsed && typeof parsed === "object" ? Object.keys(parsed as Record<string, unknown>) : [];
 
-  if (healthLogId === null) {
-    // Write succeeded (2xx) but no dataPoint name came back — likely an Operation still
-    // in progress. Don't throw (the entry exists server-side); record null so the row is
-    // saved, and log the raw response so the live sync-vs-async behavior (FOO-1115) is
-    // visible from the first real write.
-    l.warn(
-      { action: "health_create_nutrition_log_no_id", rawResponse: parsed },
-      "nutrition log created but no dataPoint id in response (operation may be async) — storing null healthLogId",
+  if (op.errorCode !== null) {
+    l.error(
+      { action: "health_create_nutrition_log_op_error", errorCode: op.errorCode, errorMessage: op.errorMessage, durationMs: elapsed() },
+      "nutrition log create returned an Operation error",
     );
-  } else {
-    // Include the response key shape so the first live write reveals whether create returns
-    // a DataPoint inline or an Operation wrapper (resolves the one remaining live unknown).
-    const responseKeys = parsed && typeof parsed === "object" ? Object.keys(parsed as Record<string, unknown>) : [];
-    l.info({ action: "health_create_nutrition_log_success", healthLogId, responseKeys, durationMs: elapsed() }, "nutrition log created");
+    throw new Error(op.errorCode === GRPC_INVALID_ARGUMENT ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR");
   }
+  if (!op.done) {
+    l.error(
+      { action: "health_create_nutrition_log_async", responseKeys, durationMs: elapsed() },
+      "nutrition log create returned an incomplete async Operation — id unrecoverable (no operations.get; nutrition is writeonly)",
+    );
+    throw new Error("HEALTH_API_ERROR");
+  }
+  const healthLogId = extractDataPointId(op.resourceName);
+  if (healthLogId === null) {
+    l.error(
+      { action: "health_create_nutrition_log_no_id", responseKeys, durationMs: elapsed() },
+      "nutrition log create completed but no dataPoint name in response — cannot reference for edit/delete",
+    );
+    throw new Error("HEALTH_API_ERROR");
+  }
+  l.info({ action: "health_create_nutrition_log_success", healthLogId, responseKeys, durationMs: elapsed() }, "nutrition log created");
   return { healthLogId };
 }
 
@@ -728,9 +841,10 @@ export async function deleteNutritionLogs(
     0, Date.now(), l, userId, "critical",
   );
 
-  // 404 = entry already gone. Idempotent for cleanup/compensation; a hard error for a
+  // NOT_FOUND handling shared by the HTTP-404 gateway fallback and the Operation
+  // error.code===5 path: idempotent for cleanup/compensation; a hard error for a
   // user-initiated delete (the DB id has no live Health entry — surface the drift).
-  if (response.status === 404) {
+  const handleNotFound = (): void => {
     if (mode === "user") {
       l.error(
         { action: "health_delete_nutrition_logs_not_found", ids, mode },
@@ -744,6 +858,13 @@ export async function deleteNutritionLogs(
       { action: "health_delete_nutrition_logs_not_found", ids, mode },
       "nutrition logs not found on Google Health, treating as already deleted",
     );
+  };
+
+  // batchDelete is a long-running Operation: NOT_FOUND and other failures surface as
+  // Operation.error.code (google.rpc.Code) with HTTP 200, NOT as an HTTP status. The
+  // HTTP-404 check is kept only as a gateway-level fallback.
+  if (response.status === 404) {
+    handleNotFound();
     return;
   }
 
@@ -755,6 +876,38 @@ export async function deleteNutritionLogs(
       "nutrition log deletion failed",
     );
     throw new Error(response.status < 500 ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR");
+  }
+
+  // 2xx: success is `done && no error` in the Operation envelope, NOT the HTTP status.
+  let parsed: unknown = null;
+  try {
+    parsed = await response.json();
+  } catch {
+    parsed = null;
+  }
+  const op = parseOperation(parsed);
+
+  if (op.errorCode === GRPC_NOT_FOUND) {
+    handleNotFound();
+    return;
+  }
+  if (op.errorCode !== null) {
+    l.error(
+      { action: "health_delete_nutrition_logs_op_error", errorCode: op.errorCode, errorMessage: op.errorMessage, ids, durationMs: elapsed() },
+      "nutrition log deletion returned an Operation error",
+    );
+    throw new Error(
+      op.errorCode === GRPC_INVALID_ARGUMENT || op.errorCode === GRPC_PERMISSION_DENIED ? "HEALTH_BAD_REQUEST" : "HEALTH_API_ERROR",
+    );
+  }
+  if (!op.done) {
+    // No operations.get to poll — an unconfirmed delete must NOT be reported as success,
+    // or the caller would proceed to recreate / drop the local row and risk a duplicate.
+    l.error(
+      { action: "health_delete_nutrition_logs_unconfirmed", ids, durationMs: elapsed() },
+      "nutrition log deletion returned an incomplete async Operation — cannot confirm deletion (no operations.get)",
+    );
+    throw new Error("HEALTH_API_ERROR");
   }
 
   l.info({ action: "health_delete_nutrition_logs_success", idCount: ids.length, durationMs: elapsed() }, "nutrition logs deleted");
@@ -777,22 +930,17 @@ function addDays(dateStr: string, days: number): string {
 }
 
 /**
- * Build a v4 CivilDateTime from a YYYY-MM-DD string.
+ * Build a v4 `CivilDateTime` ({ date: { year, month, day } }) from a YYYY-MM-DD string.
  *
- * When `zoneOffset` (±HH:MM) is provided the resulting object includes a
- * `utcOffset` duration field so Google Health interprets the civil day in the
- * user's timezone rather than UTC. This aligns the rollup window with the
- * write instant produced by `buildInterval` (which also embeds the zone offset),
- * preventing a date-boundary mismatch for late-night meals (e.g. 23:30 at −03:00
- * is next-day UTC but same civil day locally — FOO-1134).
- *
- * NOTE: the `utcOffset` field on CivilDateTime is inferred — pending live
- * validation against the v4 API (FOO-1115).
+ * `CivilDateTime` is timezone-agnostic BY DESIGN: the discovery schema explicitly
+ * forbids any timezone/offset field ("ensures that neither the timezone nor the UTC
+ * offset can be set ... to avoid confusion between civil and physical time queries").
+ * The CALLER selects which civil date (already in the user's timezone) and passes it
+ * here. An earlier version embedded a `utcOffset` duration (FOO-1134) — that field does
+ * not exist on `CivilDateTime` and Google's JSON parser rejects the body with
+ * 400 INVALID_ARGUMENT, breaking the calories-out read. Never re-add it (P0-4).
  */
-function civilDateTime(
-  dateStr: string,
-  zoneOffset?: string | null,
-): Record<string, unknown> {
+function civilDateTime(dateStr: string): Record<string, unknown> {
   const parts = dateStr.split("-").map(Number);
   // Fail fast on a malformed date rather than POSTing { year: NaN, … } and getting an
   // opaque upstream 400.
@@ -800,11 +948,7 @@ function civilDateTime(
     throw new Error(`Invalid YYYY-MM-DD date for Google Health civil interval: ${dateStr}`);
   }
   const [year, month, day] = parts;
-  const result: Record<string, unknown> = { date: { year, month, day } };
-  if (zoneOffset) {
-    result.utcOffset = zoneOffsetToDuration(zoneOffset);
-  }
-  return result;
+  return { date: { year, month, day } };
 }
 
 /**
@@ -867,17 +1011,25 @@ async function getHealthHeightCm(
   }
   const data = await jsonWithTimeout<Record<string, unknown>>(response);
   const points = Array.isArray(data.dataPoints) ? (data.dataPoints as Array<Record<string, unknown>>) : [];
+  // Take the most-recent parseable height by sample time. Don't rely on response ordering:
+  // the doc documents interval-start ordering, which doesn't apply to sample observations (P2-1).
+  const valid: Array<{ cm: number; date: string }> = [];
   for (const p of points) {
     const h = p.height as Record<string, unknown> | undefined;
-    if (h) {
-      const cm = parseHeightCm(h);
-      if (cm !== null) return cm;
-    }
+    if (!h) continue;
+    const cm = parseHeightCm(h);
+    if (cm === null) continue;
+    valid.push({ cm, date: extractSampleDate(h.sampleTime) ?? "" });
   }
-  // No height parsed. Log the raw response so "genuinely no height" is distinguishable
-  // from a shape change (e.g. heightMillimeters renamed) during the smoke test.
+  if (valid.length > 0) {
+    valid.sort((a, b) => b.date.localeCompare(a.date));
+    return valid[0].cm;
+  }
+  // No height parsed. Log the dataPoint count + key shape (not the body) so "genuinely no
+  // height" is distinguishable from a shape change (e.g. heightMillimeters renamed) without
+  // forwarding biometric PII to logs (P2-8).
   l.debug(
-    { action: "health_get_height_not_found", dataPointCount: points.length, rawResponse: data },
+    { action: "health_get_height_not_found", dataPointCount: points.length, responseKeys: Object.keys(data) },
     "no parseable height dataPoint in response",
   );
   return null;
@@ -923,17 +1075,18 @@ export async function getHealthProfile(
 
   const data = await jsonWithTimeout<Record<string, unknown>>(response);
 
-  // The v4 Profile exposes a derived integer `age`.
-  if (typeof data.age !== "number") {
-    // Log the raw profile so an unexpected live shape (missing/renamed `age`) is
-    // diagnosable instead of a blind HEALTH_API_ERROR.
-    l.error(
-      { action: "health_get_profile_unparseable", profileKeys: Object.keys(data), rawProfile: data, durationMs: elapsed() },
-      "profile response has no numeric `age` — unexpected shape",
+  // The v4 Profile exposes a derived integer `age`, but it is OPTIONAL (absent when the
+  // account has no birth date). Degrade to 0 rather than throwing: the macro engine's
+  // INVALID_PROFILE_DATA guard (ageYears <= 0) turns this into a resolved "blocked" goals
+  // state (HTTP 200) instead of a 502 that bricks the entire goals/macro feature (P1-1).
+  // Log only the key shape — never the raw profile body (PII) (P1-10).
+  const ageYears = typeof data.age === "number" ? data.age : 0;
+  if (ageYears === 0) {
+    l.warn(
+      { action: "health_get_profile_no_age", profileKeys: Object.keys(data), durationMs: elapsed() },
+      "Google Health profile has no numeric `age` (optional field absent) — goals will degrade to blocked",
     );
-    throw new Error("HEALTH_API_ERROR");
   }
-  const ageYears = data.age;
 
   // sex is not part of the v4 Profile → NA (parse defensively in case it ever appears).
   const sex = parseSex(data.sex);
@@ -959,8 +1112,8 @@ export async function getHealthProfile(
  * schema, Weight carries `weightGrams` (double) + `sampleTime.physicalTime` (RFC3339),
  * so kg = weightGrams / 1000.
  *
- * NOTE: the v4 ranged-read filter syntax isn't confirmed, so points are fetched
- * (pageSize 100) and filtered client-side to the window.
+ * Uses the documented AIP-160 `filter` (weight.sample_time.civil_time range) to scope the
+ * window server-side; client-side window filtering is retained as a safety net (P1-2).
  */
 export async function getHealthLatestWeightKg(
   accessToken: string,
@@ -979,6 +1132,13 @@ export async function getHealthLatestWeightKg(
 
   const url = new URL(dataPointsUrl("weight"));
   url.searchParams.set("pageSize", "100");
+  // Server-side time window (AIP-160): `<` is exclusive, so the upper bound is the day
+  // AFTER targetDate to include it. Fixes the >100-sample / past-date-null edge cases the
+  // old client-only filter had; client-side filtering below still guarantees exactness (P1-2).
+  url.searchParams.set(
+    "filter",
+    `weight.sample_time.civil_time >= "${startDate}" AND weight.sample_time.civil_time < "${addDays(targetDate, 1)}"`,
+  );
 
   const response = await fetchWithRetry(
     url.toString(),
@@ -1013,7 +1173,7 @@ export async function getHealthLatestWeightKg(
     // Include the raw response so an empty window is distinguishable from a shape change
     // (e.g. weightGrams / sampleTime renamed) during the smoke test.
     l.debug(
-      { action: "health_get_weight_not_found", targetDate, dataPointCount: points.length, rawResponse: data },
+      { action: "health_get_weight_not_found", targetDate, dataPointCount: points.length, responseKeys: Object.keys(data) },
       "no weight found in 14-day window",
     );
     return null;
@@ -1045,7 +1205,6 @@ export async function getHealthActivitySummary(
   log?: Logger,
   userId?: string,
   criticality: HealthCallCriticality = "optional",
-  zoneOffset?: string | null,
 ): Promise<ActivitySummary> {
   const l = log ?? logger;
   const elapsed = startTimer();
@@ -1064,8 +1223,8 @@ export async function getHealthActivitySummary(
       },
       body: JSON.stringify({
         range: {
-          start: civilDateTime(date, zoneOffset),
-          end: civilDateTime(addDays(date, 1), zoneOffset),
+          start: civilDateTime(date),
+          end: civilDateTime(addDays(date, 1)),
         },
         windowSizeDays: 1,
       }),
@@ -1103,7 +1262,7 @@ export async function getHealthActivitySummary(
     // Include the raw response so "no activity data yet" is distinguishable from a shape
     // change (e.g. totalCalories.kcalSum nesting differs) during the smoke test.
     l.debug(
-      { action: "health_get_activity_summary_empty", date, rollupPointCount: rollupPoints.length, rawResponse: data },
+      { action: "health_get_activity_summary_empty", date, rollupPointCount: rollupPoints.length, responseKeys: Object.keys(data) },
       "activity summary caloriesOut not yet available",
     );
     return { caloriesOut: null };

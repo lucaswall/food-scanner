@@ -241,16 +241,16 @@ describe("health-cache", () => {
 
       const result = await getCachedHealthActivitySummary("user-1", "2024-01-15");
 
-      expect(mockGetHealthActivitySummary).toHaveBeenCalledWith("test-access-token", "2024-01-15", expect.any(Object), "user-1", "optional", undefined);
+      expect(mockGetHealthActivitySummary).toHaveBeenCalledWith("test-access-token", "2024-01-15", expect.any(Object), "user-1", "optional");
       expect(result).toEqual(mockActivity);
     });
 
-    it("threads zoneOffset through to getHealthActivitySummary", async () => {
+    it("does NOT pass zoneOffset to getHealthActivitySummary (CivilDateTime forbids an offset; it stays in the cache key)", async () => {
       mockGetHealthActivitySummary.mockResolvedValue(mockActivity);
 
       await getCachedHealthActivitySummary("user-1", "2024-01-15", undefined, "optional", "-03:00");
 
-      expect(mockGetHealthActivitySummary).toHaveBeenCalledWith("test-access-token", "2024-01-15", expect.any(Object), "user-1", "optional", "-03:00");
+      expect(mockGetHealthActivitySummary).toHaveBeenCalledWith("test-access-token", "2024-01-15", expect.any(Object), "user-1", "optional");
     });
 
     it("keys the cache by zoneOffset (different offsets do not collide)", async () => {

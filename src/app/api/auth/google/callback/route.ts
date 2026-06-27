@@ -1,4 +1,4 @@
-import { exchangeGoogleCode, getGoogleProfile, exchangeGoogleHealthCode, getGoogleHealthIdentity } from "@/lib/auth";
+import { exchangeGoogleCode, getGoogleProfile, exchangeGoogleHealthCode, getGoogleHealthIdentity, GOOGLE_HEALTH_SCOPES } from "@/lib/auth";
 import { errorResponse } from "@/lib/api-response";
 import { getRawSession } from "@/lib/session";
 import { buildUrl } from "@/lib/url";
@@ -135,6 +135,21 @@ export async function GET(request: Request) {
         "failed to persist google health tokens",
       );
       return errorResponse("HEALTH_TOKEN_SAVE_FAILED", "Failed to save Google Health tokens", 500);
+    }
+
+    // Verify the user actually granted the scope we need. Granular consent lets a user
+    // deselect individual scopes; without nutrition.writeonly the app cannot log food, so
+    // route to re-consent instead of falsely reporting "connected" and 403-ing on the first
+    // write (P1-3). RFC 6749 §3.3: an omitted scope means all requested scopes were granted.
+    const NUTRITION_WRITE_SCOPE = "https://www.googleapis.com/auth/googlehealth.nutrition.writeonly";
+    const grantedScopes = new Set((healthTokens.scope ?? "").split(/\s+/).filter(Boolean));
+    const allGranted = healthTokens.scope == null || healthTokens.scope === "";
+    if (!allGranted && !grantedScopes.has(NUTRITION_WRITE_SCOPE)) {
+      log.warn(
+        { action: "health_connect_missing_scope", missing: GOOGLE_HEALTH_SCOPES.filter((s) => !grantedScopes.has(s)) },
+        "google health connected without the required nutrition.writeonly scope — routing to re-consent",
+      );
+      return Response.redirect(buildUrl("/app/connect-health?error=missing_scope"), 302);
     }
 
     log.info({ action: "health_connect_success" }, "google health connected successfully");

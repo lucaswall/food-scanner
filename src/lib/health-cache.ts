@@ -215,7 +215,10 @@ export async function getCachedHealthActivitySummary(
   promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
-      const activity = await getHealthActivitySummary(accessToken, targetDate, l, userId, criticality, zoneOffset);
+      // zoneOffset is part of the cache key above (selects the civil-day window), but the
+      // API call itself takes only the already-resolved civil date — CivilDateTime forbids
+      // an offset field (P0-4).
+      const activity = await getHealthActivitySummary(accessToken, targetDate, l, userId, criticality);
       if (getUserGeneration(userId) === generationAtStart) {
         activityCache.set(key, activity, TTL_5MIN);
       }

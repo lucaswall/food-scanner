@@ -50,6 +50,21 @@ function getKey(): Buffer {
 }
 
 /**
+ * Boot-time validation: the configured key must base64-decode to exactly 32 bytes
+ * (AES-256 IKM). A short or non-base64 value would silently yield a weak/degenerate key,
+ * so fail fast at startup rather than at first encrypt (P2-7). Call from instrumentation.
+ */
+export function validateEncryptionKey(): void {
+  const raw = Buffer.from(getRequiredEnv("HEALTH_TOKEN_ENCRYPTION_KEY"), "base64");
+  if (raw.length !== 32) {
+    throw new Error(
+      `HEALTH_TOKEN_ENCRYPTION_KEY must base64-decode to exactly 32 bytes (got ${raw.length}). ` +
+        "Generate one with: openssl rand -base64 32",
+    );
+  }
+}
+
+/**
  * Encrypts a plaintext string using AES-256-GCM.
  *
  * Ciphertext layout: version(1) | iv(12) | tag(16) | cipherdata(N)

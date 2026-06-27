@@ -13,7 +13,19 @@ vi.mock("@/lib/auth", () => ({
   getGoogleProfile: vi.fn(),
   exchangeGoogleHealthCode: vi.fn(),
   getGoogleHealthIdentity: vi.fn(),
+  GOOGLE_HEALTH_SCOPES: [
+    "https://www.googleapis.com/auth/googlehealth.nutrition.writeonly",
+    "https://www.googleapis.com/auth/googlehealth.profile.readonly",
+    "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly",
+    "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly",
+  ],
 }));
+
+const ALL_HEALTH_SCOPES =
+  "https://www.googleapis.com/auth/googlehealth.nutrition.writeonly " +
+  "https://www.googleapis.com/auth/googlehealth.profile.readonly " +
+  "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly " +
+  "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly";
 
 // Mock session module — getRawSession returns mutable iron-session object
 const mockRawSession = {
@@ -397,7 +409,7 @@ describe("GET /api/auth/google/callback", () => {
       access_token: "health-at",
       refresh_token: "health-rt",
       expires_in: 3600,
-      scope: "https://www.googleapis.com/auth/googlehealth.profile.readonly",
+      scope: ALL_HEALTH_SCOPES,
     });
     mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
 
@@ -409,11 +421,30 @@ describe("GET /api/auth/google/callback", () => {
       expect.objectContaining({
         healthUserId: "health-uid-123",
         refreshToken: "health-rt",
-        scope: "https://www.googleapis.com/auth/googlehealth.profile.readonly",
+        scope: ALL_HEALTH_SCOPES,
       }),
       expect.anything(),
     );
     expect(mockCreateSession).not.toHaveBeenCalled();
+  });
+
+  it("health-connect: routes to re-consent when nutrition.writeonly was NOT granted (P1-3)", async () => {
+    const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect" });
+    mockRawSession.oauthState = healthState;
+    mockRawSession.sessionId = "existing-session-id";
+    mockGetSessionById.mockResolvedValue(fakeDbSession);
+    // User deselected the write scope via granular consent — only readonly granted.
+    mockExchangeGoogleHealthCode.mockResolvedValue({
+      access_token: "health-at",
+      refresh_token: "health-rt",
+      expires_in: 3600,
+      scope: "https://www.googleapis.com/auth/googlehealth.profile.readonly",
+    });
+    mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
+
+    const response = await GET(makeCallbackRequest("health-code", healthState));
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("http://localhost:3000/app/connect-health?error=missing_scope");
   });
 
   it("health-connect: does not call createSession", async () => {

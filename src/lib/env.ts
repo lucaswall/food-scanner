@@ -73,24 +73,54 @@ export function validateHealthDryRunEnv(): void {
     );
   }
 
-  const isStaging = appUrl.includes("food-test");
-  const isProduction = appUrl.includes("food.lucaswall.me") && !isStaging;
-
-  if (isStaging) {
-    if (effective !== "true") {
-      throw new Error(
-        `HEALTH_DRY_RUN must be "true" on staging (APP_URL=${appUrl}). ` +
-        `Current: ${effective === undefined ? "unset" : `"${effective}"`}. ` +
-        `A missing or wrong flag enables live Google Health writes against real user data.`,
-      );
-    }
-  } else if (isProduction) {
-    if (effective !== "true" && effective !== "false") {
-      throw new Error(
-        `HEALTH_DRY_RUN must be explicitly "true" or "false" on production (APP_URL=${appUrl}). ` +
-        `Current: unset. Set HEALTH_DRY_RUN=false for live writes or HEALTH_DRY_RUN=true for dry-run.`,
-      );
-    }
+  // Compare the parsed HOSTNAME, not a substring of the raw URL — a path/query segment
+  // (e.g. "https://evil.example/?x=food-test") must never be mistaken for staging (P1-12).
+  let hostname: string;
+  try {
+    hostname = new URL(appUrl).hostname;
+  } catch {
+    throw new Error(`APP_URL is not a valid URL: "${appUrl}".`);
   }
-  // Local / dev: no constraint on HEALTH_DRY_RUN
+
+  const isLocal =
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".localhost");
+  if (isLocal) return; // no constraint on local/dev
+
+  // Default-deny: every non-local host MUST set HEALTH_DRY_RUN explicitly, so a renamed or
+  // misconfigured prod-like APP_URL can never silently enable live writes on real data (P1-12).
+  if (effective === undefined) {
+    throw new Error(
+      `HEALTH_DRY_RUN must be explicitly "true" or "false" on non-local host "${hostname}". ` +
+        "Unset is ambiguous and would risk live Google Health writes against real user data.",
+    );
+  }
+
+  // Staging must always be dry-run.
+  if (hostname === "food-test.lucaswall.me" && effective !== "true") {
+    throw new Error(
+      `HEALTH_DRY_RUN must be "true" on staging (${hostname}). Current: "${effective}". ` +
+        "A wrong flag enables live Google Health writes against real user data.",
+    );
+  }
+}
+
+/**
+ * Boot guard: the test-only auth bypass (POST /api/auth/test-login, gated by
+ * ENABLE_TEST_AUTH) mints a real session for test@example.com, bypassing Google OAuth AND
+ * the ALLOWED_EMAILS allowlist. It must NEVER be enabled on production — fail fast at boot
+ * rather than rely on the var merely being unset (P1-11).
+ */
+export function validateTestAuthEnv(): void {
+  if (process.env.ENABLE_TEST_AUTH !== "true") return;
+  let hostname = "";
+  try {
+    hostname = new URL(process.env.APP_URL ?? "").hostname;
+  } catch {
+    /* unparseable APP_URL is caught by validateHealthDryRunEnv */
+  }
+  if (hostname === "food.lucaswall.me") {
+    throw new Error(
+      "ENABLE_TEST_AUTH must NOT be 'true' on production (food.lucaswall.me) — it bypasses Google OAuth and the email allowlist.",
+    );
+  }
 }

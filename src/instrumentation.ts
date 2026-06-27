@@ -36,9 +36,20 @@ export async function register() {
     });
   }
 
-  const { validateRequiredEnvVars, validateHealthDryRunEnv } = await import("@/lib/env");
+  const { validateRequiredEnvVars, validateHealthDryRunEnv, validateTestAuthEnv } = await import("@/lib/env");
   validateRequiredEnvVars();
   validateHealthDryRunEnv();
+  validateTestAuthEnv();
+
+  // Fail fast if the health-token encryption key is malformed (must decode to 32 bytes).
+  // Gated to the Node.js runtime: token-encryption imports node:crypto, which must not be
+  // bundled into the Edge instrumentation. NEXT_RUNTIME is replaced per-bundle, so this
+  // branch (and the dynamic import) is dead-code-eliminated from the Edge build. Token
+  // encryption only ever runs server-side, so there's nothing to validate on Edge.
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { validateEncryptionKey } = await import("@/lib/token-encryption");
+    validateEncryptionKey();
+  }
 
   const { logger } = await import("@/lib/logger");
   const proc = globalThis.process;

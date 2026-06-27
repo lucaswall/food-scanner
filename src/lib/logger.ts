@@ -19,6 +19,19 @@ function createPinoOptions(
     level: logLevel,
     timestamp: pino.stdTimeFunctions.isoTime,
     messageKey: "message",
+    // Defense-in-depth: censor secrets if any code path ever logs them. Tokens/cookies/keys
+    // must never reach stdout or Sentry (CLAUDE.md). Backs up the "log keys, not bodies"
+    // rule applied at the call sites (P1-12).
+    redact: {
+      paths: [
+        "accessToken", "refreshToken", "access_token", "refresh_token",
+        "client_secret", "clientSecret", "apiKey", "api_key", "password", "cookie", "authorization",
+        "*.accessToken", "*.refreshToken", "*.access_token", "*.refresh_token",
+        "*.client_secret", "*.clientSecret", "*.apiKey", "*.api_key", "*.password",
+        "*.cookie", "*.Cookie", "*.authorization", "*.Authorization",
+      ],
+      censor: "[redacted]",
+    },
     formatters: {
       level(label) {
         return { level: label };
