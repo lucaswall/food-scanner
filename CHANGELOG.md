@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.2] - 2026-09-06
+
+### Fixed
+
+- A dropped Postgres connection could crash the server. `pg.Pool` emits `error` on idle clients when the backend closes a connection (database restart, network blip), and with no listener attached Node escalated it to an uncaught exception. The pool now logs the event and lets the pool recycle the client (FOOD-SCANNER-14).
+- Intermittent `timeout exceeded when trying to connect` failures on the `/api/v1` external API. The 5s connection-acquisition deadline raced a cold TLS connect to Postgres after an idle period; raised to 10s and TCP keep-alive enabled so idle sockets can't be silently dropped and handed out dead (FOOD-SCANNER-11, -12, -13, -V).
+
 ## [4.0.1] - 2026-09-06
 
 ### Fixed
@@ -628,7 +635,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.0.1...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.0.2...HEAD
+[4.0.2]: https://github.com/lucaswall/food-scanner/compare/v4.0.1...v4.0.2
 [4.0.1]: https://github.com/lucaswall/food-scanner/compare/v4.0.0...v4.0.1
 [4.0.0]: https://github.com/lucaswall/food-scanner/compare/v3.0.0...v4.0.0
 [3.0.0]: https://github.com/lucaswall/food-scanner/compare/v2.1.1...v3.0.0
