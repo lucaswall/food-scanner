@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-09-06
+
+### Added
+
+- Google Health connection flow — `/app/connect-health` walks through Google Health OAuth and surfaces granted-scope state; Settings shows connection status and a reconnect action.
+- Biological sex and activity level as explicit user settings — the Google Health v4 profile does not expose sex, and the macro engine requires both. Daily goals stay blocked (`goals_not_set`) until each user sets them.
+- Discovery-doc contract test guarding the Google Health request/response shapes against upstream schema drift.
+- Per-user rate limiting on write endpoints, and bounded eviction for the health and idempotency caches.
+
+### Changed
+
+- **BREAKING:** Fitbit Web API replaced by the Google Health API v4 (`health.googleapis.com/v4`) for all nutrition writes and profile/weight/height/activity reads.
+- **BREAKING:** API contract — `FoodLogResponse.fitbitLogId` (number) is now `healthLogId` (string); `fitbitFoodId` removed; session `fitbitConnected` is now `healthConnected`; all `FITBIT_*` error codes replaced by `HEALTH_*`.
+- **BREAKING:** Serving units are now string identifiers (`g`, `ml`, `cup`, `slice`, `serving`, …) instead of Fitbit's numeric unit IDs, across the database, the API, and the Claude tool schema.
+- Nutrition writes go to the collection endpoint per the v4 discovery document and must complete synchronously — the create Operation is rejected loudly if it returns async, since v4 offers no `operations.get` and nutrition is write-only.
+- Meal-type mapping is now explicit (snacks map to `BEFORE_LUNCH`/`BEFORE_DINNER`), and daily totals read `totalCalories.kcalSum` directly.
+- Health-token encryption derives an AES-256-GCM key via HKDF-SHA256 from a dedicated `HEALTH_TOKEN_ENCRYPTION_KEY`, with a versioned ciphertext prefix.
+- Boot guards fail fast on misconfiguration: `HEALTH_DRY_RUN` must be set explicitly on any non-local host, staging must be dry-run, the test-auth bypass can never be enabled on production, and the encryption key must decode to 32 bytes.
+
+### Removed
+
+- All Fitbit integration code, the `fitbit_tokens` and `fitbit_credentials` tables, and the per-user Fitbit credential UI. Google Health reuses the single shared Google OAuth client.
+
+### Fixed
+
+- Meal times near midnight no longer land on the wrong day — the write timezone is aligned with the activity rollup query.
+- Edit-time no longer collapses to 16:00 — `TimeSelector` keeps minute granularity and edits start from the entry's real timestamp.
+- Claude tool schema strict-mode regression that produced intermittent 400s on `/api/analyze-food`.
+- Transient upstream 5xx responses are retried, and network errors surface a clear message instead of a generic failure.
+- 29 findings from a security, performance, and correctness audit — including prompt-injection hardening for user-supplied food names, spoofable rate-limit keys, an unbounded `searchFoods` cross-join, and deployment-config disclosure on the public health endpoint.
+
+### Security
+
+- Dependency vulnerabilities resolved (1 critical + 10 high), including `drizzle-orm`, Next.js, and `undici`.
+- User email removed from Sentry user context; full system prompts no longer logged at debug level.
+
+### Migration
+
+- Drizzle migrations `0027_google_health_migration.sql` and `0028_cold_white_queen.sql`. `unit_id` converts from integer to text with a legacy-ID backfill on `custom_foods` and `food_log_entries`, and the numeric `unit_id` embedded in `saved_analyses.food_analysis` JSONB is remapped in step. A startup guard fails the boot if the conversion did not take.
+- **Forced re-consent:** `health_tokens` starts empty, so both users are routed to `/app/connect-health` on first visit. Nutrition history is untouched — Postgres remains the source of truth; only the external mirror handle resets.
+- **Post-release user action:** each user must set biological sex and activity level in Settings → Daily Goals, or daily goals remain blocked.
+
 ## [3.0.0] - 2026-05-08
 
 ### Added
@@ -580,7 +622,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.0.0...HEAD
+[4.0.0]: https://github.com/lucaswall/food-scanner/compare/v3.0.0...v4.0.0
 [3.0.0]: https://github.com/lucaswall/food-scanner/compare/v2.1.1...v3.0.0
 [2.1.1]: https://github.com/lucaswall/food-scanner/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/lucaswall/food-scanner/compare/v2.0.0...v2.1.0
