@@ -666,7 +666,7 @@ describe("google-health", () => {
     });
 
     // FOO-1113: the Health entry must carry the user's selected meal time + context.
-    it("nutritionLog carries the interval (start==end, with UTC offset) + mapped mealType", async () => {
+    it("nutritionLog carries the interval (end one second past start, with UTC offset) + mapped mealType", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({ name: "users/me/dataTypes/nutrition-log/dataPoints/op1" }));
 
       await createNutritionLog("token", sampleFood, sampleTiming, fakeLog, "user-1");
@@ -676,10 +676,50 @@ describe("google-health", () => {
       expect(nutritionLog.interval).toEqual({
         startTime: "2026-02-08T20:00:00-03:00",
         startUtcOffset: "-10800s",
-        endTime: "2026-02-08T20:00:00-03:00",
+        endTime: "2026-02-08T20:00:01-03:00",
         endUtcOffset: "-10800s",
       });
       expect(nutritionLog.mealType).toBe("DINNER"); // mealTypeId 5
+    });
+
+    // Regression: v4 rejects a zero-length interval with 400 INVALID_ARGUMENT /
+    // INVALID_TIME_RANGE ("start time must be strictly earlier than end time"). Observed
+    // against the live API on the v4.0.0 cutover; start == end must never ship again.
+    it("interval end is STRICTLY after start for every meal time (never zero-length)", async () => {
+      for (const time of ["00:00:00", "08:30", "12:00:00", "20:00:00", "23:59:58"]) {
+        fetchMock.mockReset();
+        fetchMock.mockResolvedValue(makeJsonResponse({ name: "users/me/dataTypes/nutrition-log/dataPoints/op1" }));
+
+        await createNutritionLog(
+          "token",
+          sampleFood,
+          { date: "2026-02-08", time, zoneOffset: "-03:00", mealTypeId: 5 },
+          fakeLog,
+          "user-1",
+        );
+
+        const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+        const { interval } = JSON.parse(init.body as string).nutritionLog;
+        expect(Date.parse(interval.endTime)).toBeGreaterThan(Date.parse(interval.startTime));
+      }
+    });
+
+    it("interval end rolls to the next civil day at 23:59:59, keeping the start's offset", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "users/me/dataTypes/nutrition-log/dataPoints/op1" }));
+
+      await createNutritionLog(
+        "token",
+        sampleFood,
+        { date: "2026-02-08", time: "23:59:59", zoneOffset: "-03:00", mealTypeId: 5 },
+        fakeLog,
+        "user-1",
+      );
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const { interval } = JSON.parse(init.body as string).nutritionLog;
+      expect(interval.startTime).toBe("2026-02-08T23:59:59-03:00");
+      expect(interval.endTime).toBe("2026-02-09T00:00:00-03:00");
+      expect(Date.parse(interval.endTime)).toBeGreaterThan(Date.parse(interval.startTime));
     });
 
     it("builds the interval without an offset when zoneOffset is absent and normalizes HH:mm", async () => {
@@ -698,7 +738,7 @@ describe("google-health", () => {
       expect(nutritionLog.interval).toEqual({
         startTime: "2026-02-08T08:30:00Z",
         startUtcOffset: "0s",
-        endTime: "2026-02-08T08:30:00Z",
+        endTime: "2026-02-08T08:30:01Z",
         endUtcOffset: "0s",
       });
       expect(nutritionLog.mealType).toBe("BREAKFAST"); // mealTypeId 1

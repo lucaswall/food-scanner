@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.1] - 2026-09-06
+
+### Fixed
+
+- Food logging failed against the live Google Health API with `400 INVALID_ARGUMENT` (`INVALID_TIME_RANGE`). The nutrition-log interval was built as a point-in-time event with `startTime == endTime`, and v4 requires the start bound to be *strictly* earlier than the end. The end bound now sits one second past the start, rolling correctly into the next civil day for a 23:59:59 meal while preserving the start's UTC offset — so day attribution still agrees with the activity rollup window.
+
 ## [4.0.0] - 2026-09-06
 
 ### Added
@@ -622,7 +628,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.0.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.0.1...HEAD
+[4.0.1]: https://github.com/lucaswall/food-scanner/compare/v4.0.0...v4.0.1
 [4.0.0]: https://github.com/lucaswall/food-scanner/compare/v3.0.0...v4.0.0
 [3.0.0]: https://github.com/lucaswall/food-scanner/compare/v2.1.1...v3.0.0
 [2.1.1]: https://github.com/lucaswall/food-scanner/compare/v2.1.0...v2.1.1

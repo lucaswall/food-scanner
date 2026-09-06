@@ -633,16 +633,49 @@ function zoneOffsetToDuration(zoneOffset: string): string {
 }
 
 /**
- * Build the v4 `SessionTimeInterval` for the logged meal (a point-in-time event, so
- * start == end). Each bound is an RFC3339 instant + a google-duration UTC offset, per
- * the discovery schema. Returns undefined when no time is known.
+ * Add one second to a wall-clock date/time and re-render it in the SAME UTC offset.
+ *
+ * The arithmetic runs in a UTC frame because the offset suffix is carried through
+ * unchanged — only the civil representation advances, so a 23:59:59 meal rolls to
+ * 00:00:00 on the next civil day rather than shifting by the offset. Built from
+ * explicit numeric components (never `Date.parse`) so it cannot fail on a format the
+ * parser dislikes.
+ */
+function addOneSecond(date: string, time: string, zoneOffset: string | null): string {
+  const [y, mo, d] = date.split("-").map(Number);
+  const [h, mi, s] = time.split(":").map(Number);
+  const iso = new Date(Date.UTC(y, mo - 1, d, h, mi, s) + 1000).toISOString().slice(0, 19);
+  return `${iso}${zoneOffset ?? "Z"}`;
+}
+
+/**
+ * Build the v4 `SessionTimeInterval` for the logged meal. Each bound is an RFC3339
+ * instant + a google-duration UTC offset, per the discovery schema. Returns undefined
+ * when no time is known.
+ *
+ * A meal is a point-in-time event, but v4 REJECTS a zero-length interval with
+ * `400 INVALID_ARGUMENT` / `reason: INVALID_TIME_RANGE` ("Data point start time must be
+ * strictly earlier than end time") — verified against the live API, which is the only
+ * place this surfaces: the discovery doc defines the interval's shape, not the strict
+ * ordering constraint. So the end bound sits one second past the start.
+ *
+ * One second rather than a nominal meal duration: `startTime` is what drives day
+ * attribution and must agree with the civil-day `dailyRollUp` window (FOO-1134), and a
+ * wider interval only widens the near-midnight window where the two can disagree. The
+ * app has never modelled meal duration, so a longer span would be invented data.
  */
 function buildInterval(timing: HealthLogTiming): Record<string, unknown> | undefined {
   if (!timing.time) return undefined;
   const t = /^\d{2}:\d{2}$/.test(timing.time) ? `${timing.time}:00` : timing.time;
-  const instant = timing.zoneOffset ? `${timing.date}T${t}${timing.zoneOffset}` : `${timing.date}T${t}Z`;
-  const offset = timing.zoneOffset ? zoneOffsetToDuration(timing.zoneOffset) : "0s";
-  return { startTime: instant, startUtcOffset: offset, endTime: instant, endUtcOffset: offset };
+  const zone = timing.zoneOffset ?? null;
+  const startTime = `${timing.date}T${t}${zone ?? "Z"}`;
+  const offset = zone ? zoneOffsetToDuration(zone) : "0s";
+  return {
+    startTime,
+    startUtcOffset: offset,
+    endTime: addOneSecond(timing.date, t, zone),
+    endUtcOffset: offset,
+  };
 }
 
 /**
