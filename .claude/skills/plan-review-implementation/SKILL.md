@@ -489,13 +489,13 @@ If the scope assessment chose single-agent mode (≤4 changed files) OR `TeamCre
 
 ### For Incomplete Plans
 1. Stage modified files: `git status --porcelain=v1`, then `git add <file> ...` — **skip** `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
-2. Commit with simple `-m` flag (no heredoc, no `$()`, no `Co-Authored-By` tags): `git commit -m "plan: review iteration N - [issues found | no issues]"`
+2. Commit with simple `-m` flag (no heredoc, no `$()`): `git commit -m "plan: review iteration N - [issues found | no issues]"`
 3. `git push`
 4. Inform user to run `/plan-implement`
 
 ### For Complete Plans
 1. Stage modified files: `git status --porcelain=v1`, then `git add <file> ...` — **skip** `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
-2. Commit with simple `-m` flag (no heredoc, no `$()`, no `Co-Authored-By` tags): `git commit -m "plan: mark [plan-name] complete"`
+2. Commit with simple `-m` flag (no heredoc, no `$()`): `git commit -m "plan: mark [plan-name] complete"`
 3. `git push`
 4. **Collect ALL Linear issue identifiers** managed during this session:
    - Original plan issues (from PLANS.md header)
@@ -541,7 +541,6 @@ If the scope assessment chose single-agent mode (≤4 changed files) OR `TeamCre
 - **Always commit and push at termination** — Never end without committing progress
 - **Create PR when plan is complete** — Use pr-creator subagent for final PR
 - **Lead handles all Linear/git writes** — Reviewers NEVER create issues or modify PLANS.md
-- **No co-author attribution** — Commit messages must NOT include `Co-Authored-By` tags
 - **Never stage sensitive files** — Skip `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
 - **Check MIGRATIONS.md** — If implementation changed DB schema, column names, session/token formats, or env vars, verify that `MIGRATIONS.md` has a corresponding note AND that the code includes migration logic (detection of old format + automatic migration) where applicable. If migration logic is missing, add it as a FIX finding -- breaking changes to persistent data without migration paths are bugs in production.
 - **Every finding is FIX or DISCARD** — No "document only" category. Real bugs at any severity get Linear issues + Fix Plan. Non-bugs get discarded with reasoning.

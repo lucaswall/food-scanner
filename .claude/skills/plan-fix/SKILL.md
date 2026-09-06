@@ -234,7 +234,7 @@ This skill is NOT for:
 
 ## 12. Termination
 
-Follow the termination procedure in `references/plans-template.md`: output the Plan Summary, then create branch, commit (no `Co-Authored-By` tags), and push.
+Follow the termination procedure in `references/plans-template.md`: output the Plan Summary, then create branch, commit, and push.
 
 If chained from investigate skill, reference the investigation findings and note any additional evidence found during planning.
 

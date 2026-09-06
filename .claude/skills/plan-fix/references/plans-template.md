@@ -98,7 +98,7 @@ Linear issues in Todo: PROJ-123, PROJ-124, ...
 **Risks:** [from PLANS.md, if any]
 ```
 
-Then create branch, commit (no `Co-Authored-By` tags), and push:
+Then create branch, commit, and push:
 ```bash
 git checkout -b <type>/<description> && git add PLANS.md && git commit -m "plan: <description>" && git push -u origin <type>/<description>
 ```

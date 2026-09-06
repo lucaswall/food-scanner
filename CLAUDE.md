@@ -230,6 +230,5 @@ When the breaker rejects, it throws `HEALTH_RATE_LIMIT_LOW`. Route handlers map 
 - **Log migrations in MIGRATIONS.md** — When a change could require production data migration, append a description. Do NOT write migration code.
 - **Mobile-first design** — All UI must work on mobile. Touch targets at least 44px x 44px.
 - **Keep documentation current** — Update `CLAUDE.md`, `README.md`, `DEVELOPMENT.md` in the same changeset when structure, APIs, env vars, or deployment changes.
-- **No co-author attribution** — Commit messages must NOT include `Co-Authored-By` tags.
 - **Zero warnings policy** — Build and lint must produce zero warnings. Fix immediately.
 - **PWA configured** — `public/manifest.json`, icons in `public/`. No service worker.

@@ -675,7 +675,6 @@ Env-var changes are applied by the agent in **5.9** (Railway CLI), not left to t
 - **Stop → backup → migrate → deploy** — `railway down` stops writes, backup is consistent, migration applies cleanly, push to `release` restarts the service
 - **Manual migration covers Drizzle DDL + data + journal** — One atomic script does everything; Drizzle skips already-applied migrations at startup
 - **Clear MIGRATIONS.md after release** — Reset to empty template on main
-- **No co-author attribution** — Commit messages must NOT include `Co-Authored-By` tags
 - **Never force-push** — Use normal merge only
 - **Backup files stay local** — `_migrations/` is gitignored
 - **Never hardcode user data in SQL** — Derive from existing DB content (SELECT DISTINCT, JOINs), never hardcode emails, names, or personal data

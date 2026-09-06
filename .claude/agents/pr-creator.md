@@ -197,7 +197,6 @@ Closes FOO-123, FOO-124
 ## Rules
 
 - Use only git and gh commands
-- Do not include co-author attribution
 - Analyze ALL branch commits for PR description, not just latest
 - If on base branch with unpushed commits, move them to feature branch and reset base
 - If on base branch with only local changes, create feature branch then commit

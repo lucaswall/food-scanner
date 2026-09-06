@@ -450,7 +450,7 @@ If `TeamCreate` fails or worktree setup fails, implement the plan sequentially a
 
 **Steps:**
 1. Stage modified files: `git status --porcelain=v1`, then `git add <file> ...` — **skip** files matching `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
-2. Create commit with a **simple `-m` string** (do **not** include `Co-Authored-By` tags):
+2. Create commit with a **simple `-m` string**:
    ```bash
    git commit -m "plan: implement iteration N - [brief summary]"
    ```
@@ -517,6 +517,5 @@ If `TeamCreate` fails or worktree setup fails, implement the plan sequentially a
 - **Respect the 5-minute grace period** — Workers need multiple turns to start. Do not send status checks or take corrective action before 5 minutes have passed.
 - **Small batches skip workers** — Use the effort-point scoring (0=0, S=1, M=2, L=4) to decide. Single-agent when: 1 work unit, ≤6 total points, or 7–11 points with <3 units. Docs-only tasks (CLAUDE.md, .env, skill files) score 0 — they don't justify worker overhead.
 - **Always clean up worktrees** — Remove worktrees, prune metadata, delete worker branches after merge
-- **No co-author attribution** — Commit messages must NOT include `Co-Authored-By` tags
 - **Never stage sensitive files** — Skip `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
 - **Log migrations in MIGRATIONS.md** — Workers report migration-relevant changes to lead; lead appends to MIGRATIONS.md. All schema/folder changes MUST include migration logic (startup detection + automatic migration) — never ship a breaking change to persistent data without a migration path.

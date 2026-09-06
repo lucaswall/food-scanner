@@ -244,6 +244,6 @@ If CLAUDE.md doesn't list MCPs, skip MCP context gathering.
 
 ## Termination
 
-Follow the termination procedure in `references/plans-template.md`: output the Plan Summary, then create branch, commit (no `Co-Authored-By` tags), and push.
+Follow the termination procedure in `references/plans-template.md`: output the Plan Summary, then create branch, commit, and push.
 
 Do not ask follow-up questions. Do not offer to implement. Output the summary and stop.

@@ -403,6 +403,6 @@ If the user asks to also implement the plan, tell them to use the `plan-implemen
 
 ## Termination
 
-Follow the termination procedure in `references/plans-template.md`: output the Plan Summary, then create branch, commit (no `Co-Authored-By` tags), and push.
+Follow the termination procedure in `references/plans-template.md`: output the Plan Summary, then create branch, commit, and push.
 
 Do not ask follow-up questions. Do not offer to implement. Output the summary and stop.
