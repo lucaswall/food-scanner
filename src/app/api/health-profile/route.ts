@@ -18,8 +18,8 @@ import type { HealthProfileData } from "@/types";
  * Returns the user's Google Health profile data:
  * { ageYears, sex, heightCm, weightKg, weightLoggedDate, goalType, lastSyncedAt }
  *
- * goalType comes from users.weightGoalType (local DB, set in Settings) —
- * not from a Fitbit/Health API call (weight-goal API was dropped in Task 9).
+ * goalType comes from users.weightGoalType (local DB, set in Settings), not from
+ * the Google Health API — v4 exposes no weight-goal resource.
  *
  * Does NOT shadow /api/health (the public health-check endpoint).
  */

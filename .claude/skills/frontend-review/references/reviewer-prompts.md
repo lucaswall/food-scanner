@@ -19,8 +19,8 @@ PROJECT CONTEXT:
 - Styling: Tailwind CSS v4 (inline @theme in globals.css) + shadcn/ui components
 - Mobile-first: PWA with "Add to Home Screen", touch targets >= 44px
 - Dark mode: CSS class-based switching with localStorage persistence
-- Single user app: food logging via photo → AI analysis → Fitbit API
-- Key user flow: capture photo → optional description → analyze → edit nutrition → confirm → log to Fitbit
+- Single user app: food logging via photo → AI analysis → Google Health API
+- Key user flow: capture photo → optional description → analyze → edit nutrition → confirm → log to Google Health
 
 FILES TO REVIEW:
 {exact list of files from the pre-flight file discovery}
@@ -222,11 +222,11 @@ COGNITIVE LOAD & INFORMATION ARCHITECTURE:
 - Recognition over recall: options are visible, not hidden behind memorizable commands
 
 MICROCOPY & CONTENT DESIGN:
-- Button labels describe the action outcome, not generic labels ("Log to Fitbit" not "Submit")
+- Button labels describe the action outcome, not generic labels ("Log to Google Health" not "Submit")
 - Error messages explain what went wrong AND what to do ("Photo too large. Choose an image under 10MB." not "Error: validation failed")
 - Empty states have personality and guide the user ("Take a photo of your meal to get started" not "No data")
 - Loading messages set expectations where possible ("Analyzing your meal..." not just a spinner)
-- Confirmations are specific ("Logged 450 cal lunch to Fitbit" not "Success!")
+- Confirmations are specific ("Logged 450 cal lunch to Google Health" not "Success!")
 - Labels and terminology are consistent throughout (don't mix "meal", "food", "entry" for the same concept)
 - Tone is friendly and helpful but not cutesy — appropriate for a health/fitness tool
 
@@ -289,7 +289,7 @@ RULES:
 PROJECT CONTEXT:
 - Mobile-first: screenshots are at 390x844 (iPhone 14 Pro viewport)
 - Design system: Tailwind CSS + shadcn/ui
-- Key screens: landing, dashboard, analyze, history, food-detail, quick-select, settings, setup-fitbit
+- Key screens: landing, dashboard, analyze, history, food-detail, quick-select, settings, connect-health
 - Bottom navigation bar present on all authenticated screens (Home, Quick Select, Analyze, History, Settings)
 
 SCREENSHOTS TO ANALYZE:
@@ -322,7 +322,7 @@ For EACH screenshot, evaluate:
    - Are primary actions within thumb reach (lower portion)?
 
 5. EMPTY/GUARD STATES
-   - Do "Set up Fitbit" or empty screens look intentional and inviting?
+   - Do "Connect Google Health" or empty screens look intentional and inviting?
    - Is there clear guidance on what to do next?
    - Does blank space feel like a design choice or a missing feature?
 

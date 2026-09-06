@@ -247,7 +247,7 @@ Output a markdown summary to the conversation (NOT to a file):
 | Weekly view | PASS/FAIL/SKIP | OK/WARN | |
 | Analyze food | PASS/FAIL/SKIP | OK/WARN | |
 | Refine with chat | PASS/FAIL/SKIP | OK/WARN | |
-| Log to Fitbit | PASS/FAIL/SKIP | OK/WARN | |
+| Log to Google Health | PASS/FAIL/SKIP | OK/WARN | |
 | Delete test entry | PASS/FAIL/SKIP | OK/WARN | |
 | Quick Select | PASS/FAIL/SKIP | OK/WARN | |
 | Food detail | PASS/FAIL/SKIP | OK/WARN | |

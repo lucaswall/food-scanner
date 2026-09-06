@@ -83,7 +83,7 @@ Check the changed files for:
 - Async issues — promises without .catch(), async functions without try/catch, unhandled rejections, Promise.all error handling
 - Memory leaks — unbounded arrays/Maps/Sets, event listeners without cleanup, timers without clearInterval
 - Resource leaks — connections not returned to pool, file handles not closed, streams not destroyed on error
-- Timeout/hang scenarios — HTTP requests without timeout, API calls that could hang (Claude, Fitbit, Google)
+- Timeout/hang scenarios — HTTP requests without timeout, API calls that could hang (Claude, Google Health)
 - Boundary conditions — empty inputs, single-element collections, max-size inputs, negative/zero values
 
 Search patterns (use Grep on changed files):

@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 24 (see `.node-version`)
 - npm
 - Git
 - Docker (via [Docker Desktop](https://www.docker.com/products/docker-desktop/) or [OrbStack](https://orbstack.dev/)) — for local PostgreSQL
@@ -132,7 +132,7 @@ This will:
    - Authenticate via test-login endpoint (creates test user + session)
    - Seed test data (custom foods, food log entries)
    - Save session cookies to storage state
-5. Run all E2E tests (18 spec files covering landing, auth, dashboard, settings, history, navigation, and more)
+5. Run all E2E tests
 6. Capture screenshots to `e2e/screenshots/` (landing.png, dashboard.png, settings.png)
 7. Run global teardown (truncate DB, close connections)
 
@@ -153,25 +153,7 @@ e2e/
 ├── fixtures/
 │   ├── auth.ts        # Authentication helpers (storage state path, unauthenticated constant)
 │   └── db.ts          # Database utilities (seed, truncate)
-├── tests/             # 18 spec files covering all app areas
-│   ├── health.spec.ts        # API health check
-│   ├── landing.spec.ts       # Landing page (unauthenticated)
-│   ├── auth.spec.ts          # Auth redirects
-│   ├── auth-fixture.spec.ts  # Auth fixture tests
-│   ├── dashboard.spec.ts     # Dashboard smoke tests
-│   ├── settings.spec.ts      # Settings page
-│   ├── history.spec.ts       # Food history
-│   ├── food-detail.spec.ts   # Food detail view
-│   ├── analyze.spec.ts       # Food analysis
-│   ├── quick-select.spec.ts  # Quick select
-│   ├── connect-health.spec.ts  # Connect Google Health (placeholder)
-│   ├── navigation.spec.ts    # App navigation
-│   ├── empty-states.spec.ts  # Empty state UI
-│   ├── logout.spec.ts        # Logout flow
-│   ├── api-auth.spec.ts      # API auth checks
-│   ├── api-data.spec.ts      # API data endpoints
-│   ├── api-keys.spec.ts      # API key management
-│   └── api-v1.spec.ts        # External API v1
+├── tests/             # One spec per app area — file names match the screen or route
 ├── global-setup.ts    # Runs before all tests (truncate, auth, seed)
 └── global-teardown.ts # Runs after all tests (cleanup)
 ```
@@ -182,9 +164,7 @@ The test-login endpoint (`POST /api/auth/test-login`) is gated by `ENABLE_TEST_A
 - Test user: `test@example.com` / `Test User`
 - Test session (iron-session cookie)
 
-Global setup seeds:
-- 3 custom foods (chicken, rice, broccoli)
-- 3 food log entries for today's date
+Global setup seeds a small fixture set (custom foods plus food log entries for today) — see `e2e/fixtures/db.ts`.
 
 ### Screenshots
 
@@ -246,7 +226,7 @@ Format: `<type>: <summary>`
 Examples:
 - `feat: add Google OAuth login flow`
 - `fix: handle expired Google Health tokens gracefully`
-- `chore: update Next.js to 15.1`
+- `chore: update Next.js to 16.2`
 
 ---
 
@@ -306,6 +286,8 @@ This project uses Claude Code with custom agents and skills for development:
 - `/deep-review <screen>` — Deep analysis of a single screen/feature
 - `/add-to-backlog <items>` — Add issues to Linear backlog
 - `/backlog-refine FOO-123` — Refine vague backlog issues interactively
+- `/roadmap` — Research a feature, then write to / pull from the roadmap
+- `/staging-qa` — Chrome-driven functional + visual QA against staging
 - `/push-to-production` — Promote main to release with migrations
 - `/tools-improve` — Best practices for skills/agents/CLAUDE.md
 
@@ -330,41 +312,23 @@ configured via `tunnelRoute: "/monitoring"` in `withSentryConfig`. The `@sentry/
 plugin injects the tunnel URL into the compiled client bundle — no direct `connect-src sentry.io`
 is needed. `connect-src 'self'` covers Sentry reporting.
 
-### Nonce-based script-src (deferred — FOO-1154)
+### script-src uses 'unsafe-inline' (accepted)
 
-The current CSP uses `'unsafe-inline'` for `script-src`. Replacing it with a per-request nonce
-requires:
-
-1. Generating a cryptographic nonce in `middleware.ts` on every request.
-2. Setting both the `Content-Security-Policy` header (with `'nonce-<value>'`) and an `x-nonce`
-   response header so Next.js App Router's root layout can read it.
-3. Passing the nonce to the root `<html>` layout so Next.js includes it on all inline hydration
-   `<script>` tags (using the `headers().get("x-nonce")` pattern from Next.js docs).
-
-This change touches `middleware.ts`, `src/app/layout.tsx`, and `next.config.ts`. It carries a
-risk of breaking RSC hydration if any inline script is missed. Deferred to a dedicated task —
-`'unsafe-inline'` is acceptable in the interim for this single-user app.
+A per-request nonce would be stronger, but it requires threading a nonce from `middleware.ts`
+through the root layout onto every inline hydration script, and missing one breaks RSC
+hydration. Accepted as-is for this allowlisted single-user app; revisit if the app ever opens up.
 
 ---
 
-## Dependency Security Advisories (FOO-1144)
+## Dependency Security Advisories
 
-`npm audit --omit=dev` reports **0 critical / 0 high** in production dependencies. The audit
-baseline (1 critical + 10 high) was resolved by:
+Target: `npm audit --omit=dev` reports **0 critical / 0 high** in production dependencies.
 
-- `npm audit fix` — cleared the high-severity build-tooling advisories (`rollup`,
-  `serialize-javascript` via `terser-webpack-plugin`, `uuid` via `@sentry/webpack-plugin`).
-- `next` upgraded `16.1.6 → 16.2.7` — cleared all high-severity Next.js runtime advisories
-  (middleware/proxy bypass, RSC cache poisoning, image-optimization DoS, WebSocket SSRF,
-  `beforeInteractive` XSS). The original drizzle-orm/undici advisories were already resolved by
-  the versions in use.
-
-**Residual (2 moderate, not fixable without a breaking change):** `postcss <8.5.10` (XSS via
-unescaped `</style>` in CSS stringify output), reached transitively through `next`. The only
-available fix bumps `next` to a `16.3.0-canary` release, which is unacceptable for production.
-PostCSS runs at build time over the project's own trusted CSS (Tailwind), so the advisory is not
-reachable with untrusted runtime input. Re-evaluate when a stable `next` ships the patched
-`postcss`.
+**Accepted residual (2 moderate):** `postcss <8.5.10` (XSS via unescaped `</style>` in CSS
+stringify output), reached transitively through `next`. The only fix bumps `next` to a canary
+release, which is unacceptable for production. PostCSS runs at build time over the project's own
+trusted CSS (Tailwind), so the advisory is not reachable with untrusted runtime input.
+Re-evaluate when a stable `next` ships the patched `postcss`.
 
 ---
 
@@ -406,7 +370,7 @@ Copy the Google Client ID and Client Secret values into your `.env.local` file. 
 
 ## Anthropic API Setup
 
-The Anthropic API is used for AI-powered food analysis via Claude Sonnet 4.
+The Anthropic API is used for AI-powered food analysis. The model id lives in `src/lib/claude.ts`.
 
 1. Go to [console.anthropic.com](https://console.anthropic.com)
 2. Create an account or sign in
@@ -420,4 +384,4 @@ The Anthropic API is used for AI-powered food analysis via Claude Sonnet 4.
 
 **Permissions:** The API key needs standard API access. No special scopes or permissions are required.
 
-**Costs:** Claude Sonnet 4 is used for food analysis. Typical usage (1-3 analyses per day) costs approximately $0.02/day or ~$0.60/month. See [Anthropic pricing](https://www.anthropic.com/pricing) for current rates.
+**Costs:** Typical usage (1-3 analyses per day) costs approximately $0.02/day or ~$0.60/month. See [Anthropic pricing](https://www.anthropic.com/pricing) for current rates.

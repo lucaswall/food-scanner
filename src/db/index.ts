@@ -13,9 +13,8 @@ export function getDb(): NodePgDatabase<typeof schema> {
       connectionString: getRequiredEnv("DATABASE_URL"),
       max: 5,
       idleTimeoutMillis: 30000,
-      // 5s was too tight for a cold TLS connect to Railway Postgres after an idle
-      // period — checkout raced the handshake and threw "timeout exceeded when
-      // trying to connect" (FOOD-SCANNER-11/12/13/V).
+      // Must clear a cold TLS connect to Railway Postgres after an idle period, or
+      // checkout races the handshake and throws "timeout exceeded when trying to connect".
       connectionTimeoutMillis: 10000,
       // Keep idle sockets alive so an intermediary can't silently drop them and
       // leave the pool holding dead connections that only fail at checkout.
@@ -23,12 +22,10 @@ export function getDb(): NodePgDatabase<typeof schema> {
       keepAliveInitialDelayMillis: 10000,
     });
 
-    // REQUIRED: pg.Pool emits "error" on IDLE clients when the backend closes the
-    // connection (Postgres restart, network blip, Railway maintenance). Node's
-    // EventEmitter throws when an "error" event has no listener, so without this the
-    // process died with an uncaught exception — level:fatal,
-    // mechanism:auto.node.onuncaughtexception (FOOD-SCANNER-14). The pool discards the
-    // broken client on its own; our job is only to observe it, never to rethrow.
+    // IMPORTANT: pg.Pool emits "error" on IDLE clients when the backend closes the
+    // connection (Postgres restart, network blip). Node's EventEmitter throws when an
+    // "error" event has no listener, so removing this handler crashes the process with an
+    // uncaught exception. The pool discards the broken client itself; only observe it here.
     pool.on("error", (err) => {
       logger.error(
         { action: "db_pool_idle_client_error", err },

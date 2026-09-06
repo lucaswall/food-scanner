@@ -145,7 +145,7 @@ Detailed checks for code audit reviewers. Read CLAUDE.md for project-specific ru
 
 ### External API Calls
 - HTTP requests without timeout option
-- Third-party API calls that could hang indefinitely (Claude, Fitbit, Google)
+- Third-party API calls that could hang indefinitely (Claude, Google Health)
 - No circuit breaker for unreliable dependencies
 - Missing retry logic for transient failures (network errors, 5xx)
 
@@ -252,7 +252,7 @@ Check for patterns that could saturate the logging backend:
 
 ### Operation Timing
 
-- **External API call duration**: All calls to external APIs (Claude, Fitbit, Google, etc.) should log `durationMs` so slow calls are visible in logs
+- **External API call duration**: All calls to external APIs (Claude, Google Health, etc.) should log `durationMs` so slow calls are visible in logs
 - **Database query timing**: Long-running or critical DB operations should include timing at DEBUG level
 - **End-to-end request duration**: Route handlers should log total request duration for performance monitoring
 
@@ -291,7 +291,7 @@ Use Grep tool to find potential logging issues:
 - Route handlers or lib modules using global `logger` directly instead of child/request-scoped logger
 
 **Timing gaps:**
-- External API calls (`fetch\(`, `anthropic\.`, `fitbit`) without `durationMs` in their completion log
+- External API calls (`fetch\(`, `anthropic\.`, `google-health`) without `durationMs` in their completion log
 - `Date\.now\(\)` or `performance\.now\(\)` captured but never logged
 
 **Log overflow risks:**
@@ -307,7 +307,7 @@ Use Grep tool to find potential logging issues:
 ## Rate Limiting
 
 ### External API Quotas
-- Rate limit handling for third-party APIs (Claude, Fitbit, Google)
+- Rate limit handling for third-party APIs (Claude, Google Health)
 - Backoff/retry logic for 429 responses
 - Quota monitoring
 - Token/request budgeting for AI APIs

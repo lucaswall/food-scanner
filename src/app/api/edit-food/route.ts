@@ -10,7 +10,6 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import type { FoodAnalysis, FoodLogEntryDetail, ServingUnit } from "@/types";
 import { MealType, coerceServingUnit } from "@/types";
 
-// Task 3: Per-user rate limits (60 requests / 15 minutes)
 const RATE_LIMIT_MAX = 60;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 

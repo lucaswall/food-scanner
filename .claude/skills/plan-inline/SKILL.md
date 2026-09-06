@@ -96,12 +96,12 @@ Example arguments:
    - Existing issues → Check Linear for related issues or context
 6. **Generate plan** - Create TDD tasks with test-first approach
 7. **Write PLANS.md** - Overwrite with new plan
-8. **Validate plan against CLAUDE.md** - Re-read CLAUDE.md and cross-check each task for missing defensive specs: error handling on API routes, timeout values for external calls (Fitbit, Anthropic, Fitbit OAuth), database transaction edge cases, and UI error states. Verify `@/` path alias usage, `interface` over `type`, and pino logging conventions. Fix any gaps before proceeding.
+8. **Validate plan against CLAUDE.md** - Re-read CLAUDE.md and cross-check each task for missing defensive specs: error handling on API routes, timeout values for external calls (Google Health, Anthropic, Google OAuth), database transaction edge cases, and UI error states. Verify `@/` path alias usage, `interface` over `type`, and pino logging conventions. Fix any gaps before proceeding.
 9. **Cross-cutting requirements sweep** - Scan the entire plan for the patterns below. If a pattern appears in any task, verify the corresponding specification exists in that task's steps. If missing, add it before finalizing the plan.
 
    | Pattern Detected in Plan | Required Specification |
    |--------------------------|----------------------|
-   | External API calls (Fitbit, Anthropic, OAuth endpoints) | Timeout value and error handling behavior (including token expiry and rate limits) |
+   | External API calls (Google Health, Anthropic, OAuth endpoints) | Timeout value and error handling behavior (including token expiry and rate limits) |
    | API route handlers (`src/app/api/`) | Auth validation via `getSession()` + `validateSession()` or `validateApiRequest()` before any logic |
    | Error responses returned to clients | Sanitization — use `src/lib/api-response.ts` format with `ErrorCode`; never expose raw errors |
    | Database writes or multi-step DB operations | Transaction boundary or rollback behavior on partial failure |

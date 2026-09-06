@@ -4,7 +4,7 @@ import { createRequestLogger } from "@/lib/logger";
 import { createApiKey, listApiKeys } from "@/lib/api-keys";
 import { checkRateLimit } from "@/lib/rate-limit";
 
-// Task 3: Per-user rate limits for API key creation (10 per 60 minutes)
+// Per-user rate limits for API key creation
 const RATE_LIMIT_MAX = 10;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 

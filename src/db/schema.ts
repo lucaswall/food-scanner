@@ -29,7 +29,7 @@ export const users = pgTable(
     goalRateKgPerWeek: numeric("goal_rate_kg_per_week"),
     weightGoalType: text("weight_goal_type"),
     // Biological sex for the macro engine. The Google Health v4 Profile resource does
-    // not expose sex (FOO-1116), so it is a local setting (was sourced from Fitbit).
+    // not expose sex, so it is a local setting the user picks in Settings.
     sex: text("sex"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

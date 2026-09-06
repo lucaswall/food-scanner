@@ -117,7 +117,7 @@ Rate limits are per-API-key per-endpoint:
 | Route type | Limit | Window |
 |---|---|---|
 | Database-only routes | 60 req/min | 60s |
-| Fitbit API routes | 30 req/min | 60s |
+| Google Health routes (`nutrition-goals`, `activity-summary`) | 30 req/min | 60s |
 
 Exceeding the limit returns `429` with error code `RATE_LIMIT_EXCEEDED`.
 
@@ -130,10 +130,14 @@ Exceeding the limit returns `429` with error code `RATE_LIMIT_EXCEEDED`.
 | `AUTH_MISSING_SESSION` | 401 | Missing, malformed, or invalid API key |
 | `VALIDATION_ERROR` | 400 | Invalid or missing request parameters |
 | `RATE_LIMIT_EXCEEDED` | 429 | Rate limit exceeded |
-| `FITBIT_CREDENTIALS_MISSING` | 424 | Fitbit credentials not configured for this user |
-| `FITBIT_TOKEN_INVALID` | 401 | Fitbit OAuth token expired or invalid |
-| `FITBIT_SCOPE_MISSING` | 403 | Required Fitbit permission not granted |
-| `FITBIT_API_ERROR` | 502 | Fitbit upstream error |
+| `HEALTH_NOT_CONNECTED` | 424 | Google Health not linked for this user |
+| `HEALTH_TOKEN_INVALID` | 401 | Google Health OAuth token expired or invalid |
+| `HEALTH_SCOPE_MISSING` | 403 | Required Google Health scope not granted |
+| `HEALTH_RATE_LIMIT` | 429 | Google Health quota exhausted upstream |
+| `HEALTH_RATE_LIMIT_LOW` | 503 | Local circuit breaker is in a 429 cooldown — back off and retry |
+| `HEALTH_TIMEOUT` | 504 | Google Health request timed out |
+| `HEALTH_BAD_REQUEST` | 400 | Google Health rejected the request (4xx upstream) |
+| `HEALTH_API_ERROR` | 502 | Google Health upstream error (5xx) |
 | `INTERNAL_ERROR` | 500 | Unexpected server error |
 
 ---
@@ -218,29 +222,30 @@ Returns the daily nutrition summary for a date. Same data shape as `/food-log` �
 
 ### GET /api/v1/nutrition-goals
 
-Returns the user's calorie goal from Fitbit.
+Returns the goal-anchored calorie and macro targets. Computed locally by the macro engine from
+the user's settings (sex, activity level, goal weight, weekly rate) plus their Google Health
+weight — **not** a passthrough of an upstream goal.
 
-**Data source:** Fitbit API (30 req/min)
+**Data source:** macro engine + Google Health weight read (30 req/min)
 
-**Query parameters:** None.
+**Query parameters:** `date`, or `from`/`to` for range mode. Omit for today.
 
-**Response schema:**
+**Response schema:** `NutritionGoals` — see `src/types/index.ts` for the authoritative shape
+(`calories`, `proteinG`, `carbsG`, `fatG`, `status`, and when blocked a `reason` + `hint`).
 
-```typescript
-interface NutritionGoals {
-  calories: number | null;
-}
-```
+`status: "blocked"` is a normal 200. It means the engine could not compute — commonly
+`goals_not_set` (the user has not chosen sex or activity level) or `no_weight`.
 
-**Additional errors:** `FITBIT_CREDENTIALS_MISSING` (424), `FITBIT_TOKEN_INVALID` (401), `FITBIT_SCOPE_MISSING` (403), `FITBIT_API_ERROR` (502).
+**Additional errors:** `HEALTH_TOKEN_INVALID` (401), `HEALTH_SCOPE_MISSING` (403),
+`HEALTH_RATE_LIMIT_LOW` (503), `HEALTH_API_ERROR` (502).
 
 ---
 
 ### GET /api/v1/activity-summary
 
-Returns daily activity data (calories burned) from Fitbit.
+Returns daily activity data (calories burned) from Google Health.
 
-**Data source:** Fitbit API (30 req/min)
+**Data source:** Google Health `dailyRollUp` (30 req/min)
 
 **Query parameters:**
 
@@ -256,37 +261,8 @@ interface ActivitySummary {
 }
 ```
 
-**Additional errors:** Same Fitbit errors as `/nutrition-goals`.
-
----
-
-### GET /api/v1/lumen-goals
-
-Returns Lumen metabolic goals (macro targets) for a date. Returns `null` for the `goals` field when no data has been recorded — this is a normal 200 response, not an error.
-
-**Data source:** PostgreSQL (60 req/min)
-
-**Query parameters:**
-
-| Name | Required | Format | Description |
-|---|---|---|---|
-| `date` | Yes | `YYYY-MM-DD` | Date to retrieve |
-
-**Response schema:**
-
-```typescript
-interface LumenGoalsResponse {
-  goals: LumenGoals | null;
-}
-
-interface LumenGoals {
-  date: string;        // YYYY-MM-DD
-  dayType: string;     // e.g. "low-carb", "high-carb"
-  proteinGoal: number;
-  carbsGoal: number;
-  fatGoal: number;
-}
-```
+**Additional errors:** Same Google Health errors as `/nutrition-goals`. Degrades to a null
+`caloriesOut` rather than failing when no rollup data exists.
 
 ---
 
@@ -497,9 +473,13 @@ Results are ordered by `measuredAt` ascending.
 |---|---|---|---|---|
 | GET | `/api/v1/food-log` | 60/min | PostgreSQL | `date` |
 | GET | `/api/v1/nutrition-summary` | 60/min | PostgreSQL | `date` |
-| GET | `/api/v1/nutrition-goals` | 30/min | Fitbit API | None |
-| GET | `/api/v1/activity-summary` | 30/min | Fitbit API | `date` |
-| GET | `/api/v1/lumen-goals` | 60/min | PostgreSQL | `date` |
+| GET | `/api/v1/food-history` | 60/min | PostgreSQL | `limit` |
+| GET | `/api/v1/common-foods` | 60/min | PostgreSQL | `tab`, `limit`, `cursor` |
+| GET | `/api/v1/search-foods` | 60/min | PostgreSQL | `q`, `limit` |
+| GET | `/api/v1/earliest-entry` | 60/min | PostgreSQL | None |
+| GET | `/api/v1/fasting` | 60/min | PostgreSQL | `date` or `from`/`to` |
+| GET | `/api/v1/nutrition-goals` | 30/min | Macro engine + Google Health | `date` or `from`/`to` |
+| GET | `/api/v1/activity-summary` | 30/min | Google Health | `date` |
 | POST | `/api/v1/glucose-readings` | 60/min | PostgreSQL | Body: `readings[]` |
 | GET | `/api/v1/glucose-readings` | 60/min | PostgreSQL | `date` or `from`/`to` |
 | POST | `/api/v1/blood-pressure-readings` | 60/min | PostgreSQL | Body: `readings[]` |

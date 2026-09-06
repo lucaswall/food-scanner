@@ -105,11 +105,11 @@
 7. **Verify the analysis result:**
    - A food name heading appeared (should contain something related to "eggs" or "toast" or the food described)
    - A calorie value is displayed and is a reasonable number (50-2000 range)
-   - A **"Log to Fitbit"** button is visible
+   - A **"Log to Google Health"** button is visible
 8. **Visual assessment screenshot** — take a screenshot and evaluate:
    - Food name heading is legible and not truncated
    - Nutrition card layout is clean (calories, macros displayed in a structured format)
-   - Action buttons (Log to Fitbit, Refine with chat) are fully visible
+   - Action buttons (Log to Google Health, Refine with chat) are fully visible
    - No overlapping content or broken card layout
 9. Check for console errors.
 
@@ -118,7 +118,7 @@
 - Analysis completes within 90 seconds
 - Food name heading appears
 - Calorie value is displayed and in a reasonable range (50-2000)
-- "Log to Fitbit" button is visible
+- "Log to Google Health" button is visible
 - No unexpected console errors
 
 ### Visual Criteria
@@ -168,11 +168,11 @@
 - Messages are legible at mobile width
 - Input area accessible at bottom of screen
 
-**Note:** This scenario does NOT log to Fitbit — it only tests the chat refinement flow.
+**Note:** This scenario does NOT log to Google Health — it only tests the chat refinement flow.
 
 ---
 
-## Scenario 5: Log to Fitbit (dry-run)
+## Scenario 5: Log to Google Health (dry-run)
 
 - **Slug:** `log`
 - **Depends on:** none (self-contained — does its own analysis)
@@ -185,7 +185,7 @@
 3. Click the **"Analyze Food" button** (same fallback as Scenario 3 if ref-click doesn't work).
 4. **Wait for AI analysis** — SSE polling strategy, 90-second budget, poll every 8 seconds.
 5. Verify analysis result appears (food name heading, calorie value).
-6. Find and click the **"Log as new food" button** (staging uses dry-run mode, so the button may say "Log as new food" or "Log to Fitbit") — use `find` to locate it, then `computer` to click.
+6. Find and click the **"Log as new food" button** (staging uses dry-run mode, so the button may say "Log as new food" or "Log to Google Health") — use `find` to locate it, then `computer` to click.
 7. **Wait for confirmation** — Poll DOM every 3 seconds for up to 15 seconds, looking for text matching `/logged successfully/i`.
 8. Verify the **"Done" button** is visible.
 9. **Visual assessment screenshot** — take a screenshot and evaluate:
@@ -407,23 +407,23 @@
 2. Verify a **settings heading** is visible (level 1 heading).
 3. Wait for page to fully load (2 seconds).
 4. Verify **user session info** is displayed — use `find` or `read_page` to look for the user's email address.
-5. Verify **Fitbit status** is displayed — look for text containing "Fitbit:" or "Fitbit" followed by a connection status.
-6. Verify **Fitbit App Credentials** section is visible.
+5. Verify **Google Health status** is displayed — look for text containing "Google Health" followed by a connection status.
+6. Verify the **Google Health Profile** section is visible (there is no per-user credentials section — Google Health uses the single shared OAuth client).
 7. Scroll down and verify the **API Keys** section and **Claude Usage** section are present.
 8. **Visual assessment screenshot** — scroll to the bottom of the page first, then take ONE screenshot and evaluate:
    - API Keys section renders with key management UI
    - Claude Usage section renders with usage data or empty state
    - Sections are properly separated and labeled
    - Form fields are properly laid out for mobile
-   - Top sections (session info, Fitbit status) are already verified functionally in steps 4-6
+   - Top sections (session info, Google Health status) are already verified functionally in steps 4-6
 9. Check for console errors.
 
 ### Pass Criteria
 
 - Settings heading visible
 - User email displayed
-- Fitbit connection status shown
-- Fitbit App Credentials section present
+- Google Health connection status shown
+- Google Health Profile section present
 - No unexpected console errors
 
 ### Visual Criteria
@@ -521,9 +521,9 @@
 
 1. Should be on the dashboard with the saved item visible. If not, navigate to `/app`.
 2. Find and click the **saved item card** in the "Saved for Later" section — look for text containing "Apple" or "peanut butter" and click it.
-3. Verify the **detail page loads** — use `find` to look for nutrition data (calories, protein) and a "Log to Fitbit" or "Log as new food" button.
+3. Verify the **detail page loads** — use `find` to look for nutrition data (calories, protein) and a "Log to Google Health" or "Log as new food" button.
 4. **Visual assessment screenshot** — take a screenshot of the detail page BEFORE logging (to capture the layout).
-5. Find and click the **log button** — use `find` to locate "Log to Fitbit" or "Log as new food" button.
+5. Find and click the **log button** — use `find` to locate "Log to Google Health" or "Log as new food" button.
 6. **Wait for confirmation** — Poll every 3 seconds for up to 15 seconds looking for "logged successfully" text.
 7. Verify the **"Done" button** is visible, then click it.
 8. Navigate to the dashboard (`/app`).
@@ -598,7 +598,7 @@
 2. Navigate to `/app/log-shared/<token>` with the generated token.
 3. Verify the page loads — use `find` to look for a food name heading and "Shared food" subtitle or similar.
 4. Verify **nutrition data renders** — use `find` to look for calorie, protein, carbs, fat values (the `NutritionFactsCard` content).
-5. Verify the **log button** is visible — use `find` to look for "Log to Fitbit" or "Log as new food" button.
+5. Verify the **log button** is visible — use `find` to look for "Log to Google Health" or "Log as new food" button.
 6. Verify the **meal type selector** is present — use `find` to look for a meal type dropdown or selector.
 7. **Visual assessment screenshot** — take a screenshot and evaluate:
    - Food name heading is legible

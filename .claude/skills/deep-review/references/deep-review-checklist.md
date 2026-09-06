@@ -17,7 +17,7 @@ Trace data from source to display and back.
 - Shared types in `src/types/` used by BOTH the API route and the client
 - No `as any` or `as Type` casts that paper over a contract mismatch
 - API response transformations preserve type safety (no lossy conversions)
-- Fitbit API responses validated before use (external data boundary)
+- Google Health API responses validated before use (external data boundary)
 - Claude API responses validated before use (AI output boundary)
 
 ### Data Transformation
@@ -51,7 +51,7 @@ Trace data from source to display and back.
 ### API Route Errors
 - Every `await` in API routes wrapped in try/catch or within a try block
 - Database errors return appropriate HTTP status (500, not swallowed)
-- External API errors (Fitbit, Claude) return appropriate HTTP status
+- External API errors (Google Health, Claude) return appropriate HTTP status
 - Validation errors return 400 with useful error message
 - Auth failures return 401/403 consistently
 - Error responses use standardized format (ErrorCode from src/types)
@@ -66,7 +66,7 @@ Trace data from source to display and back.
 ### Error Recovery
 - User can retry after transient failures without full page refresh
 - Form data preserved after submission failure (not cleared on error)
-- Partial success states handled (e.g., analysis succeeded but Fitbit log failed)
+- Partial success states handled (e.g., analysis succeeded but Google Health write failed)
 
 ## 4. Edge Cases
 
@@ -74,7 +74,7 @@ Trace data from source to display and back.
 - Component renders correctly with no data (empty arrays, null values)
 - Empty state has clear messaging and call to action
 - API returns appropriate response for empty results (empty array, not 404)
-- First-time user experience works (no prior data, no Fitbit connection)
+- First-time user experience works (no prior data, no Google Health connection)
 
 ### Boundary Values
 - Very long text (food descriptions, names) handled (truncation, wrapping)
@@ -122,7 +122,7 @@ Trace data from source to display and back.
 
 ### Feedback
 - Every user action has visible feedback (button state change, toast, inline message)
-- Success confirmations are specific ("Logged 450 cal to Fitbit" not "Success")
+- Success confirmations are specific ("Logged 450 cal to Google Health" not "Success")
 - Destructive actions require confirmation
 - Long operations show progress or at least a descriptive message
 
@@ -306,6 +306,6 @@ All code in this project is AI-assisted. When tracing data flows and interaction
 - **Hallucinated packages** — non-existent npm packages that may be claimed by attackers. Verify every `import` references a real package in `package.json`.
 - **Contract mismatches introduced by AI** — client assumes response fields that the API doesn't return, or vice versa
 - **Copy-paste patterns** — similar handler logic duplicated across routes instead of shared through a lib module
-- **Missing validation at boundaries** — AI often generates the "happy path" and skips validation of external data (Fitbit responses, Claude outputs, user input)
+- **Missing validation at boundaries** — AI often generates the "happy path" and skips validation of external data (Google Health responses, Claude outputs, user input)
 - **Inconsistent error handling** — some error paths return proper responses while others silently fail or return generic errors
 - **Over-abstraction** — unnecessary wrappers, helpers, or config for one-time operations

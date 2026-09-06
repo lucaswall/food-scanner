@@ -6,7 +6,7 @@ import { ensureFreshToken, deleteNutritionLogs } from "@/lib/google-health";
 import { mapHealthError, isExpectedHealthError } from "@/lib/health-error-response";
 import { checkRateLimit } from "@/lib/rate-limit";
 
-// Task 3: Per-user rate limits for DELETE (60 requests / 15 minutes)
+// Per-user rate limits for DELETE
 const RATE_LIMIT_MAX = 60;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 

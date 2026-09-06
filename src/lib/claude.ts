@@ -128,11 +128,12 @@ export function isOverloadedError(error: unknown): boolean {
  * type is `api_error` or `overloaded_error`. createStreamWithRetry recreates the stream
  * from scratch on retry, so replaying after one of these cannot duplicate side effects.
  *
- * FOOD-SCANNER-Y: a mid-stream 500 —
- * `{ type: "error", error: { type: "api_error", message: "Internal server error" } }` —
- * was surfaced as an unhandled error instead of being retried. (HTTP 529 / overloaded_error
- * is also matched by isOverloadedError, which adds user-facing copy; this wider net catches
- * the remaining transient 5xx that previously bubbled up.)
+ * Covers mid-stream SSE failures too, e.g.
+ * `{ type: "error", error: { type: "api_error", message: "Internal server error" } }`,
+ * which arrive as stream events rather than as an SDK APIError.
+ *
+ * Broader than isOverloadedError, which matches only 529/overloaded_error and exists to
+ * attach user-facing copy — both are retried, but only overload gets a message.
  */
 export function isTransientServerError(error: unknown): boolean {
   // Check 1: Anthropic SDK APIError with any 5xx status

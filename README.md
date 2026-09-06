@@ -5,7 +5,7 @@ AI-powered food logging for Google Health. Take a photo of your meal, let Claude
 ## What It Does
 
 1. **Photo capture** — Take a photo of your food with your phone camera
-2. **AI analysis** — Claude Sonnet 4 analyzes the image and estimates nutritional information
+2. **AI analysis** — Claude analyzes the image and estimates nutritional information
 3. **Review & edit** — Confirm or adjust the nutrition data
 4. **Log to Google Health** — Post directly to your Google Health food log
 
@@ -78,7 +78,7 @@ Follow the **OAuth Setup** section below to create Google OAuth credentials befo
 ### Step 4: Set Environment Variables
 
 ```bash
-railway variables set \
+railway variable set \
   SESSION_SECRET="$(openssl rand -base64 32)" \
   HEALTH_TOKEN_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
   ALLOWED_EMAILS=wall.lucas@gmail.com \
@@ -91,7 +91,7 @@ railway variables set \
 
 For staging, also set:
 ```bash
-railway variables set HEALTH_DRY_RUN=true
+railway variable set HEALTH_DRY_RUN=true
 ```
 
 > **Note:** `HEALTH_TOKEN_ENCRYPTION_KEY` is a dedicated 32-byte random key for encrypting Google Health tokens at rest. Rotating this key invalidates all stored tokens — users must re-link Google Health after rotation.
@@ -176,7 +176,7 @@ Or use the Railway MCP from Claude Code to query logs and deployment status.
 
 ### Anthropic API
 
-Claude Sonnet 4 powers the AI food analysis feature.
+Claude powers the AI food analysis. The model id lives in `src/lib/claude.ts`.
 
 1. Go to [console.anthropic.com](https://console.anthropic.com)
 2. Create an account or sign in
@@ -207,7 +207,16 @@ Food Scanner uses a single shared Google OAuth client for both login and Google 
 
 ### Google Health Scopes
 
-Google Health scopes (e.g. `https://www.googleapis.com/auth/fitness.nutrition.write`) are configured on the **GCP OAuth consent screen**, not via environment variables. Users connect to Google Health via the one-click `/app/connect-health` flow after logging in.
+Configured on the **GCP OAuth consent screen**, not via environment variables. The four scopes requested (see `GOOGLE_HEALTH_SCOPES` in `src/lib/auth.ts`) are all under `https://www.googleapis.com/auth/`:
+
+- `googlehealth.nutrition.writeonly`
+- `googlehealth.profile.readonly`
+- `googlehealth.health_metrics_and_measurements.readonly`
+- `googlehealth.activity_and_fitness.readonly`
+
+**IMPORTANT:** every `googlehealth.*` scope is *restricted*. That requires OAuth verification plus an annual CASA assessment, and the consent screen must be **In production** — while it is in Testing, Google revokes refresh tokens every 7 days and caps the app at 100 users.
+
+Users connect via the one-click `/app/connect-health` flow after logging in.
 
 ---
 

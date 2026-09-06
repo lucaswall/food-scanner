@@ -253,7 +253,7 @@ Summary: N issue(s) found, fixed inline ([single-agent review | Team: security, 
 - FIXED INLINE: X issue(s) — verified via TDD + bug-hunter
 
 **Issues fixed inline:**
-- [MEDIUM] BUG: Missing try/catch in fetchFoodLog (`src/lib/fitbit.ts:142`) — added error handling + test
+- [MEDIUM] BUG: Missing try/catch in fetchFoodLog (`src/lib/google-health.ts:142`) — added error handling + test
 - [LOW] CONVENTION: Missing structured action field on log (`src/app/api/food/route.ts:55`) — added { action: "logFood" }
 
 **Discarded findings (not bugs):**

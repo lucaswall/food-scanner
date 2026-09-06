@@ -12,9 +12,11 @@ import type { Logger } from "@/lib/logger";
 // params per request and (b) rejects a field that combines a nullable union type
 // with a string enum — `meal_type` below — with
 // "tools.N.custom: Invalid schema: Enum value 'breakfast' does not match declared type
-// '['string', 'null']'". Either failure 400s POST /api/analyze-food. strict:true has
-// been reintroduced and reverted three times (PR #90, #113, #144). Keep these non-strict;
-// only the data-WRITING tools (report_nutrition, report_session_items) are strict.
+// '['string', 'null']'". Either failure 400s POST /api/analyze-food.
+//
+// IMPORTANT: strict:true here has been added and reverted repeatedly. Keep these
+// non-strict; only the data-WRITING tools (report_nutrition, report_session_items)
+// are strict.
 export const SEARCH_FOOD_LOG_TOOL: Anthropic.Tool = {
   name: "search_food_log",
   description: "Search the user's food log to find what they have eaten. Use this when the user references past meals, asks about foods they've eaten before, wants to see entries for a specific date or meal, or asks what they usually eat. Three mutually exclusive modes: (1) keywords only — returns the most frequently logged matches; (2) date only — returns entries for that date grouped by meal type; (3) from_date+to_date — returns entries in the range. Do NOT combine keywords with date parameters — keywords are ignored when a date is provided.",

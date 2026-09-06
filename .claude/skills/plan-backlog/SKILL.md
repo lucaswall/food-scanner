@@ -271,10 +271,10 @@ After writing the plan but before moving issues to Todo, re-read CLAUDE.md and c
 
 | Check | What to look for | Example violation |
 |-------|-----------------|-------------------|
-| **Error handling** | Each task touching external APIs or DB has error handling specs | Plan says "call Fitbit API" with no catch or token-expiry handling spec |
-| **Timeouts** | Any external API call (Fitbit, Anthropic, OAuth) has a timeout value specified | Plan adds new API call with no timeout spec |
+| **Error handling** | Each task touching external APIs or DB has error handling specs | Plan says "call Google Health API" with no catch or token-expiry handling spec |
+| **Timeouts** | Any external API call (Google Health, Anthropic, OAuth) has a timeout value specified | Plan adds new API call with no timeout spec |
 | **Auth validation** | Every new API route specifies which auth middleware to apply | Plan adds `src/app/api/` route with no `getSession()` / `validateApiRequest()` mention |
-| **Edge cases** | Empty results, null responses, expired tokens, and rate limits are addressed | Plan has no test for empty Fitbit food log or expired OAuth token |
+| **Edge cases** | Empty results, null responses, expired tokens, and rate limits are addressed | Plan has no test for empty Google Health response or expired OAuth token |
 | **Conventions** | `@/` path alias, `interface` over `type`, pino logging, `api-response.ts` format | Plan uses raw `console.log` or direct `src/db/` import in a route handler |
 | **DB transactions** | Multi-step write operations specify transaction boundary | Plan adds two related DB writes with no transaction or rollback spec |
 
@@ -286,7 +286,7 @@ After writing all tasks, scan the entire plan for these patterns. If a pattern i
 
 | Pattern Detected in Plan | Required Specification |
 |--------------------------|----------------------|
-| External API calls (Fitbit, Anthropic, OAuth endpoints) | Timeout value and error handling behavior (including token expiry and rate limits) |
+| External API calls (Google Health, Anthropic, OAuth endpoints) | Timeout value and error handling behavior (including token expiry and rate limits) |
 | API route handlers (`src/app/api/`) | Auth validation via `getSession()` + `validateSession()` or `validateApiRequest()` before any logic |
 | Error responses returned to clients | Sanitization — use `src/lib/api-response.ts` format with `ErrorCode`; never expose raw errors |
 | Database writes or multi-step DB operations | Transaction boundary or rollback behavior on partial failure |
@@ -323,7 +323,7 @@ When writing tasks in the plan:
 9. **Specify defensive requirements**: For each task, think about what can go wrong and include it in the TDD steps. Specifically:
    - **Error paths**: What exceptions can the code throw? Specify how they should be caught, logged, or propagated. Include error-path tests in the RED phase.
    - **Edge cases**: Empty data, null values, concurrent access, partial results. Include edge-case tests.
-   - **Timeouts**: Any external call (Fitbit API, Anthropic API, OAuth endpoints, database) MUST specify a timeout value and what happens on timeout.
+   - **Timeouts**: Any external call (Google Health API, Anthropic API, OAuth endpoints, database) MUST specify a timeout value and what happens on timeout.
    - **Permission/auth checks**: Any operation that requires authentication (`getSession()` + `validateSession()`, or `validateApiRequest()`) must check credentials first and handle denial.
    - **Cancellation**: Async operations that can be triggered multiple times (e.g., form submits, button clicks) must specify cancellation or debouncing of in-flight work.
    - **State consistency**: If an operation can fail mid-way (e.g., partial DB write, interrupted API call), specify how the state is cleaned up or rolled back.

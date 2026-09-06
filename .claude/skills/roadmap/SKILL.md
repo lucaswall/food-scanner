@@ -39,12 +39,12 @@ Use the Agent tool with `subagent_type=Explore` (thoroughness: "very thorough").
 - **Architecture** — How does the current system work in the affected areas?
 - **Patterns** — What conventions and patterns are established? (App Router conventions, Drizzle schema patterns, iron-session auth, SWR data fetching, shadcn/ui components)
 - **Tests** — What test coverage exists in related areas? (Vitest unit tests, Playwright E2E tests)
-- **Dependencies** — What libraries/APIs are already in use that relate? (Fitbit API, Anthropic Claude API, PostgreSQL/Drizzle, Sentry)
+- **Dependencies** — What libraries/APIs are already in use that relate? (Google Health API, Anthropic Claude API, PostgreSQL/Drizzle, Sentry)
 
 ### Research Stream 2: External Research
 
 Use the Agent tool with `subagent_type=general-purpose` and `model: opus`. Search the web for technical context:
-- **API feasibility** — If the feature involves external APIs (Fitbit, Anthropic, nutrition databases), research actual capabilities, pricing, limitations, regional coverage
+- **API feasibility** — If the feature involves external APIs (Google Health, Anthropic, nutrition databases), research actual capabilities, pricing, limitations, regional coverage
 - **Technical approaches** — How have others solved this? What are the trade-offs?
 - **Gotchas** — Known issues, limitations, or surprises others have encountered
 - **User context relevance** — Use project context from CLAUDE.md (single-user fitness logging app, mobile-first, Railway deployment) to evaluate feasibility through the user's actual lens

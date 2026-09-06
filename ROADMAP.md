@@ -151,7 +151,7 @@ Send a push notification to HealthHelper the moment food is logged in Food Scann
 #### Notification Flow
 
 1. User logs food in Food Scanner (PWA or API).
-2. `POST /api/log-food` completes successfully (Fitbit + DB).
+2. `POST /api/log-food` completes successfully (Google Health + DB).
 3. Food Scanner sends an FCM push to the registered device token.
 4. HealthHelper receives the push — either in foreground or background.
 5. HealthHelper enqueues a one-shot `SyncWorker` that calls `SyncNutritionUseCase` immediately.
@@ -196,7 +196,7 @@ The periodic WorkManager sync remains as a fallback. Push notifications are best
 - **New API route:** `POST /api/v1/devices` — registers or updates a device token. Bearer API key auth (same as other v1 routes). Upserts on token value.
 - **New API route:** `DELETE /api/v1/devices/:token` — removes a token (device unregistered or user logs out of HealthHelper).
 - **Notification dispatch:** New `sendFoodLoggedNotification(userId, entryId, date)` in `src/lib/notifications.ts`. Fetches all device tokens for the user, sends FCM data messages. Handles `messaging/registration-token-not-registered` errors by deleting stale tokens.
-- **Trigger point:** Called at the end of `POST /api/log-food` after successful Fitbit log + DB write. Fire-and-forget — notification failure never blocks the API response.
+- **Trigger point:** Called at the end of `POST /api/log-food` after a successful Google Health write + DB write. Fire-and-forget — notification failure never blocks the API response.
 
 #### HealthHelper (Android Side)
 
@@ -213,7 +213,7 @@ The periodic WorkManager sync remains as a fallback. Push notifications are best
 - `firebase-admin` and Next.js Edge Runtime are incompatible → all API routes in `src/app/api/` use the Node.js runtime by default, so no issue.
 - Food Scanner deployed without Firebase credentials → notification dispatch silently skips (log a warning). All other functionality unaffected.
 - HealthHelper not installed or no token registered → no tokens in DB, nothing to send. No error.
-- Dry-run mode (`FITBIT_DRY_RUN=true`) → still send notifications so staging can test the full flow.
+- Dry-run mode (`HEALTH_DRY_RUN=true`) → still send notifications so staging can test the full flow.
 
 ### Implementation Order
 

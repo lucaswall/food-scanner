@@ -639,7 +639,7 @@ function zoneOffsetToDuration(zoneOffset: string): string {
  * unchanged — only the civil representation advances, so a 23:59:59 meal rolls to
  * 00:00:00 on the next civil day rather than shifting by the offset. Built from
  * explicit numeric components (never `Date.parse`) so it cannot fail on a format the
- * parser dislikes.
+ * parser dislikes and silently produce a zero-length interval.
  */
 function addOneSecond(date: string, time: string, zoneOffset: string | null): string {
   const [y, mo, d] = date.split("-").map(Number);
@@ -653,16 +653,14 @@ function addOneSecond(date: string, time: string, zoneOffset: string | null): st
  * instant + a google-duration UTC offset, per the discovery schema. Returns undefined
  * when no time is known.
  *
- * A meal is a point-in-time event, but v4 REJECTS a zero-length interval with
+ * IMPORTANT: a meal is a point-in-time event, but v4 REJECTS a zero-length interval with
  * `400 INVALID_ARGUMENT` / `reason: INVALID_TIME_RANGE` ("Data point start time must be
- * strictly earlier than end time") — verified against the live API, which is the only
- * place this surfaces: the discovery doc defines the interval's shape, not the strict
- * ordering constraint. So the end bound sits one second past the start.
+ * strictly earlier than end time"). The discovery doc documents the interval's shape but
+ * not this ordering constraint, so only the live API enforces it — never set end == start.
  *
- * One second rather than a nominal meal duration: `startTime` is what drives day
- * attribution and must agree with the civil-day `dailyRollUp` window (FOO-1134), and a
- * wider interval only widens the near-midnight window where the two can disagree. The
- * app has never modelled meal duration, so a longer span would be invented data.
+ * One second rather than a nominal meal duration: `startTime` drives day attribution and
+ * must agree with the civil-day `dailyRollUp` window, and a wider interval only widens the
+ * near-midnight window where the two can disagree. The app does not model meal duration.
  */
 function buildInterval(timing: HealthLogTiming): Record<string, unknown> | undefined {
   if (!timing.time) return undefined;

@@ -72,7 +72,7 @@ The `search_issues` tool returns a `status` field per issue (`unresolved`, `reso
 
 This project has two Railway environments. **Always determine the target environment before pulling logs or deployments.**
 
-| Environment | Railway name | Branch | URL | Fitbit API |
+| Environment | Railway name | Branch | URL | Google Health API |
 |---|---|---|---|---|
 | **Production** | `production` | `release` | `food.lucaswall.me` | Live |
 | **Staging** | `staging` | `main` | `food-test.lucaswall.me` | Dry-run |

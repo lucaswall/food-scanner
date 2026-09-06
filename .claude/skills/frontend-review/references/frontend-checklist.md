@@ -143,7 +143,7 @@ Comprehensive checklist for frontend code review covering accessibility, visual 
 - [ ] Photo → Analyze → Edit → Log flow has clear progression
 - [ ] User knows current step and can navigate between steps
 - [ ] Back/undo available at each step
-- [ ] Confirmation before committing (logging to Fitbit)
+- [ ] Confirmation before committing (logging to Google Health)
 - [ ] Success feedback after completing the flow
 
 ### Cognitive Load & Information Architecture
@@ -156,11 +156,11 @@ Comprehensive checklist for frontend code review covering accessibility, visual 
 - [ ] Recognition over recall: options visible, not hidden
 
 ### Microcopy & Content Design
-- [ ] Button labels describe action outcome ("Log to Fitbit" not "Submit")
+- [ ] Button labels describe action outcome ("Log to Google Health" not "Submit")
 - [ ] Error messages explain what went wrong AND what to do next
 - [ ] Empty states guide the user with specific next action
 - [ ] Loading messages set expectations where possible ("Analyzing your meal...")
-- [ ] Confirmations are specific ("Logged 450 cal lunch to Fitbit" not "Success!")
+- [ ] Confirmations are specific ("Logged 450 cal lunch to Google Health" not "Success!")
 - [ ] Terminology consistent throughout (don't mix "meal"/"food"/"entry" for same concept)
 - [ ] Tone appropriate for health/fitness context (helpful, not cutesy)
 
@@ -200,7 +200,7 @@ Comprehensive checklist for frontend code review covering accessibility, visual 
 ### Empty States
 - [ ] Empty photo list has clear call to action
 - [ ] No analysis yet has helpful prompt
-- [ ] No Fitbit connection guides user to settings
+- [ ] No Google Health connection guides user to settings
 
 ### Responsive Design
 - [ ] Mobile-first: base styles target mobile, breakpoints for larger
@@ -308,7 +308,7 @@ This section is checked by analyzing rendered screenshots, not source code. It c
 - [ ] Bottom navigation items evenly spaced with comfortable tap zones
 
 ### Empty & Guard States
-- [ ] "Set up Fitbit" guard screens look intentional, not broken
+- [ ] "Connect Google Health" guard screens look intentional, not broken
 - [ ] Clear visual guidance on what to do next (CTA is prominent)
 - [ ] Blank space in empty states feels like a design choice, not a missing feature
 - [ ] Guard state messaging is centered and inviting

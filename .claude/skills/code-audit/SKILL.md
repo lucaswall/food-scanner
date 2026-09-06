@@ -303,13 +303,13 @@ labels: [Mapped label(s)]
 [Clear, specific problem statement — 1-2 sentences]
 
 **Context:**
-[Affected file paths with line numbers, e.g. `src/lib/fitbit.ts:120-135`]
+[Affected file paths with line numbers, e.g. `src/lib/google-health.ts:120-135`]
 
 **Impact:**
 [Why this matters — user-facing impact, data integrity, security risk, etc.]
 
 **Acceptance Criteria:**
-- [ ] [Specific, verifiable criterion — e.g. "API returns error response when DB insert fails after Fitbit log"]
+- [ ] [Specific, verifiable criterion — e.g. "API returns error response when DB insert fails after the Google Health write"]
 - [ ] [Another criterion]
 ```
 

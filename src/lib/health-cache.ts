@@ -353,8 +353,8 @@ export async function getCachedHealthActivitySummary(
  * plus any in-flight dedup entries across all criticality tiers.
  * Called by the settings "Refresh from Google Health" button.
  *
- * Weight-goal cache is omitted — it was removed in Task 19 (replaced by
- * local users.weightGoalType from Task 9).
+ * There is no weight-goal cache: the goal is a local setting
+ * (users.weightGoalType), not a Google Health read.
  */
 export function invalidateHealthProfileCache(userId: string): void {
   userCacheGeneration.set(userId, getUserGeneration(userId) + 1);

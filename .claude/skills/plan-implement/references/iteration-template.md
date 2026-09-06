@@ -16,7 +16,7 @@ After verification passes, append a new "Iteration N" section to PLANS.md:
 - Task 4: Add health check - Created /api/health endpoint (worker-2)
 
 ### Tasks Remaining
-- Task 5: Add Fitbit token refresh
+- Task 5: Add Google Health token refresh
 (omit this section if ALL tasks completed)
 
 ### Files Modified

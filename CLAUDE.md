@@ -8,7 +8,7 @@ Delete unused code immediately. No deprecation warnings needed.
 
 ## TECH STACK
 
-Next.js 16+ (App Router), TypeScript (strict), Tailwind CSS + shadcn/ui, Vitest + Testing Library, PostgreSQL + Drizzle ORM, iron-session (cookie transport) + PostgreSQL (session data), Google OAuth 2.0 (login + Google Health API), Anthropic Claude API (tool_use), pino logging, Sentry (error tracking, session replay, AI monitoring), Railway deployment.
+Next.js 16+ (App Router), TypeScript (strict), Tailwind CSS + shadcn/ui, Vitest + Testing Library, PostgreSQL + Drizzle ORM, iron-session (cookie transport) + PostgreSQL (session data), Google OAuth 2.0 (login + Google Health API), Anthropic Claude API (tool_use), pino logging, Sentry (error tracking, session replay), Railway deployment.
 
 ---
 
@@ -37,6 +37,8 @@ src/lib/           # Business logic modules — route handlers never import from
 src/types/         # Shared TypeScript types (source of truth for API contracts)
 drizzle/           # Generated SQL migration files (never hand-write — use drizzle-kit generate)
 e2e/               # Playwright E2E tests (fixtures/, tests/, global-setup.ts, global-teardown.ts)
+mcp-fitbit/        # Standalone MCP server for reading the owner's legacy Fitbit data.
+                   # NOT part of the app — the app talks to Google Health only.
 ```
 
 **Test file convention:**
@@ -51,8 +53,8 @@ Two test suites with different purposes and runtimes:
 
 | Suite | Command | Runtime | Infrastructure | When to run |
 |---|---|---|---|---|
-| **Unit/Integration** (Vitest) | `npm test` | ~5s | None | After every code change (TDD loop) |
-| **E2E** (Playwright) | `npm run e2e` | ~20s + build | Local PostgreSQL (Docker) | Before release, after full implementation review |
+| **Unit/Integration** (Vitest) | `npm test` | ~2min | None | After every code change (TDD loop) |
+| **E2E** (Playwright) | `npm run e2e` | ~2min + build | Local PostgreSQL (Docker) | Before release, after full implementation review |
 
 **E2E tests are NOT part of the regular TDD loop.** They require a full production build (`npm run build`) and a running PostgreSQL instance. The Playwright config handles the build and server startup automatically.
 
@@ -106,9 +108,9 @@ All Google Health reads/writes route through the rate-limit layer in `src/lib/go
 |---|---|---|
 | `critical` | Writes (`createNutritionLog`, `deleteNutritionLogs`) and OAuth refresh | Always proceeds, even during a 429 cooldown (logs a bypass warning) |
 | `important` | User-driven explicit reads (settings refresh, today's first goals compute) | Rejected while a 429 cooldown is active |
-| `optional` | Background revalidations (cache-hit fast path re-fetches, periodic polls) | Rejected while a 429 cooldown is active (currently identical to `important`) |
+| `optional` | Background revalidations (cache-hit fast path re-fetches, periodic polls) | Rejected while a 429 cooldown is active |
 
-**Note:** `important` and `optional` are runtime-identical today — the breaker is purely reactive (binary: in-cooldown rejects, otherwise proceeds), with no headroom-based shedding of `optional` ahead of `important`. The tier names are retained because callers pass them; revisit if real per-user headroom accounting is added.
+`important` and `optional` are runtime-identical — the breaker is binary, with no headroom-based shedding. Pass the tier that matches intent anyway; see the note in `google-health-rate-limit.ts` before changing the tiers.
 
 When the breaker rejects, it throws `HEALTH_RATE_LIMIT_LOW`. Route handlers map this to **HTTP 503** with the typed error code so clients can back off.
 
@@ -185,7 +187,7 @@ When the breaker rejects, it throws `HEALTH_RATE_LIMIT_LOW`. Route handlers map 
 | **roadmap** | Opus | "roadmap", "pull from roadmap", "push to roadmap", "add to roadmap", "analyze this feature" | Deep research + discussion → write to roadmap, pull to backlog, plan, modify, or drop |
 | **tools-improve** | Opus | Before modifying skills/agents/CLAUDE.md | Best practices for Claude Code extensibility |
 | **push-to-production** | Opus | "push to production", "release" | Backup DB, migrate, merge `main` → `release` |
-| **staging-qa** | Opus | "staging qa", "run qa", "test staging" | Chrome-driven functional + visual QA against staging (12 scenarios, DB seeding, server log checks, optional GIF) |
+| **staging-qa** | Opus | "staging qa", "run qa", "test staging" | Chrome-driven functional + visual QA against staging (DB seeding, server log checks, optional GIF) |
 
 **Workflows:**
 - **Roadmap feature:** `roadmap` → `add-to-backlog` → `backlog-refine` (optional) → `plan-backlog` → `plan-implement` → `plan-review-implementation` (repeat) → `push-to-production`
