@@ -1,6 +1,6 @@
 ---
 name: plan-review-implementation
-description: QA review of completed implementation using an agent team with 3 domain-specialized reviewers (security, reliability, quality). Use after plan-implement finishes, or when user says "review the implementation". Moves Linear issues Review→Merge. Creates new issues in Todo for bugs found. After PR creation, launches a 3-min Codex monitor that auto-fixes findings, watches CI, and squash-merges + cleans up when both are clean. Falls back to single-agent mode if agent teams unavailable.
+description: QA review of completed implementation using an agent team with 3 domain-specialized reviewers (security, reliability, quality). Use after plan-implement finishes, or when user says "review the implementation". Moves Linear issues Review→Merge. Creates new issues in Todo for bugs found. After PR creation, runs bug-hunter on the full PR diff and fixes real findings, then launches a 3-min CI monitor that fixes CI failures and squash-merges + cleans up once CI is green. Falls back to single-agent mode if agent teams unavailable.
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash, Agent, Workflow, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, CronCreate, CronList, CronDelete, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses, mcp__sentry__update_issue, mcp__sentry__find_organizations, mcp__sentry__find_projects, mcp__sentry__search_issues
 disallowed-tools: AskUserQuestion, EnterPlanMode, ExitPlanMode
 disable-model-invocation: true
@@ -14,8 +14,8 @@ Review **ALL** implementation iterations that need review using an agent team wi
 
 This is a **workflow skill**: it runs to completion without consulting the user mid-run. `AskUserQuestion` and plan mode are disabled while it is active.
 
-- **NEVER** ask the user a question, request a choice/confirmation, propose options, or enter plan mode — about scope, approach, the Codex-monitor loop, or whether to continue. Resolve every decision with the most reasonable default and document it in your output.
-- **Ambiguity** (which iterations to review, how to handle a finding) → resolve via this skill's rules and the Codex-calibration matrix; pick the reasonable default and proceed.
+- **NEVER** ask the user a question, request a choice/confirmation, propose options, or enter plan mode — about scope, approach, the CI monitor loop, or whether to continue. Resolve every decision with the most reasonable default and document it in your output.
+- **Ambiguity** (which iterations to review, how to handle a finding) → resolve via this skill's rules (FIX/DISCARD classification, PR-review calibration in Rules); pick the reasonable default and proceed.
 - The **ONLY** permitted stops are the terminal STOP conditions in this skill (e.g. Linear MCP down) — they emit a fixed message and end the run; they are not questions.
 
 **Reference:** See [references/code-review-checklist.md](references/code-review-checklist.md) for comprehensive checklist.
@@ -505,10 +505,16 @@ If the scope assessment chose single-agent mode (≤4 changed files) OR `TeamCre
    Deduplicate and sort numerically. Format as: `FOO-123, FOO-124, ...`
 5. Create PR using the `pr-creator` subagent. **Include in the prompt:** `Linear issues to close: FOO-123, FOO-124, ...` with the full list from step 4. This overrides PLANS.md scanning and ensures no inline-fix issues are missed.
 6. Inform user with PR URL.
-7. **Launch the post-PR Codex monitor cron** (only after `pr-creator` reports success):
+7. **PR review** (only after `pr-creator` reports success). PR review is `bug-hunter` + your own self-review + the test suite + CI — there is no external review bot to wait for.
+   - `git fetch origin main`, then run `bug-hunter` (standalone subagent, no `team_name`) with the prompt: `PR review: review the full PR diff, range origin/main...HEAD — every commit on this branch, not only uncommitted changes.`
+   - **Self-review** the same range (`git diff origin/main...HEAD --stat`, then the diff): unrelated files, leftover debug code, missing tests, docs or `MIGRATIONS.md` out of step with the code.
+   - Classify every finding **FIX** or **DISCARD** (Merge & Evaluate Findings rules plus the PR-review calibration in Rules). Verify each against the cited code, CLAUDE.md "KNOWN ACCEPTED PATTERNS" and project memory — never accept or dismiss a finding on face value.
+   - Fix every FIX finding on the PR branch with TDD, run `npm test`, run `bug-hunter` on the uncommitted fix, then commit (`git commit -m "fix: PR review - <summary>"`) and `git push`. Repeat until `bug-hunter` reports nothing new — at most 3 rounds.
+   - If real bugs remain after 3 rounds, STOP: leave the PR open, do NOT launch the monitor, and report the outstanding findings to the user.
+8. **Launch the CI merge monitor cron** (only after the PR review is clean — every FIX finding fixed and pushed):
    - Capture the PR number from the pr-creator output (e.g., `141`).
    - Capture the current branch name (e.g., from `git rev-parse --abbrev-ref HEAD`).
-   - Choose a unique `MONITOR_TAG` like `Codex monitor for PR <N>` so the loop can locate its own cron.
+   - Choose a unique `MONITOR_TAG` like `CI monitor for PR <N>` so the loop can locate its own cron.
    - Call `CronCreate` with:
      - `cron`: `*/3 * * * *` (every 3 minutes)
      - `recurring`: `true`
@@ -516,16 +522,16 @@ If the scope assessment chose single-agent mode (≤4 changed files) OR `TeamCre
      - `prompt` (literal — fill in the values):
        ```
        <MONITOR_TAG> — tick. PR_NUMBER=<N>. BRANCH=<branch>. MONITOR_TAG="<MONITOR_TAG>".
-       Read .claude/skills/plan-review-implementation/references/codex-loop.md
+       Read .claude/skills/plan-review-implementation/references/ci-merge-loop.md
        and execute exactly one iteration of the per-tick logic. The cron stops
        itself (CronDelete by MONITOR_TAG) when the merge phase succeeds.
        ```
-   - Tell the user: `Codex monitor active (every 3 min, session-only — dies if you exit Claude). It assesses each Codex finding and either FIXES it (TDD) or REJECTS it with reasoning — it never defers or files follow-up issues. It squash-merges + cleans up to main once Codex converges (CI green, all threads resolved). Safety caps (max 4 review cycles / 90 min): if real bugs remain at a cap it stops and hands back to you with the PR left open, rather than merging or deferring. The monitor self-terminates on completion.`
+   - Tell the user: `CI monitor active (every 3 min, session-only — dies if you exit Claude). It watches the GitHub Actions checks, fixes CI failures (bug-hunter reviews each fix; after 3 fix commits it stops and hands back with the PR open), and squash-merges + cleans up to main once CI is green. The monitor self-terminates on completion.`
    - Do NOT block waiting for the cron to finish — the skill exits after launching it. The cron continues across user turns within the same session.
 
 **Branch handling:** Assumes plan-implement already created a feature branch. If on `main`, create branch first.
 
-**Reference:** See [references/codex-loop.md](references/codex-loop.md) for the full per-tick logic the cron prompt invokes.
+**Reference:** See [references/ci-merge-loop.md](references/ci-merge-loop.md) for the full per-tick logic the cron prompt invokes.
 
 ## Rules
 
@@ -551,6 +557,6 @@ If the scope assessment chose single-agent mode (≤4 changed files) OR `TeamCre
 - **Review scope assessment** — ≤4 changed files → single-agent review. 5+ files → parallel review (Workflow mode preferred, agent-team fallback; see Review Orchestration). Always use parallel review for security-sensitive changes regardless of file count.
 - **Only reviewers are teammates** — Bug-hunter, verifier, and pr-creator are standalone subagents spawned via `Agent` tool WITHOUT `team_name`. Only the 3 domain reviewers are team members.
 - **Shut down reviewers immediately** — Send shutdown request to each reviewer as soon as they report findings. Call `TeamDelete` as soon as the last reviewer is shut down. Do NOT keep teammates alive during merge/evaluate/document phases.
-- **Launch Codex monitor only after a successful PR** — When `pr-creator` reports success in the For-Complete-Plans flow, create the 3-min cron with the prompt template above. The cron is intentionally session-only (do NOT pass `durable: true`) — if the user closes the session they are not supervising the auto-merge, so the cron should die with the session. The cron self-terminates when its merge phase completes (CI green, all threads resolved, squash-merge succeeded, on `main`). See [references/codex-loop.md](references/codex-loop.md) for the per-tick logic.
-- **Codex findings must be assessed for validity** — The monitor never accepts a Codex finding on face value. Each finding is verified against the actual code, CLAUDE.md's "KNOWN ACCEPTED PATTERNS", project memory, and accepted patterns before fixing. Invalid findings are resolved with reasoning, not silently dismissed.
-- **Codex findings are FIX or REJECT — never deferred** — Each finding is either a real bug (fix it now with TDD on this PR) or not something we must fix (reject on the thread with a concrete reason: false positive, accepted pattern / already-adjudicated non-bug, not realistically triggerable at family scale, or style-only). The monitor creates NO Linear issues for Codex findings — a deferred issue is just delayed work the next `plan-backlog` pulls back in anyway. Theme cascades are resolved at the root (fix all real sites / the shared cause in one change), not patched one site per iteration. Hard caps (4 review cycles, 90 min uptime) are a runaway guard, not a defer trigger: if real bugs remain when a cap is hit, the monitor STOPS and hands back to the user with the PR left OPEN — it never auto-merges over a known bug or files a follow-up. See `codex-loop.md` Step 3.5.
+- **PR review before merge** — After `pr-creator` succeeds, run `bug-hunter` on the full PR diff (`origin/main...HEAD`) plus a self-review, and fix every real finding on the PR branch before launching the monitor. A PR is ready to merge when CI is green and the review findings are fixed.
+- **PR-review findings are FIX or DISCARD — never deferred** — A real bug is fixed now with TDD on this PR. Anything else is discarded with a concrete reason: false positive, accepted pattern (CLAUDE.md "KNOWN ACCEPTED PATTERNS", project memory, or already adjudicated in a prior review/audit), not realistically triggerable in this family-scale (2-user) app, or style-only. "Low severity", "pre-existing" and "out of scope" are not discard reasons. No Linear issues are created for PR-review findings — a deferred issue is just delayed work the next `plan-backlog` pulls back in anyway. A root cause flagged at several call sites is fixed in one change, not one site per round. The 3-round cap is a runaway guard, not a defer trigger: if real bugs remain, STOP with the PR left open — never merge over a known bug or file a follow-up.
+- **Launch the CI monitor only after a clean PR review** — Create the 3-min cron with the prompt template above. It is intentionally session-only (do NOT pass `durable: true`) — if the user closes the session they are not supervising the auto-merge, so the cron should die with the session. It watches GitHub Actions checks only and self-terminates when its merge phase completes (CI green, squash-merge succeeded, on `main`). See [references/ci-merge-loop.md](references/ci-merge-loop.md) for the per-tick logic.

@@ -7,7 +7,7 @@ permissionMode: dontAsk
 memory: project
 ---
 
-Analyze uncommitted git changes for bugs and project rule violations.
+Analyze git changes for bugs and project rule violations - the uncommitted changes by default, or a commit range when the prompt names one (PR review: `origin/main...HEAD`).
 
 **Memory:** Check your agent memory for known false positives and recurring patterns from previous reviews. After completing a review, update your memory with any new false positives or confirmed patterns worth tracking.
 
@@ -17,6 +17,7 @@ Analyze uncommitted git changes for bugs and project rule violations.
 2. **Get changes**:
    - `git diff` - Unstaged changes
    - `git diff --cached` - Staged changes
+   - **Range scope:** when the prompt names a commit range (e.g. `origin/main...HEAD`), use `git diff <range>` and `git log --oneline <range>` instead - the changes are already committed
 3. **Assess AI-generated code risk** - If changes are large or show AI patterns (repetitive structure, unusual APIs), apply extra scrutiny
 4. **For each modified file**:
    - Read the full file for context (not just the diff)
@@ -187,7 +188,7 @@ Summary: N bug(s) found
 
 | Situation | Action |
 |-----------|--------|
-| No uncommitted changes | Report "No changes to review" and stop |
+| No changes in scope (no uncommitted changes, or an empty range) | Report "No changes to review" and stop |
 | CLAUDE.md doesn't exist | Use general best practices only |
 | File in diff no longer exists | Skip that file, note in report |
 | Binary files in diff | Skip, note "Binary files not reviewed" |
@@ -195,7 +196,7 @@ Summary: N bug(s) found
 
 ## Rules
 
-- Examine only uncommitted changes (git diff output)
+- Examine only the changes in scope (uncommitted changes, or the range named in the prompt)
 - Read full file for context, not just diff hunks
 - Report concrete bugs with specific file:line locations
 - Each bug includes severity, category, and actionable fix
