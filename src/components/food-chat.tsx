@@ -592,6 +592,7 @@ export function FoodChat({
             date,
             time: saveBody.time,
             zoneOffset,
+            entryId: editEntry.id,
           });
           window.location.href = "/api/auth/google-health";
           return;
@@ -674,6 +675,7 @@ export function FoodChat({
             date,
             time: saveBody.time,
             zoneOffset: fallback.zoneOffset,
+            entryId,
           });
           window.location.href = "/api/auth/google-health";
           return;

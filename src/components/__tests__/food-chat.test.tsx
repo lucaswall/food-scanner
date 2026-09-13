@@ -2722,7 +2722,9 @@ describe("FoodChat edit mode", () => {
     fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
 
     await waitFor(() => {
-      expect(savePendingSubmission).toHaveBeenCalled();
+      // FOO-1173: the entryId must travel with the pending submission so the resumed save
+      // updates this entry instead of logging a duplicate.
+      expect(savePendingSubmission).toHaveBeenCalledWith(expect.objectContaining({ entryId: 42 }));
       expect(window.location.href).toBe("/api/auth/google-health");
     });
 
@@ -2838,6 +2840,56 @@ describe("FOO-750: editingEntryId in analyze mode", () => {
       const body = JSON.parse(editFoodCall![1].body);
       expect(body.entryId).toBe(99);
       expect(body.food_name).toBe(mockAnalysis.food_name);
+    });
+  });
+
+  it("handleSaveExisting: HEALTH_TOKEN_INVALID saves the pending edit with its entryId (FOO-1173)", async () => {
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { ...originalLocation, href: "" },
+    });
+    const { savePendingSubmission } = await import("@/lib/pending-submission");
+
+    const analysisWithEditId: FoodAnalysis = { ...mockAnalysis, editingEntryId: 99, date: "2026-02-14", time: "22:00" };
+    mockFetch
+      .mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "analysis", analysis: analysisWithEditId },
+          { type: "done" },
+        ])
+      )
+      .mockResolvedValueOnce({
+        ok: false,
+        text: () => Promise.resolve(JSON.stringify({
+          success: false,
+          error: { code: "HEALTH_TOKEN_INVALID", message: "Token expired" },
+        })),
+      });
+
+    render(<FoodChat {...sseProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "edit that" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save changes/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(savePendingSubmission).toHaveBeenCalledWith(
+        expect.objectContaining({ entryId: 99, date: "2026-02-14" })
+      );
+      expect(window.location.href).toBe("/api/auth/google-health");
+    });
+
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: originalLocation,
     });
   });
 });

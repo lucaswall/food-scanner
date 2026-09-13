@@ -7,6 +7,8 @@ export interface PendingSubmission {
   mealTypeId: number;
   foodName: string;
   reuseCustomFoodId?: number;
+  /** Set when the interrupted save was an edit — the resume must update this entry, not log a new one. */
+  entryId?: number;
   date?: string;
   time?: string;
   zoneOffset?: string;
@@ -27,6 +29,7 @@ function isValidPendingSubmission(data: unknown): data is PendingSubmission {
   if (typeof d.foodName !== "string") return false;
   if (!isValidAnalysis(d.analysis)) return false;
   if (d.reuseCustomFoodId !== undefined && typeof d.reuseCustomFoodId !== "number") return false;
+  if (d.entryId !== undefined && !(typeof d.entryId === "number" && Number.isInteger(d.entryId) && d.entryId > 0)) return false;
   if (d.date !== undefined && typeof d.date !== "string") return false;
   if (d.time !== undefined && typeof d.time !== "string") return false;
   if (d.zoneOffset !== undefined && typeof d.zoneOffset !== "string") return false;
