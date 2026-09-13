@@ -20,6 +20,7 @@ vi.mock("@/lib/safe-json", () => ({
   safeResponseJson: vi.fn(async (response: Response) => response.json()),
 }));
 
+import * as Sentry from "@sentry/nextjs";
 import { vibrateError } from "@/lib/haptics";
 import { useDeleteFoodEntry } from "@/hooks/use-delete-food-entry";
 
@@ -202,6 +203,22 @@ describe("useDeleteFoodEntry", () => {
 
       expect(result.current.deleteError).toBe("Request timed out. Please try again.");
       expect(vibrateError).toHaveBeenCalled();
+    });
+
+    it("shows a connection message and does NOT capture to Sentry for a browser connectivity failure", async () => {
+      vi.mocked(Sentry.captureException).mockClear();
+      mockFetch.mockRejectedValue(new TypeError("Failed to fetch"));
+
+      const { result } = renderHook(() => useDeleteFoodEntry({ onSuccess }));
+      act(() => { result.current.handleDeleteRequest(5); });
+
+      await act(async () => {
+        await result.current.handleDeleteConfirm();
+      });
+
+      expect(result.current.deleteError).toBe("Network error. Please check your connection and try again.");
+      expect(vibrateError).toHaveBeenCalled();
+      expect(vi.mocked(Sentry.captureException)).not.toHaveBeenCalled();
     });
   });
 });

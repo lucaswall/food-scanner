@@ -23,3 +23,6 @@ export function isLikelyNetworkError(error: unknown): boolean {
     msg.includes("load failed")
   )
 }
+
+/** User-facing message for failures matched by isLikelyNetworkError. */
+export const NETWORK_ERROR_MESSAGE = "Network error. Please check your connection and try again."

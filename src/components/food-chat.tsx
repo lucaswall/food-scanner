@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as Sentry from "@sentry/nextjs";
+import { isLikelyNetworkError, NETWORK_ERROR_MESSAGE } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -514,6 +515,9 @@ export function FoodChat({
       } else if (err instanceof Error && err.message === "Failed to read image") {
         // Client-side FileReader failure — user-recoverable, not a server error
         setError(err.message);
+      } else if (isLikelyNetworkError(err)) {
+        // Connectivity blip (offline, device sleep) — not an app bug, so no Sentry.
+        setError(NETWORK_ERROR_MESSAGE);
       } else {
         Sentry.captureException(err);
         setError(
@@ -552,11 +556,14 @@ export function FoodChat({
 
     try {
       const { time, zoneOffset } = getLocalDateTime();
+      // The edit baseline analysis carries the entry's date, so this only differs when the
+      // model moved the entry to another day ("this was yesterday").
+      const date = analysis.date ?? editEntry.date;
       const saveBody = {
         entryId: editEntry.id,
         ...analysis,
         mealTypeId,
-        date: editEntry.date,
+        date,
         time: selectedTime ?? editEntry.time ?? time,
         zoneOffset,
       };
@@ -582,7 +589,7 @@ export function FoodChat({
             analysis: analysis,
             mealTypeId,
             foodName: analysis.food_name,
-            date: editEntry.date,
+            date,
             time: saveBody.time,
             zoneOffset,
           });
@@ -603,6 +610,8 @@ export function FoodChat({
     } catch (err) {
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setError("Request timed out. Please try again.");
+      } else if (isLikelyNetworkError(err)) {
+        setError(NETWORK_ERROR_MESSAGE);
       } else {
         Sentry.captureException(err);
         setError(err instanceof Error ? err.message : "An unexpected error occurred");
@@ -681,6 +690,8 @@ export function FoodChat({
     } catch (err) {
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setError("Request timed out. Please try again.");
+      } else if (isLikelyNetworkError(err)) {
+        setError(NETWORK_ERROR_MESSAGE);
       } else {
         Sentry.captureException(err);
         setError(err instanceof Error ? err.message : "An unexpected error occurred");

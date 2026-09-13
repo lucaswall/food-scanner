@@ -430,6 +430,41 @@ describe("google-health", () => {
         refreshGoogleHealthToken("old-refresh", fakeLog),
       ).rejects.toThrow("HEALTH_REFRESH_TRANSIENT");
     });
+
+    it("logs a rejected refresh (400 invalid_grant) at warn with the OAuth error code, not error (FOOD-SCANNER-1B)", async () => {
+      // An expired/revoked refresh token is an expected, handled condition (the token row is
+      // deleted and the UI prompts a reconnect) — it must not raise a Sentry error issue.
+      warnMock.mockClear();
+      errorMock.mockClear();
+      fetchMock.mockResolvedValue(makeJsonResponse(
+        { error: "invalid_grant", error_description: "Token has been expired or revoked." },
+        400,
+      ));
+
+      await expect(
+        refreshGoogleHealthToken("old-refresh", fakeLog),
+      ).rejects.toThrow("HEALTH_TOKEN_INVALID");
+
+      expect(errorMock).not.toHaveBeenCalled();
+      expect(warnMock).toHaveBeenCalledWith(
+        expect.objectContaining({ action: "google_health_token_refresh_rejected", status: 400, oauthError: "invalid_grant" }),
+        expect.any(String),
+      );
+    });
+
+    it("logs a transient refresh failure (5xx) at error", async () => {
+      errorMock.mockClear();
+      fetchMock.mockResolvedValue(new Response(null, { status: 503 }));
+
+      await expect(
+        refreshGoogleHealthToken("old-refresh", fakeLog),
+      ).rejects.toThrow("HEALTH_REFRESH_TRANSIENT");
+
+      expect(errorMock).toHaveBeenCalledWith(
+        expect.objectContaining({ action: "google_health_token_refresh_failed", status: 503 }),
+        expect.any(String),
+      );
+    });
   });
 
   // ─── createNutritionLog ─────────────────────────────────────────────────────

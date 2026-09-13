@@ -2200,6 +2200,40 @@ describe("conversationalRefine", () => {
     expect(systemText).toContain("baseline");
   });
 
+  it("includes the baseline date in the initial analysis context so later turns keep a date change", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await collectEvents(
+      conversationalRefine(
+        [{ role: "user", content: "Add cheese" }],
+        "user-123",
+        "2026-02-15",
+        { ...validAnalysis, date: "2026-02-14" }
+      )
+    );
+
+    const systemText = mockStream.mock.calls[0][0].system[0].text;
+    expect(systemText).toContain("- Date: 2026-02-14");
+  });
+
+  it("reports the baseline date as not set when the initial analysis has no date", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await collectEvents(
+      conversationalRefine(
+        [{ role: "user", content: "Add cheese" }],
+        "user-123",
+        "2026-02-15",
+        { ...validAnalysis, date: undefined }
+      )
+    );
+
+    const systemText = mockStream.mock.calls[0][0].system[0].text;
+    expect(systemText).toContain("- Date: null (not set)");
+  });
+
   it("date appears in messages (last content block of leading user msg), not in system prompt (A2)", async () => {
     mockStream.mockReturnValueOnce(makeTextStream("OK"));
 
@@ -3091,6 +3125,29 @@ describe("editAnalysis", () => {
     const systemText = call.system[0].text;
     expect(systemText).toContain(validAnalysis.food_name);
     expect(systemText).toContain("baseline");
+  });
+
+  it("includes the refined analysis date in the edit baseline so a date change survives later turns", async () => {
+    // Regression (FOO-1172): the edit baseline listed meal type and time but not date, so after
+    // "this was yesterday" an unrelated follow-up correction could revert to the stored date.
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { editAnalysis } = await import("@/lib/claude");
+    await collectEvents(
+      editAnalysis(
+        [{ role: "user", content: "Add cheese" }],
+        validEntry,
+        "user-123",
+        "2026-02-15",
+        undefined,
+        undefined,
+        { ...validAnalysis, date: "2026-02-14" }
+      )
+    );
+
+    const systemText = mockStream.mock.calls[0][0].system[0].text;
+    const baseline = systemText.slice(systemText.indexOf("The current analysis being refined is:"));
+    expect(baseline).toContain("- Date: 2026-02-14");
   });
 
   it("sends image blocks when ConversationMessage has images", async () => {

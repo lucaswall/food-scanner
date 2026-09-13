@@ -5,6 +5,7 @@ import * as Sentry from "@sentry/nextjs";
 import { invalidateFoodCaches } from "@/lib/swr";
 import { vibrateError } from "@/lib/haptics";
 import { safeResponseJson } from "@/lib/safe-json";
+import { isLikelyNetworkError, NETWORK_ERROR_MESSAGE } from "@/lib/utils";
 
 interface UseDeleteFoodEntryOptions {
   onSuccess: () => void;
@@ -81,6 +82,9 @@ export function useDeleteFoodEntry({ onSuccess }: UseDeleteFoodEntryOptions): Us
     } catch (err) {
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setDeleteError("Request timed out. Please try again.");
+      } else if (isLikelyNetworkError(err)) {
+        // Connectivity blip (offline, device sleep) — not an app bug, so no Sentry.
+        setDeleteError(NETWORK_ERROR_MESSAGE);
       } else {
         Sentry.captureException(err);
         console.error("Failed to delete food history entry:", err);
