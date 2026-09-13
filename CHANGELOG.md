@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.3] - 2026-09-13
+
+### Fixed
+
+- Asking the AI to move an entry to another day while editing it (for example "this was yesterday") now saves the new date instead of keeping the original one, and the change holds through follow-up corrections in the same conversation.
+- Reconnecting Google Health in the middle of saving an edit no longer creates a duplicate entry — once reconnected, the change is applied to the original entry.
+- Losing connectivity while logging, saving an edit, deleting an entry, or chatting now shows a clear "check your connection" message instead of a raw browser error.
+
 ## [4.0.2] - 2026-09-06
 
 ### Fixed
@@ -635,7 +643,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.0.2...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.0.3...HEAD
+[4.0.3]: https://github.com/lucaswall/food-scanner/compare/v4.0.2...v4.0.3
 [4.0.2]: https://github.com/lucaswall/food-scanner/compare/v4.0.1...v4.0.2
 [4.0.1]: https://github.com/lucaswall/food-scanner/compare/v4.0.0...v4.0.1
 [4.0.0]: https://github.com/lucaswall/food-scanner/compare/v3.0.0...v4.0.0
