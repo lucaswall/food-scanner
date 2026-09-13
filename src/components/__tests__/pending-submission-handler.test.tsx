@@ -402,4 +402,62 @@ describe("PendingSubmissionHandler", () => {
       expect(body.protein_g).toBe(12);
     });
   });
+
+  it("resubmits an interrupted edit to /api/edit-food with its entryId instead of logging a duplicate (FOO-1173)", async () => {
+    const pending: PendingSubmission = {
+      analysis: {
+        food_name: "Empanada",
+        amount: 150,
+        unit_id: "g",
+        calories: 320,
+        protein_g: 12,
+        carbs_g: 28,
+        fat_g: 18,
+        fiber_g: 2,
+        sodium_mg: 450,
+        saturated_fat_g: null,
+        trans_fat_g: null,
+        sugars_g: null,
+        calories_from_fat: null,
+        confidence: "high",
+        notes: "",
+        description: "",
+        keywords: ["empanada"],
+        editingEntryId: 42,
+      },
+      mealTypeId: 5,
+      foodName: "Empanada",
+      entryId: 42,
+      date: "2026-02-06",
+      time: "22:00",
+      zoneOffset: "-03:00",
+    };
+
+    mockGetPending.mockReturnValue(pending);
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { foodLogId: 42 } }),
+    });
+
+    render(<PendingSubmissionHandler />);
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith("/api/edit-food", expect.objectContaining({ method: "POST" }));
+    });
+    expect(mockFetch).not.toHaveBeenCalledWith("/api/log-food", expect.anything());
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.entryId).toBe(42);
+    expect(body.editingEntryId).toBeUndefined();
+    expect(body.food_name).toBe("Empanada");
+    expect(body.mealTypeId).toBe(5);
+    expect(body.date).toBe("2026-02-06");
+    expect(body.time).toBe("22:00");
+    expect(body.zoneOffset).toBe("-03:00");
+
+    await waitFor(() => {
+      expect(screen.getByText(/Successfully resubmitted Empanada/i)).toBeInTheDocument();
+    });
+    expect(mockClearPending).toHaveBeenCalled();
+  });
 });

@@ -1478,6 +1478,7 @@ export async function* conversationalRefine(
       const amountLabel = getUnitLabel(initialAnalysis.unit_id, initialAnalysis.amount);
       const mealTypeLabel = initialAnalysis.mealTypeId != null ? `${initialAnalysis.mealTypeId}` : "null (not set)";
       const timeLabel = initialAnalysis.time != null ? initialAnalysis.time : "null (not set)";
+      const dateLabel = initialAnalysis.date != null ? initialAnalysis.date : "null (not set)";
       systemPrompt += `\n\nThe initial analysis of this meal is:${UNTRUSTED_DATA_INSTRUCTION}
 - Food: ${wrapUntrusted("food_name", initialAnalysis.food_name)}
 - Amount: ${amountLabel}
@@ -1485,6 +1486,7 @@ export async function* conversationalRefine(
 - Protein: ${initialAnalysis.protein_g}g, Carbs: ${initialAnalysis.carbs_g}g, Fat: ${initialAnalysis.fat_g}g
 - Fiber: ${initialAnalysis.fiber_g}g, Sodium: ${initialAnalysis.sodium_mg}mg
 - Meal type: ${mealTypeLabel}
+- Date: ${dateLabel}
 - Time: ${timeLabel}
 - Confidence: ${initialAnalysis.confidence}
 - Notes: ${wrapUntrusted("notes", initialAnalysis.notes)}
@@ -1823,6 +1825,7 @@ Help the user make corrections. Call report_nutrition with the corrected values.
       const initAmtLabel = getUnitLabel(initialAnalysis.unit_id, initialAnalysis.amount);
       const editMealTypeLabel = initialAnalysis.mealTypeId != null ? `${initialAnalysis.mealTypeId}` : "null (not set)";
       const editTimeLabel = initialAnalysis.time != null ? initialAnalysis.time : "null (not set)";
+      const editDateLabel = initialAnalysis.date != null ? initialAnalysis.date : "null (not set)";
       systemPrompt += `\n\nThe current analysis being refined is:${UNTRUSTED_DATA_INSTRUCTION}
 - Food: ${wrapUntrusted("food_name", initialAnalysis.food_name)}
 - Amount: ${initAmtLabel}
@@ -1830,6 +1833,7 @@ Help the user make corrections. Call report_nutrition with the corrected values.
 - Protein: ${initialAnalysis.protein_g}g, Carbs: ${initialAnalysis.carbs_g}g, Fat: ${initialAnalysis.fat_g}g
 - Fiber: ${initialAnalysis.fiber_g}g, Sodium: ${initialAnalysis.sodium_mg}mg
 - Meal type: ${editMealTypeLabel}
+- Date: ${editDateLabel}
 - Time: ${editTimeLabel}
 - Confidence: ${initialAnalysis.confidence}
 - Notes: ${wrapUntrusted("notes", initialAnalysis.notes)}

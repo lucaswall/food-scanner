@@ -385,6 +385,22 @@ describe("useLogFood", () => {
         expect(mockVibrateError).toHaveBeenCalled();
         expect(vi.mocked(Sentry.captureException)).toHaveBeenCalledWith(networkErr);
       });
+
+      it("shows a connection message and does NOT capture to Sentry for a browser connectivity failure (FOOD-SCANNER-1A)", async () => {
+        mockFetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+        const { result } = renderHook(() =>
+          useLogFood({ analysis: mockAnalysis, mealTypeId: 3 })
+        );
+
+        await act(async () => {
+          await result.current.logFood();
+        });
+
+        expect(result.current.logError).toBe("Network error. Please check your connection and try again.");
+        expect(mockVibrateError).toHaveBeenCalled();
+        expect(vi.mocked(Sentry.captureException)).not.toHaveBeenCalled();
+      });
     });
   });
 

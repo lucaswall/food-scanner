@@ -343,6 +343,20 @@ export async function refreshGoogleHealthToken(
     });
 
     if (!response.ok) {
+      // 400/401 = expired/revoked refresh token (e.g. invalid_grant). This is expected and
+      // handled — ensureFreshToken deletes the token row and the UI prompts a reconnect — so
+      // log at warn to keep it out of Sentry issues (FOOD-SCANNER-1B). Anything else = transient.
+      if (response.status === 400 || response.status === 401) {
+        l.warn(
+          {
+            action: "google_health_token_refresh_rejected",
+            status: response.status,
+            oauthError: await readOAuthErrorCode(response),
+          },
+          "Google Health token refresh rejected — refresh token expired or revoked",
+        );
+        throw new Error("HEALTH_TOKEN_INVALID");
+      }
       l.error(
         {
           action: "google_health_token_refresh_failed",
@@ -351,10 +365,6 @@ export async function refreshGoogleHealthToken(
         },
         "Google Health token refresh http failure",
       );
-      // 400/401 = invalid/revoked token; anything else = transient
-      if (response.status === 400 || response.status === 401) {
-        throw new Error("HEALTH_TOKEN_INVALID");
-      }
       throw new Error("HEALTH_REFRESH_TRANSIENT");
     }
 
@@ -403,6 +413,20 @@ const refreshInFlight = new Map<string, Promise<string>>();
  *   - HEALTH_TOKEN_SAVE_FAILED — upsert failed after one retry
  *   - (propagates any HEALTH_TOKEN_INVALID / HEALTH_REFRESH_TRANSIENT from refreshGoogleHealthToken)
  */
+/** Extract the OAuth `error` code (e.g. "invalid_grant") from a token-endpoint error body. Never throws. */
+async function readOAuthErrorCode(response: Response): Promise<string | null> {
+  try {
+    const body: unknown = await response.json();
+    if (body && typeof body === "object") {
+      const code = (body as Record<string, unknown>).error;
+      if (typeof code === "string") return code;
+    }
+  } catch {
+    // Empty or non-JSON body
+  }
+  return null;
+}
+
 export async function ensureFreshToken(userId: string, log?: Logger): Promise<string> {
   const l = log ?? logger;
 

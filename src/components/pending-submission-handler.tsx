@@ -32,8 +32,15 @@ export function PendingSubmissionHandler() {
           ? { date: pending.date, time: pending.time, zoneOffset: pending.zoneOffset }
           : getLocalDateTime();
       const body: Record<string, unknown> = {};
+      // FOO-1173: an interrupted edit must update the original entry, not log a duplicate.
+      const isEdit = pending.entryId !== undefined && pending.analysis !== null;
 
-      if (pending.reuseCustomFoodId) {
+      if (isEdit) {
+        Object.assign(body, pending.analysis, { editingEntryId: undefined });
+        body.entryId = pending.entryId;
+        body.mealTypeId = pending.mealTypeId;
+        Object.assign(body, dateTime);
+      } else if (pending.reuseCustomFoodId) {
         body.reuseCustomFoodId = pending.reuseCustomFoodId;
         body.mealTypeId = pending.mealTypeId;
         Object.assign(body, dateTime);
@@ -53,7 +60,7 @@ export function PendingSubmissionHandler() {
       }
 
       try {
-        const r = await fetch("/api/log-food", {
+        const r = await fetch(isEdit ? "/api/edit-food" : "/api/log-food", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),

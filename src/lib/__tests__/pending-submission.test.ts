@@ -256,6 +256,24 @@ describe("pending-submission", () => {
     });
   });
 
+  describe("entryId field (interrupted edits, FOO-1173)", () => {
+    it("stores and retrieves entryId", () => {
+      const editPending: PendingSubmission = { ...mockPending, entryId: 42, date: "2026-02-06", time: "22:00" };
+      savePendingSubmission(editPending);
+      expect(getPendingSubmission()).toEqual(editPending);
+    });
+
+    it("returns null when entryId is present but not a positive integer", () => {
+      for (const entryId of ["42", 0, -1, 1.5]) {
+        sessionStorage.setItem(
+          "food-scanner-pending-submission",
+          JSON.stringify({ ...mockPending, entryId })
+        );
+        expect(getPendingSubmission()).toBeNull();
+      }
+    });
+  });
+
   describe("sessionId field", () => {
     it("stores sessionId when provided", () => {
       const pendingWithSession: PendingSubmission = {

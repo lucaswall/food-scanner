@@ -2587,6 +2587,79 @@ describe("FoodChat edit mode", () => {
     expect(saveBody.calories).toBe(160);
   });
 
+  it("Save Changes sends the date from the AI analysis when the user asks to move the entry", async () => {
+    // Regression: handleSave always sent editEntry.date, silently dropping a date change
+    // ("this was yesterday") even though the model reported the new date.
+    mockFetch.mockResolvedValueOnce(makeSSEFetchResponse([
+      { type: "analysis", analysis: { ...mockAnalysis, date: "2026-02-14", time: "22:00", mealTypeId: 5 } },
+      { type: "done" },
+    ]));
+
+    render(<FoodChat {...editModeProps} />);
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "this was yesterday at 22hs" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save changes/i })).not.toBeDisabled();
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () => Promise.resolve(JSON.stringify({
+        success: true,
+        data: { entryId: 42, healthLogId: "test-99999", newCustomFoodId: 200 },
+      })),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith("/api/edit-food", expect.anything());
+    });
+
+    const saveCall = mockFetch.mock.calls.find(c => c[0] === "/api/edit-food");
+    const saveBody = JSON.parse(saveCall![1].body);
+    expect(saveBody.date).toBe("2026-02-14");
+    expect(saveBody.time).toBe("22:00");
+  });
+
+  it("Save Changes keeps the entry's original date when the AI analysis has no date", async () => {
+    mockFetch.mockResolvedValueOnce(makeSSEFetchResponse([
+      { type: "analysis", analysis: { ...mockAnalysis, date: undefined, calories: 160 } },
+      { type: "done" },
+    ]));
+
+    render(<FoodChat {...editModeProps} />);
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "I only ate half" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save changes/i })).not.toBeDisabled();
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () => Promise.resolve(JSON.stringify({
+        success: true,
+        data: { entryId: 42, healthLogId: "test-99999", newCustomFoodId: 200 },
+      })),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith("/api/edit-food", expect.anything());
+    });
+
+    const saveCall = mockFetch.mock.calls.find(c => c[0] === "/api/edit-food");
+    const saveBody = JSON.parse(saveCall![1].body);
+    expect(saveBody.date).toBe("2026-02-15");
+  });
+
   it("calls onLogged after successful save with FoodLogResponse", async () => {
     const onLogged = vi.fn();
     // Get an analysis first
@@ -2649,7 +2722,9 @@ describe("FoodChat edit mode", () => {
     fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
 
     await waitFor(() => {
-      expect(savePendingSubmission).toHaveBeenCalled();
+      // FOO-1173: the entryId must travel with the pending submission so the resumed save
+      // updates this entry instead of logging a duplicate.
+      expect(savePendingSubmission).toHaveBeenCalledWith(expect.objectContaining({ entryId: 42 }));
       expect(window.location.href).toBe("/api/auth/google-health");
     });
 
@@ -2765,6 +2840,56 @@ describe("FOO-750: editingEntryId in analyze mode", () => {
       const body = JSON.parse(editFoodCall![1].body);
       expect(body.entryId).toBe(99);
       expect(body.food_name).toBe(mockAnalysis.food_name);
+    });
+  });
+
+  it("handleSaveExisting: HEALTH_TOKEN_INVALID saves the pending edit with its entryId (FOO-1173)", async () => {
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { ...originalLocation, href: "" },
+    });
+    const { savePendingSubmission } = await import("@/lib/pending-submission");
+
+    const analysisWithEditId: FoodAnalysis = { ...mockAnalysis, editingEntryId: 99, date: "2026-02-14", time: "22:00" };
+    mockFetch
+      .mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "analysis", analysis: analysisWithEditId },
+          { type: "done" },
+        ])
+      )
+      .mockResolvedValueOnce({
+        ok: false,
+        text: () => Promise.resolve(JSON.stringify({
+          success: false,
+          error: { code: "HEALTH_TOKEN_INVALID", message: "Token expired" },
+        })),
+      });
+
+    render(<FoodChat {...sseProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "edit that" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save changes/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(savePendingSubmission).toHaveBeenCalledWith(
+        expect.objectContaining({ entryId: 99, date: "2026-02-14" })
+      );
+      expect(window.location.href).toBe("/api/auth/google-health");
+    });
+
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: originalLocation,
     });
   });
 });
@@ -3041,6 +3166,59 @@ describe("FOO-743: Sentry.captureException in FoodChat", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
+    });
+
+    expect(mockCaptureExceptionChat).not.toHaveBeenCalled();
+  });
+
+  it("shows a connection message and does NOT call captureException for a network failure in handleSend", async () => {
+    mockFetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+    render(<FoodChat {...sseProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "Test" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/network error\. please check your connection/i)).toBeInTheDocument();
+    });
+
+    expect(mockCaptureExceptionChat).not.toHaveBeenCalled();
+  });
+
+  it("shows a connection message and does NOT call captureException for a network failure in handleLog (FOOD-SCANNER-1A)", async () => {
+    mockFetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+    render(<FoodChat {...defaultProps} />);
+    fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/network error\. please check your connection/i)).toBeInTheDocument();
+    });
+
+    expect(mockCaptureExceptionChat).not.toHaveBeenCalled();
+  });
+
+  it("shows a connection message and does NOT call captureException for a network failure in edit-mode Save Changes", async () => {
+    mockFetch.mockResolvedValueOnce(makeSSEFetchResponse([
+      { type: "analysis", analysis: { ...mockAnalysis, calories: 160 } },
+      { type: "done" },
+    ]));
+
+    render(<FoodChat {...editModeProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "I only ate half" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save changes/i })).not.toBeDisabled();
+    });
+
+    mockFetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/network error\. please check your connection/i)).toBeInTheDocument();
     });
 
     expect(mockCaptureExceptionChat).not.toHaveBeenCalled();

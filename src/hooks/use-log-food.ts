@@ -6,6 +6,7 @@ import { safeResponseJson } from "@/lib/safe-json";
 import { savePendingSubmission } from "@/lib/pending-submission";
 import { vibrateError } from "@/lib/haptics";
 import { getLocalDateTime } from "@/lib/meal-type";
+import { isLikelyNetworkError, NETWORK_ERROR_MESSAGE } from "@/lib/utils";
 import type { FoodAnalysis, FoodLogResponse } from "@/types";
 
 interface UseLogFoodConfig {
@@ -72,6 +73,9 @@ async function handleLogResponse(
 function handleCatchError(err: unknown, setLogError: (e: string | null) => void): void {
   if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
     setLogError("Request timed out. Please try again.");
+  } else if (isLikelyNetworkError(err)) {
+    // Connectivity blip (offline, device sleep) — not an app bug, so no Sentry (FOOD-SCANNER-1A).
+    setLogError(NETWORK_ERROR_MESSAGE);
   } else {
     Sentry.captureException(err);
     setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
