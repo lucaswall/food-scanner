@@ -307,10 +307,14 @@ The CSP header is applied in production only (see `next.config.ts`).
 
 ### Sentry tunnel
 
-All client-side Sentry events route through the `/monitoring` same-origin tunnel endpoint,
-configured via `tunnelRoute: "/monitoring"` in `withSentryConfig`. The `@sentry/nextjs` build
-plugin injects the tunnel URL into the compiled client bundle — no direct `connect-src sentry.io`
-is needed. `connect-src 'self'` covers Sentry reporting.
+All client-side Sentry events are sent to the same-origin `/monitoring` route handler
+(`tunnel: "/monitoring"` in `src/instrumentation-client.ts`), which forwards them to Sentry via
+`src/lib/sentry-tunnel.ts` — no direct `connect-src sentry.io` is needed, so `connect-src 'self'`
+covers Sentry reporting. The route is public, but only envelopes addressed to the project in
+`NEXT_PUBLIC_SENTRY_DSN` are forwarded (max 10 MB), so it can't be used as an open proxy.
+
+`withSentryConfig`'s `tunnelRoute` option is deliberately not used: it proxies through a Next.js
+rewrite, and Next 16.3's rewrite proxy logs `MaxListenersExceededWarning` on every request (FOO-1180).
 
 ### script-src uses 'unsafe-inline' (accepted)
 

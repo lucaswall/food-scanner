@@ -17,10 +17,10 @@ const nextConfig: NextConfig = {
     if (process.env.NODE_ENV === "production") {
       // CSP DESIGN NOTES (FOO-1154):
       //
-      // Sentry tunnel: all client-side Sentry events are routed through the same-origin
-      // /monitoring tunnel endpoint (tunnelRoute: "/monitoring" in withSentryConfig below).
-      // The @sentry/nextjs build plugin injects the tunnel URL into the compiled client bundle
-      // at build time, so no direct connect-src sentry.io is needed. connect-src 'self' covers it.
+      // Sentry tunnel: all client-side Sentry events are sent to the same-origin /monitoring
+      // route handler (tunnel: "/monitoring" in src/instrumentation-client.ts), which forwards
+      // them to Sentry server-side, so no direct connect-src sentry.io is needed.
+      // connect-src 'self' covers it.
       //
       // CSP nonce (deferred): replacing 'unsafe-inline' with a per-request nonce for script-src
       // requires generating a nonce in middleware.ts and propagating it to Next.js App Router's
@@ -51,5 +51,4 @@ export default withSentryConfig(nextConfig, {
   project: process.env.SENTRY_PROJECT,
   authToken: process.env.SENTRY_AUTH_TOKEN,
   silent: true,
-  tunnelRoute: "/monitoring",
 });

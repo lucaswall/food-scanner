@@ -10,6 +10,8 @@ Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
   environment: getEnvironment(),
   release: process.env.COMMIT_SHA || undefined,
+  // Same-origin tunnel served by src/app/monitoring/route.ts (keeps connect-src 'self', dodges ad blockers)
+  tunnel: "/monitoring",
   tracesSampleRate: 1.0,
   replaysSessionSampleRate: 0.1,
   replaysOnErrorSampleRate: 1.0,

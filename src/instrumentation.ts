@@ -12,6 +12,8 @@ export async function register() {
             : "production",
       release: process.env.COMMIT_SHA || undefined,
       tracesSampleRate: 1.0,
+      // Browser envelopes relayed by the /monitoring tunnel route aren't app traffic
+      ignoreSpans: [/^POST \/monitoring$/],
       enableLogs: true,
       integrations: [
         Sentry.pinoIntegration({
