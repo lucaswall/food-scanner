@@ -8,6 +8,7 @@ import { DescriptionInput } from "./description-input";
 import { AnalysisResult } from "./analysis-result";
 import { MealTypeSelector } from "./meal-type-selector";
 import { TimeSelector } from "./time-selector";
+import { LogDateHint } from "./log-date-hint";
 import { FoodLogConfirmation } from "./food-log-confirmation";
 import { FoodMatchCard } from "./food-match-card";
 import { FoodChat } from "./food-chat";
@@ -83,6 +84,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     analysis,
     mealTypeId,
     selectedTime,
+    dateOverride: analysis?.date,
     onSuccess: () => actions.clearPersistedSession(),
     getSessionId: () => getActiveSessionId() ?? undefined,
   });
@@ -303,6 +305,15 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
               actions.setAnalysisNarrative(textDeltaBufferRef.current.trim() || null);
               if (event.analysis.mealTypeId != null) {
                 actions.setMealTypeId(event.analysis.mealTypeId);
+              }
+              // Claude sets time only when the user mentions one ("yesterday at 20:30") — FOO-1174.
+              // The date needs no seeding: it rides on the analysis as useLogFood's dateOverride.
+              if (event.analysis.time != null) {
+                actions.setSelectedTime(event.analysis.time);
+              } else if (analysis?.time != null && selectedTime === analysis.time) {
+                // The previous analysis supplied the time and the user kept it — a re-analysis
+                // without one must not carry it over (a user-picked time is left alone).
+                actions.setSelectedTime(null);
               }
               setSeedMessages(null);
               // Fire async match search (non-blocking) — skip if Claude already identified the reused food
@@ -658,6 +669,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
               ariaLabel="Meal Type"
             />
             <TimeSelector value={selectedTime} onChange={actions.setSelectedTime} />
+            <LogDateHint date={analysis.date} />
           </div>
 
           {/* Action buttons */}

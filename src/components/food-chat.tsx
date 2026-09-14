@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MealTypeSelector } from "@/components/meal-type-selector";
 import { TimeSelector } from "@/components/time-selector";
+import { LogDateHint } from "@/components/log-date-hint";
 import {
   Send,
   ArrowLeft,
@@ -137,8 +138,9 @@ export function FoodChat({
   const [mealTypeId, setMealTypeId] = useState(
     isEditMode && editEntry ? editEntry.mealTypeId : (initialMealTypeId ?? getDefaultMealType())
   );
+  // Analyze mode starts from the AI-set time ("yesterday at 20:30") — FOO-1174.
   const [selectedTime, setSelectedTime] = useState<string | null>(
-    isEditMode && editEntry?.time ? editEntry.time : null
+    isEditMode && editEntry?.time ? editEntry.time : (initialAnalysis?.time ?? null)
   );
   const [pendingImages, setPendingImages] = useState<Blob[]>([]);
   const [saving, setSaving] = useState(false);
@@ -1023,6 +1025,8 @@ export function FoodChat({
             )}
           </Button>
         </div>
+
+        <LogDateHint date={latestAnalysis?.date} className="px-2 pb-1" />
 
         {/* Meal type and time selectors */}
         {latestAnalysis && (
