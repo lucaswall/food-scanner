@@ -150,10 +150,14 @@ Look for successful startup with no database connection errors. The app runs mig
 
 ### Build & Start
 
-Railway auto-detects Next.js:
+Railway builds with Railpack, which auto-detects Next.js:
 - **Build:** `npm run build` (runs `next build`)
 - **Start:** `npm start` (runs `next start`)
 - **Health check:** `GET /api/health` returns 200
+
+`railpack.json` replaces Railpack's deprecated `NPM_CONFIG_PRODUCTION=false` with `NPM_CONFIG_INCLUDE=dev`, so the build still installs devDependencies without npm's `production` config warning on every install, build and start.
+
+**Watch Paths** are set in the Railway service settings (Settings → Build), not in a repo file — Railway's `railway.json` Config as Code is deprecated. Keep them in sync with the app paths in `.github/workflows/ci.yml`, plus `railpack.json` and `.node-version`.
 
 ### Monitoring
 

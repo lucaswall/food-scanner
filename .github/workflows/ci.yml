@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      # App paths (shared with railway.json watchPatterns)
+      # App paths (keep in sync with the Railway service's Watch Paths setting)
       - "src/**"
       - "drizzle/**"
       - "public/**"
@@ -24,7 +24,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      # App paths (shared with railway.json watchPatterns)
+      # App paths (keep in sync with the Railway service's Watch Paths setting)
       - "src/**"
       - "drizzle/**"
       - "public/**"
