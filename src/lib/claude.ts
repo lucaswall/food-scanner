@@ -1,5 +1,4 @@
 import Anthropic from "@anthropic-ai/sdk";
-import * as Sentry from "@sentry/nextjs";
 import type { FoodAnalysis, ConversationMessage, FoodLogEntryDetail } from "@/types";
 import { getUnitLabel, MEAL_TYPE_LABELS, coerceServingUnit } from "@/types";
 import { logger, startTimer } from "@/lib/logger";
@@ -19,12 +18,14 @@ let _client: Anthropic | null = null;
 
 function getClient(): Anthropic {
   if (!_client) {
-    const client = new Anthropic({
+    // Not wrapped with Sentry.instrumentAnthropicAiClient: its proxy swaps the SDK Stream for a
+    // bare async generator inside beta.messages.stream(), which then throws reading
+    // stream.controller.signal and fails every Claude stream (FOO-1179). Calls are logged here.
+    _client = new Anthropic({
       apiKey: getRequiredEnv("ANTHROPIC_API_KEY"),
       timeout: 120000, // 120 second timeout — accommodates streaming with web search
       maxRetries: 2,
     });
-    _client = Sentry.instrumentAnthropicAiClient(client);
   }
   return _client;
 }
