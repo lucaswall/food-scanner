@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.5] - 2026-09-14
+
+### Security
+
+- Updated Next.js and other dependencies to fix known security vulnerabilities, including a critical flaw that could let requests bypass the app's request middleware.
+
 ## [4.0.4] - 2026-09-14
 
 ### Fixed
@@ -650,7 +656,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.0.4...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.0.5...HEAD
+[4.0.5]: https://github.com/lucaswall/food-scanner/compare/v4.0.4...v4.0.5
 [4.0.4]: https://github.com/lucaswall/food-scanner/compare/v4.0.3...v4.0.4
 [4.0.3]: https://github.com/lucaswall/food-scanner/compare/v4.0.2...v4.0.3
 [4.0.2]: https://github.com/lucaswall/food-scanner/compare/v4.0.1...v4.0.2
