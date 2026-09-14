@@ -1,6 +1,48 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Logger } from "@/lib/logger";
-import { forwardSentryEnvelope, MAX_ENVELOPE_BYTES } from "@/lib/sentry-tunnel";
+import { forwardSentryEnvelope, MAX_ENVELOPE_BYTES, readLimitedBody } from "@/lib/sentry-tunnel";
+
+describe("readLimitedBody", () => {
+  it("concatenates all chunks when the body fits", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("hello "));
+        controller.enqueue(encoder.encode("world"));
+        controller.close();
+      },
+    });
+
+    const body = await readLimitedBody(stream, 11);
+
+    expect(new TextDecoder().decode(body!)).toBe("hello world");
+  });
+
+  it("stops reading and cancels the stream once the cap is exceeded", async () => {
+    const cancel = vi.fn();
+    let pulls = 0;
+    // Endless stream: without an early cancel this test would never finish
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls++;
+        controller.enqueue(new Uint8Array(8));
+      },
+      cancel,
+    });
+
+    const body = await readLimitedBody(stream, 20);
+
+    expect(body).toBeNull();
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(pulls).toBeLessThanOrEqual(4);
+  });
+
+  it("returns an empty body when there is no stream", async () => {
+    const body = await readLimitedBody(null, 10);
+
+    expect(body?.byteLength).toBe(0);
+  });
+});
 
 const DSN = "https://abc123@o111.ingest.us.sentry.io/222";
 

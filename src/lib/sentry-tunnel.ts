@@ -41,6 +41,40 @@ function readEnvelopeDsn(body: Uint8Array): string | null {
 }
 
 /**
+ * Reads a request body into memory, giving up (and cancelling the stream) as soon as it exceeds
+ * `maxBytes`. The tunnel is public and Content-Length can be omitted (chunked), so the cap must be
+ * enforced while reading, not after. Returns null when the body is too large.
+ */
+export async function readLimitedBody(
+  stream: ReadableStream<Uint8Array> | null,
+  maxBytes: number,
+): Promise<Uint8Array<ArrayBuffer> | null> {
+  if (!stream) return new Uint8Array(0);
+
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
+
+/**
  * Forwards a browser Sentry envelope to the ingest endpoint of the configured project.
  * Envelopes addressed to any other host or project are rejected, so the public tunnel can't be
  * used as an open proxy. Served by an app route instead of a Next.js rewrite: Next 16.3's rewrite
