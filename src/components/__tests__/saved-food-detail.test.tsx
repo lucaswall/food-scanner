@@ -310,6 +310,18 @@ describe("SavedFoodDetail", () => {
       render(<SavedFoodDetail savedId={42} />);
       expect(screen.getByTestId("time-selector")).toBeInTheDocument();
     });
+
+    it("shows the log date hint when the saved analysis has a non-today date (FOO-1174)", () => {
+      setupSWR({ savedAnalysis: { ...mockSavedAnalysis, foodAnalysis: { ...mockFoodAnalysis, date: "2026-03-15" } } });
+      render(<SavedFoodDetail savedId={42} />);
+      expect(screen.getByTestId("log-date-hint")).toBeInTheDocument();
+    });
+
+    it("does not show the log date hint when the saved analysis has no date", () => {
+      setupSWR();
+      render(<SavedFoodDetail savedId={42} />);
+      expect(screen.queryByTestId("log-date-hint")).not.toBeInTheDocument();
+    });
   });
 
   describe("Match lookup", () => {

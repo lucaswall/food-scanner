@@ -4099,6 +4099,207 @@ describe("FoodAnalyzer", () => {
       expect(body.time).toBe("08:15");
     });
 
+    // ---- FOO-1174: AI-set date/time from the description ("yesterday at 20:30") ----
+    it("logs with the date and time Claude set on the analysis", async () => {
+      const analysisWithDateTime = { ...mockAnalysis, date: "2026-03-15", time: "20:30", mealTypeId: 5 };
+      mockFetch
+        .mockResolvedValueOnce({
+          ...makeSseAnalyzeResponse([
+            { type: "analysis", analysis: analysisWithDateTime },
+            { type: "done" },
+          ]),
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse())
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        });
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/meal time/i)).toHaveValue("20:30");
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith("/api/log-food", expect.any(Object));
+      });
+
+      const logCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/log-food"
+      );
+      const body = JSON.parse((logCall![1] as { body: string }).body);
+      expect(body.date).toBe("2026-03-15");
+      expect(body.time).toBe("20:30");
+      expect(body.mealTypeId).toBe(5);
+    });
+
+    it("shows the log date hint when Claude set a date other than today", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ...makeSseAnalyzeResponse([
+            { type: "analysis", analysis: { ...mockAnalysis, date: "2026-03-15" } },
+            { type: "done" },
+          ]),
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse());
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("log-date-hint")).toBeInTheDocument();
+      });
+    });
+
+    it("does not show the log date hint when the analysis has no date", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ...makeSseAnalyzeResponse([
+            { type: "analysis", analysis: mockAnalysis },
+            { type: "done" },
+          ]),
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse());
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("time-selector")).toBeInTheDocument();
+      });
+      expect(screen.queryByTestId("log-date-hint")).not.toBeInTheDocument();
+    });
+
+    it("'Use this' on a match keeps the date and time Claude set", async () => {
+      const analysisWithDateTime = { ...mockAnalysis, date: "2026-03-15", time: "20:30" };
+      mockFetch
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: analysisWithDateTime }, { type: "done" }])
+        )
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { ...mockLogResponse, reusedFood: true } }),
+        });
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-match-card")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /use this/i }));
+
+      await waitFor(() => {
+        const logFoodCall = mockFetch.mock.calls.find(
+          (call: unknown[]) => call[0] === "/api/log-food"
+        );
+        expect(logFoodCall).toBeDefined();
+        const body = JSON.parse((logFoodCall![1] as RequestInit).body as string);
+        expect(body.reuseCustomFoodId).toBe(42);
+        expect(body.date).toBe("2026-03-15");
+        expect(body.time).toBe("20:30");
+      });
+    });
+
+    it("Re-analyze that drops the time clears the AI-set time back to Now", async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([
+            { type: "analysis", analysis: { ...mockAnalysis, date: "2026-03-15", time: "20:30" } },
+            { type: "done" },
+          ])
+        )
+        .mockResolvedValueOnce(emptyMatchesResponse())
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([
+            { type: "analysis", analysis: { ...mockAnalysis, food_name: "Pizza casera" } },
+            { type: "done" },
+          ])
+        )
+        .mockResolvedValueOnce(emptyMatchesResponse());
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/meal time/i)).toHaveValue("20:30");
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /re-analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toHaveTextContent("Pizza casera");
+      });
+      expect(screen.getByLabelText(/meal time/i)).toHaveValue("");
+      expect(screen.queryByTestId("log-date-hint")).not.toBeInTheDocument();
+    });
+
+    it("Re-analyze that drops the time keeps a time the user picked", async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([
+            { type: "analysis", analysis: { ...mockAnalysis, time: "20:30" } },
+            { type: "done" },
+          ])
+        )
+        .mockResolvedValueOnce(emptyMatchesResponse())
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([
+            { type: "analysis", analysis: { ...mockAnalysis, food_name: "Pizza casera" } },
+            { type: "done" },
+          ])
+        )
+        .mockResolvedValueOnce(emptyMatchesResponse());
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/meal time/i)).toHaveValue("20:30");
+      });
+
+      fireEvent.change(screen.getByLabelText(/meal time/i), { target: { value: "08:15" } });
+      fireEvent.click(screen.getByRole("button", { name: /re-analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toHaveTextContent("Pizza casera");
+      });
+      expect(screen.getByLabelText(/meal time/i)).toHaveValue("08:15");
+    });
+
     it("uses current local time when no time is selected (Now mode)", async () => {
       mockFetch
         .mockResolvedValueOnce({

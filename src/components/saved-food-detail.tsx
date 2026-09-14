@@ -19,6 +19,7 @@ import {
 import { AnalysisResult } from "@/components/analysis-result";
 import { MealTypeSelector } from "@/components/meal-type-selector";
 import { TimeSelector } from "@/components/time-selector";
+import { LogDateHint } from "@/components/log-date-hint";
 import { FoodMatchCard } from "@/components/food-match-card";
 import { FoodLogConfirmation } from "@/components/food-log-confirmation";
 import { FoodChat } from "@/components/food-chat";
@@ -258,6 +259,7 @@ function SavedFoodDetailLoaded({ savedId, savedAnalysis, matches }: SavedFoodDet
             disabled={logging}
           />
           <TimeSelector value={selectedTime} onChange={setSelectedTime} />
+          <LogDateHint date={selectedDate} />
         </div>
 
         {/* Action buttons */}

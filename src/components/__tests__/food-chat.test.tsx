@@ -2350,6 +2350,16 @@ describe("FoodChat", () => {
       expect(screen.queryByTestId("time-selector")).not.toBeInTheDocument();
     });
 
+    it("shows the log date hint when the latest analysis has a non-today date (FOO-1174)", () => {
+      render(<FoodChat {...defaultProps} initialAnalysis={{ ...mockAnalysis, date: "2026-03-15" }} />);
+      expect(screen.getByTestId("log-date-hint")).toBeInTheDocument();
+    });
+
+    it("does not show the log date hint when the latest analysis has no date", () => {
+      render(<FoodChat {...defaultProps} />);
+      expect(screen.queryByTestId("log-date-hint")).not.toBeInTheDocument();
+    });
+
     it("default selectedTime is null (Now mode — input value is empty)", () => {
       render(<FoodChat {...defaultProps} />);
       const timeInput = screen.getByLabelText(/meal time/i);
@@ -2378,6 +2388,30 @@ describe("FoodChat", () => {
       );
       const body = JSON.parse((logCall![1] as { body: string }).body);
       expect(body.time).toBe("12:30");
+    });
+
+    it("seeds the time from the initial analysis and logs with it (FOO-1174)", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () =>
+          Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
+      });
+
+      render(<FoodChat {...defaultProps} initialAnalysis={{ ...mockAnalysis, date: "2026-03-15", time: "20:30" }} />);
+
+      expect(screen.getByLabelText(/meal time/i)).toHaveValue("20:30");
+      fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith("/api/log-food", expect.any(Object));
+      });
+
+      const logCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/log-food"
+      );
+      const body = JSON.parse((logCall![1] as { body: string }).body);
+      expect(body.date).toBe("2026-03-15");
+      expect(body.time).toBe("20:30");
     });
 
     it("uses current local time when selectedTime is null (Now mode)", async () => {

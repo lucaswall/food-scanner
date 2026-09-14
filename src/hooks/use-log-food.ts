@@ -174,10 +174,17 @@ export function useLogFood({
 
       try {
         const localDateTime = getLocalDateTime();
+        // Same date/time resolution as logFood — a match must not drop an AI-set or
+        // user-picked date/time (FOO-1174).
+        const dateTime = {
+          date: dateOverride ?? localDateTime.date,
+          time: selectedTime ?? localDateTime.time,
+          zoneOffset: localDateTime.zoneOffset,
+        };
         const logBody: Record<string, unknown> = {
           reuseCustomFoodId: match.customFoodId,
           mealTypeId,
-          ...localDateTime,
+          ...dateTime,
         };
 
         if (metadata) {
@@ -205,7 +212,7 @@ export function useLogFood({
               mealTypeId,
               foodName: match.foodName,
               reuseCustomFoodId: match.customFoodId,
-              ...localDateTime,
+              ...dateTime,
               sessionId: getSessionId?.(),
             });
             window.location.href = "/api/auth/google-health";
@@ -217,7 +224,7 @@ export function useLogFood({
         setLogging(false);
       }
     },
-    [logging, mealTypeId, onSuccess, getSessionId]
+    [logging, mealTypeId, selectedTime, dateOverride, onSuccess, getSessionId]
   );
 
   return { logFood, logFoodWithMatch, logging, logError, logResponse, clearLogError };

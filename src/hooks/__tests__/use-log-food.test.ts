@@ -427,6 +427,48 @@ describe("useLogFood", () => {
       });
     });
 
+    it("uses dateOverride and selectedTime when provided (FOO-1174)", async () => {
+      mockFetch.mockResolvedValueOnce(makeSuccessResponse());
+      mockSafeResponseJson.mockResolvedValueOnce({ success: true, data: mockLogResponse });
+
+      const { result } = renderHook(() =>
+        useLogFood({ analysis: mockAnalysis, mealTypeId: 5, selectedTime: "20:30", dateOverride: "2026-04-09" })
+      );
+
+      await act(async () => {
+        await result.current.logFoodWithMatch({ customFoodId: 42, foodName: "Existing Food" });
+      });
+
+      const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(fetchBody).toEqual({
+        reuseCustomFoodId: 42,
+        mealTypeId: 5,
+        date: "2026-04-09",
+        time: "20:30",
+        zoneOffset: "+00:00",
+      });
+    });
+
+    it("saves the overridden date/time in the pending submission on HEALTH_TOKEN_INVALID (FOO-1174)", async () => {
+      mockFetch.mockResolvedValueOnce(makeErrorResponse());
+      mockSafeResponseJson.mockResolvedValueOnce({
+        success: false,
+        error: { code: "HEALTH_TOKEN_INVALID", message: "expired" },
+      });
+
+      const { result } = renderHook(() =>
+        useLogFood({ analysis: mockAnalysis, mealTypeId: 5, selectedTime: "20:30", dateOverride: "2026-04-09" })
+      );
+
+      await act(async () => {
+        await result.current.logFoodWithMatch({ customFoodId: 42, foodName: "Existing Food" });
+      });
+
+      expect(mockSavePendingSubmission).toHaveBeenCalledWith(
+        expect.objectContaining({ date: "2026-04-09", time: "20:30", zoneOffset: "+00:00" })
+      );
+    });
+
     it("includes metadata fields when provided", async () => {
       mockFetch.mockResolvedValueOnce(makeSuccessResponse());
       mockSafeResponseJson.mockResolvedValueOnce({ success: true, data: mockLogResponse });
