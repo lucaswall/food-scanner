@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.7] - 2026-09-14
+
+### Changed
+
+- Behind-the-scenes maintenance with no visible changes.
+
 ## [4.0.6] - 2026-09-14
 
 ### Fixed
@@ -662,7 +668,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.0.6...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.0.7...HEAD
+[4.0.7]: https://github.com/lucaswall/food-scanner/compare/v4.0.6...v4.0.7
 [4.0.6]: https://github.com/lucaswall/food-scanner/compare/v4.0.5...v4.0.6
 [4.0.5]: https://github.com/lucaswall/food-scanner/compare/v4.0.4...v4.0.5
 [4.0.4]: https://github.com/lucaswall/food-scanner/compare/v4.0.3...v4.0.4
