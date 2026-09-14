@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.4] - 2026-09-14
+
+### Fixed
+
+- Mentioning when you ate while analyzing a meal (for example "yesterday at 20:30") now logs it on that day and at that time, instead of today at the current time. This also holds when you refine the meal in chat before logging or pick one of your similar past foods.
+- The analysis now shows which day a meal will be logged for whenever it isn't today, so a different date is never applied without you seeing it.
+
 ## [4.0.3] - 2026-09-13
 
 ### Fixed
@@ -643,7 +650,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.0.3...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.0.4...HEAD
+[4.0.4]: https://github.com/lucaswall/food-scanner/compare/v4.0.3...v4.0.4
 [4.0.3]: https://github.com/lucaswall/food-scanner/compare/v4.0.2...v4.0.3
 [4.0.2]: https://github.com/lucaswall/food-scanner/compare/v4.0.1...v4.0.2
 [4.0.1]: https://github.com/lucaswall/food-scanner/compare/v4.0.0...v4.0.1
