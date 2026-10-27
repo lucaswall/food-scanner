@@ -4,6 +4,8 @@ import { logger } from "@/lib/logger";
 export type StreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_start"; tool: string }
+  /** Upstream stream failed mid-flight and is being replayed — clients discard text streamed so far in this turn. */
+  | { type: "retry"; message: string }
   | { type: "analysis"; analysis: FoodAnalysis }
   | { type: "session_items"; items: FoodAnalysis[] }
   | { type: "needs_chat"; message: string }
