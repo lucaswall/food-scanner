@@ -30,7 +30,7 @@ describe("HealthProfileCard", () => {
     mockFetch.mockReset();
     vi.clearAllMocks();
     mockUseSWRImplementation.mockImplementation((key: string) => {
-      if (key === "/api/health-profile") {
+      if (String(key).startsWith("/api/health-profile?clientDate=")) {
         return { data: null, error: null, isLoading: false, mutate: mockMutate };
       }
       return { data: null, error: null, isLoading: false, mutate: vi.fn() };
@@ -39,7 +39,7 @@ describe("HealthProfileCard", () => {
 
   it("renders 'Google Health Profile' heading", async () => {
     mockUseSWRImplementation.mockImplementation((key: string) => {
-      if (key === "/api/health-profile") {
+      if (String(key).startsWith("/api/health-profile?clientDate=")) {
         return { data: mockProfileData, error: null, isLoading: false, mutate: mockMutate };
       }
       return { data: null, error: null, isLoading: false };
@@ -52,7 +52,7 @@ describe("HealthProfileCard", () => {
 
   it("renders 'Refresh from Google Health' button", async () => {
     mockUseSWRImplementation.mockImplementation((key: string) => {
-      if (key === "/api/health-profile") {
+      if (String(key).startsWith("/api/health-profile?clientDate=")) {
         return { data: mockProfileData, error: null, isLoading: false, mutate: mockMutate };
       }
       return { data: null, error: null, isLoading: false };
@@ -70,7 +70,7 @@ describe("HealthProfileCard", () => {
       goalType: null,
     };
     mockUseSWRImplementation.mockImplementation((key: string) => {
-      if (key === "/api/health-profile") {
+      if (String(key).startsWith("/api/health-profile?clientDate=")) {
         return { data: incompleteData, error: null, isLoading: false, mutate: mockMutate };
       }
       return { data: null, error: null, isLoading: false };
@@ -84,7 +84,7 @@ describe("HealthProfileCard", () => {
 
   it("shows skeleton loading state when isLoading", async () => {
     mockUseSWRImplementation.mockImplementation((key: string) => {
-      if (key === "/api/health-profile") {
+      if (String(key).startsWith("/api/health-profile?clientDate=")) {
         return { data: null, error: null, isLoading: true, mutate: mockMutate };
       }
       return { data: null, error: null, isLoading: false };
@@ -97,7 +97,7 @@ describe("HealthProfileCard", () => {
 
   it("shows error state when fetch fails", async () => {
     mockUseSWRImplementation.mockImplementation((key: string) => {
-      if (key === "/api/health-profile") {
+      if (String(key).startsWith("/api/health-profile?clientDate=")) {
         return { data: null, error: new Error("fetch failed"), isLoading: false, mutate: mockMutate };
       }
       return { data: null, error: null, isLoading: false };
@@ -112,7 +112,7 @@ describe("HealthProfileCard", () => {
     const { HealthProfileCard } = await import("@/components/health-profile-card");
     render(<HealthProfileCard />);
     expect(mockUseSWRImplementation).toHaveBeenCalledWith(
-      "/api/health-profile",
+      expect.stringMatching(/^\/api\/health-profile\?clientDate=\d{4}-\d{2}-\d{2}$/),
       expect.anything(),
       expect.anything(),
     );
@@ -123,7 +123,7 @@ describe("HealthProfileCard", () => {
   it("shows the Reconnect Google Health CTA when SWR errors with HEALTH_NOT_CONNECTED", async () => {
     const reconnectError = new ApiError("Google Health account not connected", "HEALTH_NOT_CONNECTED");
     mockUseSWRImplementation.mockImplementation((key: string) => {
-      if (key === "/api/health-profile") {
+      if (String(key).startsWith("/api/health-profile?clientDate=")) {
         return { data: null, error: reconnectError, isLoading: false, mutate: mockMutate };
       }
       return { data: null, error: null, isLoading: false };
@@ -140,7 +140,7 @@ describe("HealthProfileCard", () => {
   it("shows the Reconnect Google Health CTA when SWR errors with HEALTH_SCOPE_MISSING", async () => {
     const scopeError = new ApiError("Missing required scopes", "HEALTH_SCOPE_MISSING");
     mockUseSWRImplementation.mockImplementation((key: string) => {
-      if (key === "/api/health-profile") {
+      if (String(key).startsWith("/api/health-profile?clientDate=")) {
         return { data: null, error: scopeError, isLoading: false, mutate: mockMutate };
       }
       return { data: null, error: null, isLoading: false };
@@ -155,7 +155,7 @@ describe("HealthProfileCard", () => {
   it("shows distinct timeout message when SWR errors with TimeoutError", async () => {
     const timeoutError = new DOMException("Timeout", "TimeoutError");
     mockUseSWRImplementation.mockImplementation((key: string) => {
-      if (key === "/api/health-profile") {
+      if (String(key).startsWith("/api/health-profile?clientDate=")) {
         return { data: null, error: timeoutError, isLoading: false, mutate: mockMutate };
       }
       return { data: null, error: null, isLoading: false };
@@ -173,7 +173,7 @@ describe("HealthProfileCard", () => {
       heightCm: null,
     };
     mockUseSWRImplementation.mockImplementation((key: string) => {
-      if (key === "/api/health-profile") {
+      if (String(key).startsWith("/api/health-profile?clientDate=")) {
         return { data: noHeightData, error: null, isLoading: false, mutate: mockMutate };
       }
       return { data: null, error: null, isLoading: false };
@@ -191,7 +191,7 @@ describe("HealthProfileCard", () => {
 
   it("calls refresh fetch with AbortSignal timeout", async () => {
     mockUseSWRImplementation.mockImplementation((key: string) => {
-      if (key === "/api/health-profile") {
+      if (String(key).startsWith("/api/health-profile?clientDate=")) {
         return { data: mockProfileData, error: null, isLoading: false, mutate: mockMutate };
       }
       return { data: null, error: null, isLoading: false };
@@ -208,14 +208,14 @@ describe("HealthProfileCard", () => {
     });
 
     expect(mockFetch).toHaveBeenCalledWith(
-      "/api/health-profile?refresh=1",
+      expect.stringMatching(/^\/api\/health-profile\?refresh=1&clientDate=\d{4}-\d{2}-\d{2}$/),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 
   it("revalidates Today's Targets keys after a successful refresh", async () => {
     mockUseSWRImplementation.mockImplementation((key: string) => {
-      if (key === "/api/health-profile") {
+      if (String(key).startsWith("/api/health-profile?clientDate=")) {
         return { data: mockProfileData, error: null, isLoading: false, mutate: mockMutate };
       }
       return { data: null, error: null, isLoading: false };

@@ -33,6 +33,8 @@ vi.mock("@/components/ui/button", () => ({
 
 const { default: ConnectHealthPage } = await import("@/app/app/connect-health/page");
 
+const noParams = { searchParams: Promise.resolve({}) };
+
 const validSession: FullSession = {
   sessionId: "test-session",
   userId: "test-user-uuid",
@@ -44,34 +46,34 @@ const validSession: FullSession = {
 describe("/app/connect-health page", () => {
   it("redirects to / when session is null", async () => {
     mockGetSession.mockResolvedValue(null);
-    await expect(ConnectHealthPage()).rejects.toThrow("NEXT_REDIRECT");
+    await expect(ConnectHealthPage(noParams)).rejects.toThrow("NEXT_REDIRECT");
     expect(mockRedirect).toHaveBeenCalledWith("/");
   });
 
   it("renders h1 'Connect Google Health'", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    const jsx = await ConnectHealthPage();
+    const jsx = await ConnectHealthPage(noParams);
     render(jsx);
     expect(screen.getByRole("heading", { level: 1, name: /connect google health/i })).toBeInTheDocument();
   });
 
   it("renders SkipLink", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    const jsx = await ConnectHealthPage();
+    const jsx = await ConnectHealthPage(noParams);
     render(jsx);
     expect(screen.getByText("Skip to main content")).toBeInTheDocument();
   });
 
   it("renders <main id='main-content'>", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    const jsx = await ConnectHealthPage();
+    const jsx = await ConnectHealthPage(noParams);
     render(jsx);
     expect(document.getElementById("main-content")).toBeInTheDocument();
   });
 
   it("renders back link to /app", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    const jsx = await ConnectHealthPage();
+    const jsx = await ConnectHealthPage(noParams);
     render(jsx);
     const backLink = screen.getByRole("link", { name: /back to food scanner/i });
     expect(backLink).toHaveAttribute("href", "/app");
@@ -79,7 +81,7 @@ describe("/app/connect-health page", () => {
 
   it("renders a form that POSTs to /api/auth/google-health", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    const jsx = await ConnectHealthPage();
+    const jsx = await ConnectHealthPage(noParams);
     const { container } = render(jsx);
     const form = container.querySelector("form");
     expect(form).toHaveAttribute("action", "/api/auth/google-health");
@@ -88,10 +90,27 @@ describe("/app/connect-health page", () => {
 
   it("renders connect button with min-h-[44px]", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    const jsx = await ConnectHealthPage();
+    const jsx = await ConnectHealthPage(noParams);
     render(jsx);
     const button = screen.getByRole("button", { name: /connect google health/i });
     expect(button).toBeInTheDocument();
     expect(button.className).toContain("min-h-[44px]");
+  });
+
+  it.each([
+    ["account_in_use", /already connected to another food scanner user/i],
+    ["missing_scope", /permissions were not granted/i],
+  ])("shows an alert for ?error=%s", async (error, text) => {
+    mockGetSession.mockResolvedValue(validSession);
+    const jsx = await ConnectHealthPage({ searchParams: Promise.resolve({ error }) });
+    render(jsx);
+    expect(screen.getByRole("alert")).toHaveTextContent(text);
+  });
+
+  it("ignores unknown error codes", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const jsx = await ConnectHealthPage({ searchParams: Promise.resolve({ error: "<script>" }) });
+    render(jsx);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

@@ -509,4 +509,25 @@ describe("TargetsCard", () => {
       expect(screen.getByText(/weight log is \d+ days old/i)).toBeInTheDocument();
     });
   });
+
+  it("shows last-saved notice when goals are stale", async () => {
+    mockFetch.mockResolvedValueOnce(
+      goalsResponse({ calories: 2200, proteinG: 140, carbsG: 220, fatG: 80, status: "ok", stale: true })
+    );
+    renderTargetsCard("2026-05-03");
+    await waitFor(() => {
+      expect(screen.getByTestId("targets-stale-notice")).toBeInTheDocument();
+    });
+  });
+
+  it("does not show last-saved notice for fresh goals", async () => {
+    mockFetch.mockResolvedValueOnce(
+      goalsResponse({ calories: 2200, proteinG: 140, carbsG: 220, fatG: 80, status: "ok" })
+    );
+    renderTargetsCard("2026-05-03");
+    await waitFor(() => {
+      expect(screen.getByText(/2,?200/)).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("targets-stale-notice")).not.toBeInTheDocument();
+  });
 });

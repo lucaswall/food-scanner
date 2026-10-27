@@ -25,7 +25,16 @@ export async function GET(
 
   const { token } = await params;
 
-  const food = await getCustomFoodByShareToken(token);
+  let food: Awaited<ReturnType<typeof getCustomFoodByShareToken>>;
+  try {
+    food = await getCustomFoodByShareToken(token);
+  } catch (error) {
+    log.error(
+      { action: "shared_food_fetch_error", error: error instanceof Error ? error.message : String(error) },
+      "failed to fetch shared food",
+    );
+    return errorResponse("INTERNAL_ERROR", "Failed to load shared food", 500);
+  }
   if (!food) {
     log.warn({ action: "shared_food_not_found" }, "shared food not found");
     return errorResponse("NOT_FOUND", "Shared food not found", 404);

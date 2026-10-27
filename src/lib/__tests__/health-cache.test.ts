@@ -52,7 +52,6 @@ describe("health-cache", () => {
     log?: Logger,
     criticality?: HealthCallCriticality,
   ) => Promise<ActivitySummary>;
-  let invalidateHealthProfileCache: (userId: string) => void;
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -61,7 +60,6 @@ describe("health-cache", () => {
     getCachedHealthProfile = mod.getCachedHealthProfile;
     getCachedHealthWeightKg = mod.getCachedHealthWeightKg;
     getCachedHealthActivitySummary = mod.getCachedHealthActivitySummary;
-    invalidateHealthProfileCache = mod.invalidateHealthProfileCache;
     mockEnsureFreshToken.mockResolvedValue("test-access-token");
   });
 
@@ -541,172 +539,6 @@ describe("health-cache", () => {
       vi.setSystemTime(t0 + 10 * 60 * 1000);
 
       expect(getHealthProfileSyncedAt("user-1", "2024-01-15")).toBe(t0);
-    });
-  });
-
-  // ─── invalidateHealthProfileCache ────────────────────────────────────────
-
-  describe("invalidateHealthProfileCache", () => {
-    it("clears profile, weight, and activity entries for the given user (no weight-goal)", async () => {
-      mockGetHealthProfile.mockResolvedValue(mockProfile);
-      mockGetHealthLatestWeightKg.mockResolvedValue(mockWeightLog);
-      mockGetHealthActivitySummary.mockResolvedValue(mockActivity);
-
-      // Populate caches for user-1
-      await getCachedHealthProfile("user-1");
-      await getCachedHealthWeightKg("user-1", "2024-01-15");
-      await getCachedHealthActivitySummary("user-1", "2024-01-15");
-
-      vi.clearAllMocks();
-      mockEnsureFreshToken.mockResolvedValue("test-access-token");
-      mockGetHealthProfile.mockResolvedValue(mockProfile);
-      mockGetHealthLatestWeightKg.mockResolvedValue(mockWeightLog);
-      mockGetHealthActivitySummary.mockResolvedValue(mockActivity);
-
-      // Invalidate
-      invalidateHealthProfileCache("user-1");
-
-      // All user-1 caches should be gone — re-fetches expected
-      await getCachedHealthProfile("user-1");
-      await getCachedHealthWeightKg("user-1", "2024-01-15");
-      await getCachedHealthActivitySummary("user-1", "2024-01-15");
-
-      expect(mockGetHealthProfile).toHaveBeenCalledTimes(1);
-      expect(mockGetHealthLatestWeightKg).toHaveBeenCalledTimes(1);
-      expect(mockGetHealthActivitySummary).toHaveBeenCalledTimes(1);
-    });
-
-    it("does not clear cache entries for other users", async () => {
-      mockGetHealthProfile.mockResolvedValue(mockProfile);
-
-      // Populate caches for both users
-      await getCachedHealthProfile("user-1");
-      await getCachedHealthProfile("user-2");
-
-      vi.clearAllMocks();
-      mockEnsureFreshToken.mockResolvedValue("test-access-token");
-      mockGetHealthProfile.mockResolvedValue(mockProfile);
-
-      // Invalidate only user-1
-      invalidateHealthProfileCache("user-1");
-
-      // user-2's cache should still be valid
-      await getCachedHealthProfile("user-2");
-      expect(mockGetHealthProfile).not.toHaveBeenCalled();
-
-      // user-1's cache should be gone
-      await getCachedHealthProfile("user-1");
-      expect(mockGetHealthProfile).toHaveBeenCalledTimes(1);
-    });
-
-    it("orphan in-flight fetch from before invalidation does not overwrite fresh post-invalidation cache", async () => {
-      let resolveOrphan!: (v: HealthProfile) => void;
-      const orphanPromise = new Promise<HealthProfile>((resolve) => {
-        resolveOrphan = resolve;
-      });
-      mockGetHealthProfile.mockReturnValueOnce(orphanPromise);
-
-      const orphan = getCachedHealthProfile("user-1");
-      await new Promise((r) => setImmediate(r));
-
-      invalidateHealthProfileCache("user-1");
-
-      const freshProfile: HealthProfile = { ageYears: 35, sex: "MALE", heightCm: 181 };
-      mockGetHealthProfile.mockResolvedValueOnce(freshProfile);
-      await getCachedHealthProfile("user-1");
-
-      // Now resolve the orphan with stale data — its write must be suppressed.
-      const staleProfile: HealthProfile = { ageYears: 99, sex: "FEMALE", heightCm: 100 };
-      resolveOrphan(staleProfile);
-      await orphan;
-
-      // A subsequent read should return the fresh value, not the stale orphan
-      mockGetHealthProfile.mockClear();
-      const cached = await getCachedHealthProfile("user-1");
-      expect(cached).toEqual(freshProfile);
-      expect(mockGetHealthProfile).not.toHaveBeenCalled();
-    });
-
-    it("orphan settling after invalidation does not delete the newer in-flight entry", async () => {
-      let resolveOrphan!: (v: HealthProfile) => void;
-      const orphanPromise = new Promise<HealthProfile>((resolve) => {
-        resolveOrphan = resolve;
-      });
-      let resolveRefresh!: (v: HealthProfile) => void;
-      const refreshPromise = new Promise<HealthProfile>((resolve) => {
-        resolveRefresh = resolve;
-      });
-      mockGetHealthProfile
-        .mockReturnValueOnce(orphanPromise)
-        .mockReturnValueOnce(refreshPromise);
-
-      const orphan = getCachedHealthProfile("user-1");
-      await new Promise((r) => setImmediate(r)); // orphan registers in-flight
-
-      invalidateHealthProfileCache("user-1");
-
-      const refresh = getCachedHealthProfile("user-1");
-      await new Promise((r) => setImmediate(r)); // refresh registers in-flight
-
-      // Settle orphan — its finally must skip the delete.
-      resolveOrphan({ ageYears: 99, sex: "FEMALE", heightCm: 100 });
-      await orphan;
-
-      const concurrent = getCachedHealthProfile("user-1");
-
-      const freshProfile: HealthProfile = { ageYears: 35, sex: "MALE", heightCm: 181 };
-      resolveRefresh(freshProfile);
-      const [r1, r2] = await Promise.all([refresh, concurrent]);
-
-      expect(r1).toEqual(freshProfile);
-      expect(r2).toEqual(freshProfile);
-      expect(mockGetHealthProfile).toHaveBeenCalledTimes(2);
-    });
-
-    it("invalidating one user does not suppress cache writes for another user's in-flight fetch", async () => {
-      let resolveB!: (v: HealthProfile) => void;
-      const bPromise = new Promise<HealthProfile>((resolve) => {
-        resolveB = resolve;
-      });
-      mockGetHealthProfile.mockImplementation((_t, _l, userId) => {
-        if (userId === "user-b") return bPromise;
-        return Promise.resolve(mockProfile);
-      });
-
-      const bFetch = getCachedHealthProfile("user-b");
-      await new Promise((r) => setImmediate(r));
-
-      invalidateHealthProfileCache("user-a");
-
-      const bProfile: HealthProfile = { ageYears: 42, sex: "MALE", heightCm: 175 };
-      resolveB(bProfile);
-      await bFetch;
-
-      mockGetHealthProfile.mockClear();
-      const cached = await getCachedHealthProfile("user-b");
-      expect(cached).toEqual(bProfile);
-      expect(mockGetHealthProfile).not.toHaveBeenCalled();
-    });
-
-    it("clears in-flight dedup entries so a refresh after a pending fetch triggers a new call", async () => {
-      let resolveFirst!: (v: HealthProfile) => void;
-      const firstFetchPromise = new Promise<HealthProfile>((resolve) => {
-        resolveFirst = resolve;
-      });
-      mockGetHealthProfile.mockReturnValueOnce(firstFetchPromise);
-
-      const inflight = getCachedHealthProfile("user-1");
-      await new Promise((r) => setImmediate(r));
-
-      invalidateHealthProfileCache("user-1");
-
-      mockGetHealthProfile.mockResolvedValueOnce(mockProfile);
-      const refresh = getCachedHealthProfile("user-1");
-
-      resolveFirst({ ageYears: 99, sex: "FEMALE", heightCm: 100 });
-      await Promise.all([inflight, refresh]);
-
-      expect(mockGetHealthProfile).toHaveBeenCalledTimes(2);
     });
   });
 });

@@ -397,33 +397,3 @@ export function getHealthProfileSyncedAt(userId: string, targetDate: string): nu
   if (profileAt === undefined || weightAt === undefined) return null;
   return Math.min(profileAt, weightAt);
 }
-
-/**
- * Clears all profile, weight, and activity cache entries for the given user,
- * plus any in-flight dedup entries across all criticality tiers.
- * Called by the settings "Refresh from Google Health" button.
- *
- * There is no weight-goal cache: the goal is a local setting
- * (users.weightGoalType), not a Google Health read.
- */
-export function invalidateHealthProfileCache(userId: string): void {
-  userCacheGeneration.set(userId, getUserGeneration(userId) + 1);
-  profileCache.delete(userId);
-
-  const userPrefix = `${userId}:`;
-  for (const key of weightCache.keys()) {
-    if (key.startsWith(userPrefix)) weightCache.delete(key);
-  }
-  for (const key of activityCache.keys()) {
-    if (key.startsWith(userPrefix)) activityCache.delete(key);
-  }
-  for (const key of profileInFlight.keys()) {
-    if (key.startsWith(userPrefix)) profileInFlight.delete(key);
-  }
-  for (const key of weightInFlight.keys()) {
-    if (key.startsWith(userPrefix)) weightInFlight.delete(key);
-  }
-  for (const key of activityInFlight.keys()) {
-    if (key.startsWith(userPrefix)) activityInFlight.delete(key);
-  }
-}

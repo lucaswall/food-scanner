@@ -174,28 +174,6 @@ export async function deleteLabel(
   return true;
 }
 
-export async function getLabelById(
-  userId: string,
-  labelId: number,
-  log?: Logger,
-): Promise<NutritionLabel | null> {
-  const l = log ?? logger;
-  const db = getDb();
-
-  const rows = await db
-    .select()
-    .from(nutritionLabels)
-    .where(and(eq(nutritionLabels.id, labelId), eq(nutritionLabels.userId, userId)))
-    .limit(1);
-
-  if (rows.length === 0) {
-    l.debug({ action: "get_label_by_id_not_found", userId, labelId }, "label not found");
-    return null;
-  }
-
-  return mapRow(rows[0] as Record<string, unknown>);
-}
-
 export async function getAllLabels(
   userId: string,
   query?: string,

@@ -10,6 +10,7 @@ import { NutritionFactsCard } from "@/components/nutrition-facts-card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import { ChevronDown } from "lucide-react";
+import { formatGrams, formatWhole } from "@/lib/nutrient-format";
 
 interface AnalysisResultProps {
   analysis: FoodAnalysis | null;
@@ -243,7 +244,7 @@ function NutritionItem({ label, value, unit }: NutritionItemProps) {
     <div className="flex justify-between items-center">
       <span className="text-sm text-muted-foreground">{label}</span>
       <span className="text-sm font-medium">
-        {value} {unit}
+        {unit === "g" ? formatGrams(value) : formatWhole(value)} {unit}
       </span>
     </div>
   );

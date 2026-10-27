@@ -72,7 +72,6 @@ const {
   insertLabel,
   updateLabel,
   deleteLabel,
-  getLabelById,
   getAllLabels,
   findDuplicateLabel,
   escapeLikePattern,
@@ -203,27 +202,6 @@ describe("deleteLabel", () => {
   });
 });
 
-describe("getLabelById", () => {
-  it("returns the label when found for the correct user", async () => {
-    // getLabelById chains: select -> from -> where -> limit -> [0]
-    mockWhere.mockReturnValueOnce({ limit: mockLimit });
-    mockLimit.mockResolvedValueOnce([SAMPLE_LABEL]);
-
-    const result = await getLabelById(USER_A, 1);
-    expect(result).not.toBeNull();
-    expect(result!.id).toBe(1);
-    expect(result!.userId).toBe(USER_A);
-  });
-
-  it("returns null when not found or wrong userId", async () => {
-    mockWhere.mockReturnValueOnce({ limit: mockLimit });
-    mockLimit.mockResolvedValueOnce([]);
-
-    const result = await getLabelById(USER_B, 1);
-    expect(result).toBeNull();
-  });
-});
-
 describe("getAllLabels", () => {
   it("returns all labels for user sorted by updatedAt DESC", async () => {
     mockWhere.mockReturnValueOnce({ orderBy: mockOrderBy });
@@ -325,12 +303,5 @@ describe("Ownership isolation", () => {
     mockDeleteReturning.mockResolvedValue([]);
     const result = await deleteLabel(USER_B, 1);
     expect(result).toBe(false);
-  });
-
-  it("getLabelById: user B cannot read user A's label", async () => {
-    mockWhere.mockReturnValueOnce({ limit: mockLimit });
-    mockLimit.mockResolvedValueOnce([]);
-    const result = await getLabelById(USER_B, 1);
-    expect(result).toBeNull();
   });
 });

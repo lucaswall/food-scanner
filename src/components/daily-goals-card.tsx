@@ -10,6 +10,7 @@ import {
   computeMacroTargets,
   ACTIVITY_LEVEL_LABELS,
 } from "@/lib/macro-engine";
+import { getTodayDate } from "@/lib/date-utils";
 import type { ActivityLevel, HealthProfileData } from "@/types";
 
 type Sex = "MALE" | "FEMALE";
@@ -59,7 +60,11 @@ export function DailyGoalsCard() {
     data: profileData,
     error: profileError,
     isLoading: profileLoading,
-  } = useSWR<HealthProfileData>("/api/health-profile", apiFetcher, HEALTH_BACKED_SWR_CONFIG);
+  } = useSWR<HealthProfileData>(
+    `/api/health-profile?clientDate=${getTodayDate()}`,
+    apiFetcher,
+    HEALTH_BACKED_SWR_CONFIG,
+  );
 
   // Local form state
   const [activityLevel, setActivityLevel] = useState<ActivityLevel | null>(null);
@@ -147,6 +152,7 @@ export function DailyGoalsCard() {
           goalRateKgPerWeek: goalRateValue,
           sex,
           weightGoalType,
+          clientDate: getTodayDate(),
         }),
         signal: AbortSignal.timeout(15000),
       });

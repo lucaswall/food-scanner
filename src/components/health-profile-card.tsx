@@ -6,6 +6,7 @@ import Link from "next/link";
 import { apiFetcher, ApiError, HEALTH_BACKED_SWR_CONFIG } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getTodayDate } from "@/lib/date-utils";
 import type { HealthProfileData } from "@/types";
 
 const NOT_SET = "Not set in Google Health";
@@ -48,8 +49,9 @@ function weightAgeDays(loggedDate: string | null | undefined): number | null {
 }
 
 export function HealthProfileCard() {
+  const clientDate = getTodayDate();
   const { data, error, isLoading, mutate } = useSWR<HealthProfileData>(
-    "/api/health-profile",
+    `/api/health-profile?clientDate=${clientDate}`,
     apiFetcher,
     HEALTH_BACKED_SWR_CONFIG,
   );
@@ -61,7 +63,7 @@ export function HealthProfileCard() {
     setRefreshing(true);
     setRefreshError(null);
     try {
-      const res = await fetch("/api/health-profile?refresh=1", {
+      const res = await fetch(`/api/health-profile?refresh=1&clientDate=${clientDate}`, {
         signal: AbortSignal.timeout(10000),
       });
       if (!res.ok) throw new Error("refresh_failed");

@@ -98,24 +98,6 @@ export function toCustomFoodInsertValues(data: CustomFoodInput) {
   };
 }
 
-export async function insertCustomFood(
-  userId: string,
-  data: CustomFoodInput,
-  log?: Logger,
-): Promise<{ id: number; createdAt: Date }> {
-  const l = log ?? logger;
-  const db = getDb();
-  const rows = await db
-    .insert(customFoods)
-    .values({ userId, ...toCustomFoodInsertValues(data) })
-    .returning({ id: customFoods.id, createdAt: customFoods.createdAt });
-
-  const row = rows[0];
-  if (!row) throw new Error("Failed to insert custom food: no row returned");
-  l.debug({ action: "insert_custom_food", foodName: data.foodName, calories: data.calories, customFoodId: row.id }, "custom food inserted");
-  return row;
-}
-
 export async function insertFoodLogEntry(
   userId: string,
   data: FoodLogEntryInput,
@@ -1290,18 +1272,6 @@ export async function getCustomFoodByShareToken(shareToken: string) {
     .where(eq(customFoods.shareToken, shareToken));
 
   return rows[0] ?? null;
-}
-
-/**
- * Revoke the share token for a custom food owned by the given user.
- * Sets shareToken to null, scoped by id + userId to prevent cross-user revocation.
- */
-export async function revokeShareToken(id: number, userId: string): Promise<void> {
-  const db = getDb();
-  await db
-    .update(customFoods)
-    .set({ shareToken: null })
-    .where(and(eq(customFoods.id, id), eq(customFoods.userId, userId)));
 }
 
 export async function getDateRangeNutritionSummary(

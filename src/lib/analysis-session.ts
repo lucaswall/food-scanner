@@ -1,6 +1,6 @@
 import { openDB } from "idb";
 import type { DBSchema, IDBPDatabase } from "idb";
-import type { FoodAnalysis, FoodMatch, ServingUnit } from "@/types";
+import type { FoodAnalysis, ServingUnit } from "@/types";
 import { coerceServingUnit } from "@/types";
 
 const DB_NAME = "food-scanner";
@@ -287,30 +287,4 @@ export async function cleanupExpiredSession(): Promise<void> {
     }
   }
   await sweepOrphanedPhotos();
-}
-
-export function serializeFoodMatch(match: FoodMatch): SerializedFoodMatch {
-  return {
-    customFoodId: match.customFoodId,
-    foodName: match.foodName,
-    calories: match.calories,
-    proteinG: match.proteinG,
-    carbsG: match.carbsG,
-    fatG: match.fatG,
-    saturatedFatG: match.saturatedFatG,
-    transFatG: match.transFatG,
-    sugarsG: match.sugarsG,
-    caloriesFromFat: match.caloriesFromFat,
-    matchRatio: match.matchRatio,
-    lastLoggedAt: match.lastLoggedAt instanceof Date ? match.lastLoggedAt.toISOString() : String(match.lastLoggedAt),
-    amount: match.amount,
-    unitId: match.unitId,
-  };
-}
-
-export function deserializeFoodMatch(match: SerializedFoodMatch): FoodMatch {
-  return {
-    ...match,
-    lastLoggedAt: new Date(match.lastLoggedAt),
-  };
 }

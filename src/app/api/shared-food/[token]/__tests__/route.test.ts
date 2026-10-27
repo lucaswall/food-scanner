@@ -84,6 +84,17 @@ function makeParams(token: string) {
 }
 
 describe("GET /api/shared-food/[token]", () => {
+  it("returns 500 INTERNAL_ERROR when the DB lookup throws", async () => {
+    mockGetCustomFoodByShareToken.mockRejectedValue(new Error("connection refused"));
+
+    const response = await GET(makeRequest("valid-token-12"), makeParams("valid-token-12"));
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+  });
+
   it("returns food nutrition data in snake_case FoodAnalysis format", async () => {
     mockGetCustomFoodByShareToken.mockResolvedValue(mockFood);
 

@@ -45,14 +45,12 @@ const mockSearchLabels = vi.fn();
 const mockInsertLabel = vi.fn();
 const mockUpdateLabel = vi.fn();
 const mockDeleteLabel = vi.fn();
-const mockGetLabelById = vi.fn();
 const mockFindDuplicateLabel = vi.fn();
 vi.mock("@/lib/nutrition-labels", () => ({
   searchLabels: (...args: unknown[]) => mockSearchLabels(...args),
   insertLabel: (...args: unknown[]) => mockInsertLabel(...args),
   updateLabel: (...args: unknown[]) => mockUpdateLabel(...args),
   deleteLabel: (...args: unknown[]) => mockDeleteLabel(...args),
-  getLabelById: (...args: unknown[]) => mockGetLabelById(...args),
   findDuplicateLabel: (...args: unknown[]) => mockFindDuplicateLabel(...args),
 }));
 
