@@ -1,15 +1,16 @@
 import { getSession, validateSession } from "@/lib/session";
-import { successResponse } from "@/lib/api-response";
-import { mapHealthError } from "@/lib/health-error-response";
+import { successResponse, errorResponse } from "@/lib/api-response";
+import { isExpectedHealthError, mapHealthError } from "@/lib/health-error-response";
 import { createRequestLogger } from "@/lib/logger";
 import {
   getCachedHealthProfile,
   getCachedHealthWeightKg,
-  invalidateHealthProfileCache,
+  expireHealthProfileCache,
+  getHealthProfileSyncedAt,
 } from "@/lib/health-cache";
 import { getUserGoalSettings } from "@/lib/users";
 import { invalidateUserDailyGoalsForDate } from "@/lib/daily-goals";
-import { getTodayDate } from "@/lib/date-utils";
+import { getTodayDate, isValidDateFormat } from "@/lib/date-utils";
 import type { HealthProfileData } from "@/types";
 
 /**
@@ -20,6 +21,14 @@ import type { HealthProfileData } from "@/types";
  *
  * goalType comes from users.weightGoalType (local DB, set in Settings), not from
  * the Google Health API — v4 exposes no weight-goal resource.
+ *
+ * Query params:
+ *   refresh=1    force a refetch from Google Health (last-known values are kept as a
+ *                serve-stale fallback if the refetch fails)
+ *   clientDate   caller's local YYYY-MM-DD; selects the weight lookup date and the
+ *                daily-goals row invalidated on refresh. Defaults to the server date.
+ *
+ * lastSyncedAt is when the underlying Google Health data was fetched (not the request time).
  *
  * Does NOT shadow /api/health (the public health-check endpoint).
  */
@@ -34,15 +43,19 @@ export async function GET(request: Request) {
   const shouldRefresh = searchParams.get("refresh") === "1";
   const userId = session!.userId;
 
-  if (shouldRefresh) {
-    invalidateHealthProfileCache(userId);
-    // Also invalidate today's daily-goals row so the next dashboard load
-    // recomputes under the refreshed Google Health inputs (weight/sex/height).
-    await invalidateUserDailyGoalsForDate(userId, getTodayDate());
+  const clientDate = searchParams.get("clientDate");
+  if (clientDate !== null && !isValidDateFormat(clientDate)) {
+    return errorResponse("VALIDATION_ERROR", "Invalid clientDate format. Use YYYY-MM-DD", 400);
   }
+  const todayDate = clientDate ?? getTodayDate();
+
+  const requestStartedAt = Date.now();
 
   try {
-    const todayDate = getTodayDate();
+    if (shouldRefresh) {
+      // Expire (not wipe) so a failed refetch can still fall back to last-known values.
+      expireHealthProfileCache(userId);
+    }
 
     // User-explicit fetch (settings page, refresh button) — mark `important`.
     // sex + goalType (weightGoalType) are LOCAL settings — the Google Health v4
@@ -53,6 +66,15 @@ export async function GET(request: Request) {
       getUserGoalSettings(userId),
     ]);
 
+    const syncedAt = getHealthProfileSyncedAt(userId, todayDate);
+
+    // Only after the refetch actually succeeded (data fetched during this request, not a
+    // serve-stale fallback): drop the user's local-day goals row so the next dashboard load
+    // recomputes under the refreshed Google Health inputs (weight/sex/height).
+    if (shouldRefresh && syncedAt !== null && syncedAt >= requestStartedAt) {
+      await invalidateUserDailyGoalsForDate(userId, todayDate);
+    }
+
     const data: HealthProfileData = {
       ageYears: profile.ageYears,
       sex: goalSettings.sex ?? profile.sex,
@@ -60,7 +82,7 @@ export async function GET(request: Request) {
       weightKg: weightLog?.weightKg ?? null,
       weightLoggedDate: weightLog?.loggedDate ?? null,
       goalType: goalSettings.weightGoalType,
-      lastSyncedAt: Date.now(),
+      lastSyncedAt: syncedAt ?? Date.now(),
     };
 
     log.info(
@@ -72,10 +94,15 @@ export async function GET(request: Request) {
     response.headers.set("Cache-Control", "private, no-cache");
     return response;
   } catch (error) {
-    log.error(
-      { action: "health_profile_error", error: error instanceof Error ? error.message : String(error) },
-      "Google Health profile fetch failed",
-    );
+    const logFields = {
+      action: "health_profile_error",
+      error: error instanceof Error ? error.message : String(error),
+    };
+    if (isExpectedHealthError(error)) {
+      log.warn(logFields, "Google Health profile fetch failed (expected condition)");
+    } else {
+      log.error(logFields, "Google Health profile fetch failed");
+    }
 
     return mapHealthError(error);
   }

@@ -32,7 +32,8 @@ vi.mock("@/lib/rate-limit", () => ({
 const mockIsToday = vi.fn();
 const mockAddDays = vi.fn();
 const mockIsValidDateFormat = vi.fn();
-vi.mock("@/lib/date-utils", () => ({
+vi.mock("@/lib/date-utils", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/date-utils")>()),
   isToday: (date: string) => mockIsToday(date),
   addDays: (date: string, days: number) => mockAddDays(date, days),
   isValidDateFormat: (date: string) => mockIsValidDateFormat(date),
@@ -385,6 +386,22 @@ describe("GET /api/v1/fasting", () => {
     expect(data.success).toBe(false);
     expect(data.error.code).toBe("VALIDATION_ERROR");
     expect(data.error.message).toBe("from date must be before or equal to to date");
+  });
+
+  it("returns 400 when the range exceeds 366 days (no windows computed)", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/fasting?from=2024-01-01&to=2026-03-10",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.error.code).toBe("VALIDATION_ERROR");
+    expect(mockGetFastingWindows).not.toHaveBeenCalled();
   });
 
   it("returns 500 on getFastingWindows error", async () => {

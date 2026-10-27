@@ -287,6 +287,28 @@ describe("GET /api/fasting", () => {
     expect(data.error.code).toBe("INTERNAL_ERROR");
   });
 
+  it("returns 400 when the range exceeds 366 days (no windows computed)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const req = createRequest("http://localhost:3000/api/fasting?from=2024-01-01&to=2026-02-13");
+    const res = await GET(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(data.error.code).toBe("VALIDATION_ERROR");
+    expect(mockGetFastingWindows).not.toHaveBeenCalled();
+  });
+
+  it("accepts a range of exactly 366 days", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFastingWindows.mockResolvedValue([]);
+
+    const req = createRequest("http://localhost:3000/api/fasting?from=2024-01-01&to=2024-12-31");
+    const res = await GET(req);
+
+    expect(res.status).toBe(200);
+  });
+
   it("returns 500 when getFastingWindows throws error", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockGetFastingWindows.mockRejectedValue(new Error("Database error"));

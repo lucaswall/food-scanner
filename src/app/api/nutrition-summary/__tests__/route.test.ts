@@ -535,6 +535,18 @@ describe("GET /api/nutrition-summary", () => {
     expect(data.error.message).toContain("from date must be before or equal to to date");
   });
 
+  it("returns 400 when the range exceeds 366 days", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createRequest("http://localhost:3000/api/nutrition-summary?from=2023-01-01&to=2024-01-15");
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.error.code).toBe("VALIDATION_ERROR");
+    expect(data.error.message).toContain("366");
+  });
+
   it("returns 400 when only from is provided without to", async () => {
     mockGetSession.mockResolvedValue(validSession);
 

@@ -143,7 +143,7 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
       expect(body.data.proteinG).toBe(218);
       expect(body.data).not.toHaveProperty("profileKey");
       expect(body.data.status).toBe("ok");
-      expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith("user-123", "2026-05-04", expect.any(Object));
+      expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith("user-123", "2026-05-04", expect.any(Object), undefined);
     });
 
     it("defaults to today when no date is given", async () => {
@@ -160,6 +160,48 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
       const body = await response.json();
 
       expect(body.data.date).toBe("2026-05-04");
+    });
+
+    it("uses clientDate as the default date and as the user's today", async () => {
+      mockGetOrComputeDailyGoals.mockResolvedValue({
+        status: "ok",
+        goals: { calorieGoal: 2200, proteinGoal: 140, carbsGoal: 220, fatGoal: 80 },
+        audit: {},
+      });
+
+      const request = createRequest(
+        "http://localhost:3000/api/v1/nutrition-goals?clientDate=2026-05-03",
+        { Authorization: "Bearer valid-key" },
+      );
+      const response = await GET(request);
+      const body = await response.json();
+
+      expect(body.data.date).toBe("2026-05-03");
+      expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith("user-123", "2026-05-03", expect.any(Object), "2026-05-03");
+    });
+
+    it("rejects an invalid clientDate", async () => {
+      const request = createRequest(
+        "http://localhost:3000/api/v1/nutrition-goals?clientDate=garbage",
+        { Authorization: "Bearer valid-key" },
+      );
+      const response = await GET(request);
+
+      expect(response.status).toBe(400);
+    });
+
+    it("maps HEALTH_BAD_REQUEST to 400 via the shared mapper", async () => {
+      mockGetOrComputeDailyGoals.mockRejectedValue(new Error("HEALTH_BAD_REQUEST"));
+
+      const request = createRequest(
+        "http://localhost:3000/api/v1/nutrition-goals?date=2026-05-04",
+        { Authorization: "Bearer valid-key" },
+      );
+      const response = await GET(request);
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body.error.code).toBe("HEALTH_BAD_REQUEST");
     });
 
     it("validates date format", async () => {
@@ -190,7 +232,6 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
       mockGetDailyGoalsByDateRange.mockResolvedValue([
         { date: "2026-05-01", calorieGoal: 2200, proteinGoal: 140, carbsGoal: 220, fatGoal: 80 },
         { date: "2026-05-02", calorieGoal: 2300, proteinGoal: 145, carbsGoal: 230, fatGoal: 82 },
-        { date: "2026-05-03", calorieGoal: 0, proteinGoal: null, carbsGoal: null, fatGoal: null },
         { date: "2026-05-04", calorieGoal: 2400, proteinGoal: 150, carbsGoal: 240, fatGoal: 85 },
       ]);
 
