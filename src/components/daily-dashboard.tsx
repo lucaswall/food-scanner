@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
-import { apiFetcher } from "@/lib/swr";
+import { apiFetcher, HEALTH_BACKED_SWR_CONFIG } from "@/lib/swr";
 import { getTodayDate } from "@/lib/date-utils";
 import { DateNavigator } from "@/components/date-navigator";
 import { CalorieRing } from "@/components/calorie-ring";
@@ -68,7 +68,7 @@ export function DailyDashboard() {
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState(getTodayDate());
   const { mutate: globalMutate } = useSWRConfig();
-  const lastActiveRef = useRef({ date: getTodayDate(), timestamp: Date.now() });
+  const lastActiveRef = useRef<{ date: string; timestamp: number } | null>(null);
 
   // Entry detail sheet state
   const [selectedEntry, setSelectedEntry] = useState<FoodLogHistoryEntry | null>(null);
@@ -79,6 +79,7 @@ export function DailyDashboard() {
 
   // Auto-reset to today when tab becomes visible after date change or 1hr+ idle
   useEffect(() => {
+    lastActiveRef.current = { date: getTodayDate(), timestamp: Date.now() };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         // Tab is hidden - record current date and timestamp
@@ -89,8 +90,10 @@ export function DailyDashboard() {
       } else if (document.visibilityState === "visible") {
         // Tab is visible - check if we should reset to today
         const today = getTodayDate();
-        const dateChanged = today !== lastActiveRef.current.date;
-        const elapsed = Date.now() - lastActiveRef.current.timestamp;
+        const lastActive = lastActiveRef.current;
+        if (!lastActive) return;
+        const dateChanged = today !== lastActive.date;
+        const elapsed = Date.now() - lastActive.timestamp;
         const oneHourInMs = 3_600_000;
 
         if (dateChanged || elapsed > oneHourInMs) {
@@ -129,7 +132,12 @@ export function DailyDashboard() {
 
   const {
     data: goals,
-  } = useSWR<NutritionGoals>(`/api/nutrition-goals?clientDate=${selectedDate}`, apiFetcher);
+    error: goalsError,
+  } = useSWR<NutritionGoals>(
+    `/api/nutrition-goals?clientDate=${selectedDate}`,
+    apiFetcher,
+    HEALTH_BACKED_SWR_CONFIG,
+  );
 
   const {
     data: savedAnalysesData,
@@ -290,6 +298,12 @@ export function DailyDashboard() {
       {/* Goals setup banner — shown above calorie ring when goals are blocked (FOO-1046) */}
       {goals?.status === "blocked" && goals.reason && (
         <GoalsSetupBanner reason={goals.reason as GoalBlockedReason} />
+      )}
+
+      {goalsError && !goals && (
+        <p role="status" className="text-xs text-center text-muted-foreground">
+          Couldn&apos;t load your daily targets. Totals are shown without goals.
+        </p>
       )}
 
       {/* Calorie Ring or Plain Display */}

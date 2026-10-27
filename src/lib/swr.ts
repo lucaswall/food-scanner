@@ -1,4 +1,4 @@
-import { mutate } from "swr";
+import { mutate, SWRConfig } from "swr";
 
 export class ApiError extends Error {
   code: string;
@@ -50,12 +50,37 @@ const FOOD_CACHE_PREFIXES = [
   "/api/earliest-entry",
 ];
 
-export function invalidateFoodCaches(): Promise<unknown[]> {
-  return mutate(
-    (key) =>
-      typeof key === "string" &&
-      FOOD_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix)),
-  );
+/**
+ * useSWRInfinite stores its page list under `$inf$<first page key>`, and the
+ * key-filter form of `mutate` deliberately skips those entries, so lists with
+ * several loaded pages (history, quick-select) would keep stale pages. Revalidate
+ * them explicitly. Those hooks set `revalidateAll: true`, so the revalidation
+ * refetches every loaded page (and a remounted list does the same on mount).
+ */
+function revalidateInfiniteLists(prefixes: readonly string[]): Promise<unknown[]> {
+  const { cache } = SWRConfig.defaultValue;
+  const pending: Promise<unknown>[] = [];
+  for (const key of cache.keys()) {
+    if (
+      key.startsWith("$inf$") &&
+      prefixes.some((prefix) => key.startsWith(`$inf$${prefix}`))
+    ) {
+      pending.push(mutate(key));
+    }
+  }
+  return Promise.all(pending);
+}
+
+export async function invalidateFoodCaches(): Promise<unknown[]> {
+  const [plain, infinite] = await Promise.all([
+    mutate(
+      (key) =>
+        typeof key === "string" &&
+        FOOD_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix)),
+    ),
+    revalidateInfiniteLists(FOOD_CACHE_PREFIXES),
+  ]);
+  return [...(plain ?? []), ...infinite];
 }
 
 const LABEL_CACHE_PREFIXES = ["/api/nutrition-labels"];

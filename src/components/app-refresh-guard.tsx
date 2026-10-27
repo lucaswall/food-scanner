@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { hardNavigate } from "@/lib/navigation";
 
 interface AppRefreshGuardProps {
   children: React.ReactNode;
@@ -44,7 +45,7 @@ export function AppRefreshGuard({ children }: AppRefreshGuardProps) {
 
         if (dateChanged && elapsedOverFourHours) {
           // Both conditions met - reload the app
-          window.location.href = "/app";
+          hardNavigate("/app");
         }
       }
     };

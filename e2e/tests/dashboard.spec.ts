@@ -146,24 +146,25 @@ test.describe('Dashboard', () => {
     // Verify "Next day" button is disabled when viewing today
     await expect(nextButton).toBeDisabled();
 
-    // Previous day button may be disabled if seeded data only has today's entries
-    // (earliestDate = today means canGoBack = false)
-    const prevEnabled = await prevButton.isEnabled();
-    if (prevEnabled) {
-      // Click previous and verify date changes
-      await prevButton.click();
-      await page.waitForTimeout(500);
+    // Seed data includes an entry 10 days back, so Previous day must be enabled
+    await expect(prevButton).toBeEnabled();
 
-      // Next day should now be enabled (we moved off today)
-      await expect(nextButton).toBeEnabled();
+    const dateLabel = prevButton.locator('xpath=following-sibling::div[1]');
+    const todayLabel = (await dateLabel.textContent()) ?? '';
 
-      // Click next to return to today
-      await nextButton.click();
-      await page.waitForTimeout(500);
+    // Click previous and verify the date label changes
+    await prevButton.click();
+    await expect(dateLabel).not.toHaveText(todayLabel);
 
-      // Next day should be disabled again at today
-      await expect(nextButton).toBeDisabled();
-    }
+    // Next day should now be enabled (we moved off today)
+    await expect(nextButton).toBeEnabled();
+
+    // Click next to return to today
+    await nextButton.click();
+    await expect(dateLabel).toHaveText(todayLabel);
+
+    // Next day should be disabled again at today
+    await expect(nextButton).toBeDisabled();
   });
 
   test('weekly view week navigation arrows work', async ({ page }) => {
@@ -174,9 +175,6 @@ test.describe('Dashboard', () => {
     const weeklyTab = page.getByRole('button', { name: 'Weekly' });
     await weeklyTab.click();
 
-    // Wait for the view to update
-    await page.waitForTimeout(500);
-
     // Verify navigation buttons exist
     const prevButton = page.getByRole('button', { name: /Previous week/i });
     const nextButton = page.getByRole('button', { name: /Next week/i });
@@ -186,22 +184,24 @@ test.describe('Dashboard', () => {
     // Verify "Next week" button is disabled when at current week
     await expect(nextButton).toBeDisabled();
 
-    // Previous week button may be disabled if no historical data
-    const prevEnabled = await prevButton.isEnabled();
-    if (prevEnabled) {
-      // Click previous week
-      await prevButton.click();
-      await page.waitForTimeout(500);
+    // Seed data includes an entry 10 days back, so Previous week must be enabled
+    await expect(prevButton).toBeEnabled();
 
-      // Next week should now be enabled
-      await expect(nextButton).toBeEnabled();
+    const weekLabel = prevButton.locator('xpath=following-sibling::div[1]');
+    const currentWeekLabel = (await weekLabel.textContent()) ?? '';
 
-      // Click next to return
-      await nextButton.click();
-      await page.waitForTimeout(500);
+    // Click previous week and verify the week label changes
+    await prevButton.click();
+    await expect(weekLabel).not.toHaveText(currentWeekLabel);
 
-      // Next week should be disabled again
-      await expect(nextButton).toBeDisabled();
-    }
+    // Next week should now be enabled
+    await expect(nextButton).toBeEnabled();
+
+    // Click next to return
+    await nextButton.click();
+    await expect(weekLabel).toHaveText(currentWeekLabel);
+
+    // Next week should be disabled again
+    await expect(nextButton).toBeDisabled();
   });
 });

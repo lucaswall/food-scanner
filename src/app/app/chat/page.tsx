@@ -14,9 +14,13 @@ export default async function ChatPage() {
   return (
     <>
       <SkipLink />
-      <HealthConnectGuard>
-        <ChatPageClient />
-      </HealthConnectGuard>
+      {/* The skip-link target lives here (not in ChatPageClient) so it exists even
+          while HealthConnectGuard renders its connect prompt instead of the chat. */}
+      <main id="main-content" className="contents">
+        <HealthConnectGuard>
+          <ChatPageClient />
+        </HealthConnectGuard>
+      </main>
     </>
   );
 }

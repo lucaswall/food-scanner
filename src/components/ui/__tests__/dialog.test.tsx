@@ -1,5 +1,33 @@
 import { describe, it, expect } from "vitest";
-import { dialogContentVariants } from "../dialog";
+import { render, screen } from "@testing-library/react";
+import { Dialog, DialogContent, DialogTitle, DialogDescription, dialogContentVariants } from "../dialog";
+
+describe("DialogContent close button", () => {
+  it("has a 44px touch target", () => {
+    render(
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>t</DialogTitle>
+          <DialogDescription>d</DialogDescription>
+        </DialogContent>
+      </Dialog>,
+    );
+    const close = screen.getByRole("button", { name: /close/i });
+    expect(close.className).toContain("size-11");
+  });
+
+  it("is omitted when hideClose is set", () => {
+    render(
+      <Dialog open>
+        <DialogContent hideClose>
+          <DialogTitle>t</DialogTitle>
+          <DialogDescription>d</DialogDescription>
+        </DialogContent>
+      </Dialog>,
+    );
+    expect(screen.queryByRole("button", { name: /close/i })).not.toBeInTheDocument();
+  });
+});
 
 describe("DialogContent variant prop", () => {
   it("should render default variant with center positioning and zoom animation", () => {

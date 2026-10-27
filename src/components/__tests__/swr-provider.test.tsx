@@ -19,7 +19,7 @@ vi.mock("swr", () => ({
 describe("SWRProvider", () => {
   beforeEach(() => {
     Object.defineProperty(window, "location", {
-      value: { href: "" },
+      value: { href: "", origin: "http://localhost" },
       writable: true,
       configurable: true,
     });
@@ -53,7 +53,7 @@ describe("SWRProvider", () => {
     onError!(error);
 
     await waitFor(() => {
-      expect(window.location.href).toBe("/");
+      expect(window.location.href).toBe("http://localhost/");
     });
   });
 

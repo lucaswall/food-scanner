@@ -720,6 +720,32 @@ describe("DailyDashboard", () => {
     });
   });
 
+  it("shows a non-blocking notice when nutrition-goals fails to load", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockSummary }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.resolve({ success: false, error: { code: "INTERNAL_ERROR", message: "boom" } }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: null }) });
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByText(/couldn.t load your daily targets/i)).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("macro-bars")).toBeInTheDocument();
+  });
+
   it("MacroBars receives no goal props when nutrition-goals response has null macros", async () => {
     mockFetch.mockImplementation((url: string) => {
       if (url.includes("/api/nutrition-summary")) {

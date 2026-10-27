@@ -12,9 +12,6 @@ const mockHealthData = {
   status: "ok",
   version: "1.11.0",
   environment: "Production",
-  healthMode: "Live",
-  claudeModel: "claude-sonnet-4-6",
-  commitHash: "",
 };
 
 describe("AboutSection", () => {
@@ -58,7 +55,7 @@ describe("AboutSection", () => {
     expect(screen.getByText("Production")).toBeInTheDocument();
   });
 
-  it("renders health mode in successful state", () => {
+  it("renders only the rows the public /api/health response provides", () => {
     mockUseSWR.mockReturnValue({
       data: mockHealthData,
       error: null,
@@ -67,19 +64,11 @@ describe("AboutSection", () => {
 
     render(<AboutSection />);
 
-    expect(screen.getByText("Live")).toBeInTheDocument();
-  });
-
-  it("renders Claude model in successful state", () => {
-    mockUseSWR.mockReturnValue({
-      data: mockHealthData,
-      error: null,
-      isLoading: false,
-    });
-
-    render(<AboutSection />);
-
-    expect(screen.getByText("claude-sonnet-4-6")).toBeInTheDocument();
+    expect(screen.getByText("Version")).toBeInTheDocument();
+    expect(screen.getByText("Environment")).toBeInTheDocument();
+    expect(screen.queryByText("Health Mode")).not.toBeInTheDocument();
+    expect(screen.queryByText("Claude Model")).not.toBeInTheDocument();
+    expect(screen.queryByText("Commit")).not.toBeInTheDocument();
   });
 
   it("renders GitHub Releases link with correct href", () => {
@@ -164,32 +153,5 @@ describe("AboutSection", () => {
     render(<AboutSection />);
 
     expect(screen.getByText("About")).toBeInTheDocument();
-  });
-
-  it("renders Commit row with hash in monospace when commitHash is non-empty", () => {
-    mockUseSWR.mockReturnValue({
-      data: { ...mockHealthData, commitHash: "abc1234" },
-      error: null,
-      isLoading: false,
-    });
-
-    render(<AboutSection />);
-
-    expect(screen.getByText("Commit")).toBeInTheDocument();
-    const commitValue = screen.getByText("abc1234");
-    expect(commitValue).toBeInTheDocument();
-    expect(commitValue).toHaveClass("font-mono");
-  });
-
-  it("does not render Commit row when commitHash is empty", () => {
-    mockUseSWR.mockReturnValue({
-      data: { ...mockHealthData, commitHash: "" },
-      error: null,
-      isLoading: false,
-    });
-
-    render(<AboutSection />);
-
-    expect(screen.queryByText("Commit")).not.toBeInTheDocument();
   });
 });

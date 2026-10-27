@@ -36,7 +36,6 @@ function applyTheme(theme: Theme) {
 export function useTheme() {
   // Always start with "system" on server and initial client render for consistent hydration
   const [theme, setThemeState] = useState<Theme>("system");
-  const [mounted, setMounted] = useState(false);
   const [, startTransition] = useTransition();
 
   // On mount, read from localStorage and update state
@@ -46,20 +45,8 @@ export function useTheme() {
 
     startTransition(() => {
       setThemeState(storedTheme);
-      setMounted(true);
     });
   }, []);
-
-  // Listen for system theme changes when in system mode
-  useEffect(() => {
-    if (!mounted || theme !== "system") return;
-
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const handleChange = () => applyTheme("system");
-
-    mediaQuery.addEventListener("change", handleChange);
-    return () => mediaQuery.removeEventListener("change", handleChange);
-  }, [theme, mounted]);
 
   const setTheme = useCallback((newTheme: Theme) => {
     setThemeState(newTheme);

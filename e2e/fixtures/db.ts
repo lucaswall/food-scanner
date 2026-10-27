@@ -44,7 +44,7 @@ export async function truncateAllTables() {
  * Seeds test data for E2E tests.
  * - Finds the test user (created by test-login)
  * - Creates sample custom foods
- * - Creates sample food log entries for today
+ * - Creates sample food log entries for today (plus one 10 days back)
  */
 export async function seedTestData() {
   const db = getDb();
@@ -164,6 +164,21 @@ export async function seedTestData() {
       time: '19:00:00',
     },
   ]);
+
+  // An older entry (10 days back) so day/week navigation has history to move into:
+  // the dashboard's "Previous day/week" buttons are disabled when today holds the earliest entry.
+  const tenDaysAgo = new Date(now);
+  tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
+  const olderDate = `${tenDaysAgo.getFullYear()}-${String(tenDaysAgo.getMonth() + 1).padStart(2, "0")}-${String(tenDaysAgo.getDate()).padStart(2, "0")}`;
+  await db.insert(foodLogEntries).values({
+    userId: testUser.id,
+    customFoodId: customFood1!.id,
+    mealTypeId: 3, // Lunch
+    amount: '150',
+    unitId: 'g',
+    date: olderDate,
+    time: '12:30:00',
+  });
 
   // Seed Google Health tokens for guard bypass (HEALTH_DRY_RUN mode)
   const oneYearFromNow = new Date();

@@ -157,3 +157,28 @@ describe("NutritionFactsCard", () => {
     });
   });
 });
+
+describe("NutritionFactsCard rounding", () => {
+  it("rounds raw float values for display", () => {
+    render(
+      <NutritionFactsCard
+        foodName="Test"
+        calories={180.4}
+        proteinG={12.3456}
+        carbsG={30}
+        fatG={4.04}
+        fiberG={2.25}
+        sodiumMg={95.6}
+        unitId="g"
+        amount={100}
+        saturatedFatG={1.2345}
+      />,
+    );
+    expect(screen.getByText("180")).toBeInTheDocument();
+    expect(screen.getByText("12.3g")).toBeInTheDocument();
+    expect(screen.getByText("30g")).toBeInTheDocument();
+    expect(screen.getByText("4g")).toBeInTheDocument();
+    expect(screen.getByText("96mg")).toBeInTheDocument();
+    expect(screen.getByText("1.2g")).toBeInTheDocument();
+  });
+});
