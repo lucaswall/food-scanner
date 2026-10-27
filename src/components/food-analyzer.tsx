@@ -30,10 +30,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { MessageSquare, RotateCcw, Clock } from "lucide-react";
-import {
-  getPendingSubmission,
-  clearPendingSubmission,
-} from "@/lib/pending-submission";
 import { useLogFood } from "@/hooks/use-log-food";
 import { getLocalDateTime } from "@/lib/meal-type";
 import { getActiveSessionId } from "@/lib/analysis-session";
@@ -58,7 +54,7 @@ interface FoodAnalyzerProps {
 export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const router = useRouter();
   // Persisted state from analysis session hook
-  const { state: sessionState, actions, isRestoring, wasRestored } = useAnalysisSession();
+  const { state: sessionState, actions, isRestoring } = useAnalysisSession();
   const {
     photos,
     convertedPhotoBlobs,
@@ -89,12 +85,8 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     getSessionId: () => getActiveSessionId() ?? undefined,
   });
   const [externalLogResponse, setExternalLogResponse] = useState<FoodLogResponse | null>(null);
-  const [externalLogError, setExternalLogError] = useState<string | null>(null);
   const logResponse = hookLogResponse ?? externalLogResponse;
-  const logError = hookLogError ?? externalLogError;
-  const [resubmitting, setResubmitting] = useState(false);
-  const [resubmitFoodName, setResubmitFoodName] = useState<string | null>(null);
-  const resubmitInFlightRef = useRef(false);
+  const logError = hookLogError;
   const [streamingText, setStreamingText] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
   const [seedMessages, setSeedMessages] = useState<ConversationMessage[] | null>(null);
@@ -103,7 +95,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [photoCaptureKey, setPhotoCaptureKey] = useState(0);
-  const autoCaptureUsedRef = useRef(false);
+  const [autoCaptureUsed, setAutoCaptureUsed] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const compressionWarningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const findMatchesGenerationRef = useRef(0);
@@ -112,18 +104,24 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const keyboardHeight = useKeyboardHeight();
 
   const canAnalyze = (photos.length > 0 || convertedPhotoBlobs.length > 0 || description.trim().length > 0) && !compressing && !loading && !logging;
-  const canLog = analysis !== null && !loading && !logging;
+  const canLog = analysis !== null && !loading && !compressing && !logging;
   const hasContent = photos.length > 0 || convertedPhotoBlobs.length > 0 || description.trim().length > 0 || analysis !== null;
 
   const handlePhotosChange = (files: File[], convertedBlobs?: (File | Blob)[]) => {
     actions.setPhotos(files, convertedBlobs);
     if (files.length > 0) {
-      autoCaptureUsedRef.current = true;
+      setAutoCaptureUsed(true);
     }
-    // Clear previous analysis and persisted session when all photos removed
-    if (files.length === 0) {
+    // PhotoCapture reports restored-from-storage photos as converted blobs with no File
+    // objects, so "no photos left" must consider both lists.
+    const remaining = Math.max(files.length, convertedBlobs?.length ?? 0);
+    if (remaining === 0) {
+      // Last photo removed: the analysis no longer matches anything. The description stays —
+      // it is user-typed input and may still be what they want to analyze.
       resetAnalysisState();
-      actions.clearSession();
+      if (!description.trim()) {
+        actions.clearSession();
+      }
     }
   };
 
@@ -145,7 +143,6 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     setStreamingText("");
     setError(null);
     clearLogError();
-    setExternalLogError(null);
     setExternalLogResponse(null);
     actions.setMatches([]);
     actions.setCompressedImages(null);
@@ -167,6 +164,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
     setError(null);
     clearLogError();
+
+    // A re-analysis supersedes the previous one: drop its matches (and invalidate any
+    // in-flight find-matches fetch) so stale suggestions can't be logged against new results.
+    findMatchesGenerationRef.current += 1;
+    actions.setMatches([]);
 
     // Create AbortController early so Cancel works during compression
     const controller = new AbortController();
@@ -300,6 +302,13 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
               textDeltaBufferRef.current = "";
               setStreamingText("");
               setLoadingStep(TOOL_DESCRIPTIONS[event.tool] ?? "Processing...");
+            } else if (event.type === "retry") {
+              // Upstream stream failed mid-flight and is being replayed from the start:
+              // discard the partial text so it isn't duplicated, and surface the message
+              // as transient status only (never as analysis narrative).
+              textDeltaBufferRef.current = "";
+              setStreamingText("");
+              setLoadingStep(event.message);
             } else if (event.type === "analysis") {
               actions.setAnalysis(event.analysis);
               actions.setAnalysisNarrative(textDeltaBufferRef.current.trim() || null);
@@ -462,60 +471,6 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     }
   }, [logResponse]);
 
-  // Auto-resubmit pending submission after Google Health reconnect
-  useEffect(() => {
-    const pending = getPendingSubmission();
-    if (!pending) return;
-    if (resubmitInFlightRef.current) return;
-    resubmitInFlightRef.current = true;
-
-    setResubmitting(true);
-    setResubmitFoodName(pending.foodName);
-    actions.setMealTypeId(pending.mealTypeId);
-
-    const dateTime = pending.date && pending.time
-      ? { date: pending.date, time: pending.time, zoneOffset: pending.zoneOffset }
-      : getLocalDateTime();
-    const body: Record<string, unknown> = { mealTypeId: pending.mealTypeId, ...dateTime };
-    if (pending.reuseCustomFoodId) {
-      body.reuseCustomFoodId = pending.reuseCustomFoodId;
-    } else if (pending.analysis) {
-      Object.assign(body, pending.analysis);
-    }
-
-    fetch("/api/log-food", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(15000),
-    })
-      .then((r) => safeResponseJson(r))
-      .then((raw) => {
-        const result = raw as {
-          success: boolean;
-          data?: FoodLogResponse;
-          error?: { code: string; message: string };
-        };
-        clearPendingSubmission();
-        if (result.success) {
-          setExternalLogResponse(result.data ?? null);
-        } else {
-          setExternalLogError(result.error?.message || "Failed to resubmit food log");
-        }
-      })
-      .catch((err) => {
-        clearPendingSubmission();
-        if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
-          setExternalLogError("Request timed out. Please try again.");
-        } else {
-          setExternalLogError("Failed to resubmit food log");
-        }
-      })
-      .finally(() => {
-        setResubmitting(false);
-      });
-  }, [actions]);
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -535,18 +490,6 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         <Skeleton className="h-48 w-full rounded-lg" />
         <Skeleton className="h-10 w-full rounded-md" />
         <Skeleton className="h-11 w-full rounded-md" />
-      </div>
-    );
-  }
-
-  // Show resubmitting state
-  if (resubmitting) {
-    return (
-      <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
-        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-muted-foreground">
-          Reconnected! Resubmitting {resubmitFoodName ?? "food"}...
-        </p>
       </div>
     );
   }
@@ -634,7 +577,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         </AlertDialogContent>
       </AlertDialog>
 
-      <PhotoCapture key={photoCaptureKey} onPhotosChange={handlePhotosChange} autoCapture={autoCapture && !autoCaptureUsedRef.current} restoredBlobs={wasRestored && convertedPhotoBlobs.length > 0 ? (convertedPhotoBlobs as Blob[]) : undefined} />
+      <PhotoCapture key={photoCaptureKey} onPhotosChange={handlePhotosChange} autoCapture={autoCapture && !autoCaptureUsed} restoredBlobs={convertedPhotoBlobs.length > 0 ? (convertedPhotoBlobs as Blob[]) : undefined} />
 
       <DescriptionInput value={description} onChange={actions.setDescription} disabled={loading || logging || compressing} />
 
@@ -763,8 +706,16 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     >
       <div className={`mx-auto w-full max-w-md py-3 border-t ${keyboardHeight > 0 ? "bg-background border-b pb-4" : "bg-background/80 backdrop-blur-sm"}`}>
         <Button
-          onClick={analysis ? logFood : handleAnalyze}
-          disabled={analysis ? logging || saving : !canAnalyze}
+          onClick={() => {
+            // Never log the previous analysis while a re-analysis is preparing/running
+            if (loading || compressing) return;
+            if (analysis) {
+              void logFood();
+            } else {
+              void handleAnalyze();
+            }
+          }}
+          disabled={analysis ? !canLog || saving : !canAnalyze}
           className="w-full min-h-[44px]"
         >
           {compressing

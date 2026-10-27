@@ -135,7 +135,9 @@ export function QuickCapture() {
 
   // Cleanup pending preview URLs on unmount
   const pendingPreviewsRef = useRef<string[]>([]);
-  pendingPreviewsRef.current = pendingPreviews;
+  useEffect(() => {
+    pendingPreviewsRef.current = pendingPreviews;
+  }, [pendingPreviews]);
   useEffect(() => {
     return () => {
       pendingPreviewsRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -196,6 +198,8 @@ export function QuickCapture() {
 
   const handleClearConfirm = () => {
     actions.clearSession();
+    // clearSession drops the session; start a fresh one so the next capture has somewhere to go
+    actions.startSession();
     setShowClearDialog(false);
   };
 
@@ -252,9 +256,11 @@ export function QuickCapture() {
                   <button
                     aria-label={`Remove photo ${i + 1}`}
                     onClick={() => handleRemovePendingPhoto(i)}
-                    className="absolute -top-1.5 -right-1.5 rounded-full bg-destructive text-destructive-foreground w-5 h-5 flex items-center justify-center"
+                    className="absolute -top-3 -right-3 z-10 min-w-[44px] min-h-[44px] flex items-center justify-center"
                   >
-                    <X className="h-3 w-3" />
+                    <span className="w-6 h-6 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center">
+                      <X className="h-3.5 w-3.5" />
+                    </span>
                   </button>
                 </div>
               ))}

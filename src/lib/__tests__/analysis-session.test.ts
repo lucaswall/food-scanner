@@ -30,6 +30,7 @@ function makeState(overrides: Partial<AnalysisSessionState> = {}): AnalysisSessi
 describe("analysis-session", () => {
   beforeEach(() => {
     sessionStorage.clear();
+    localStorage.clear();
     // Reset DB singleton and IndexedDB between tests
     _resetDBForTesting();
     indexedDB = new IDBFactory();
@@ -160,6 +161,49 @@ describe("analysis-session", () => {
 
       expect(getActiveSessionId()).toBe(id);
       expect(loadSessionState(id)).toEqual(state);
+    });
+  });
+
+  describe("orphaned photo sweep", () => {
+    it("deletes photos left behind by a closed tab (no active session id) once past the TTL", async () => {
+      // Tab closed: sessionStorage (and with it the session id) is gone, IndexedDB blobs remain
+      await saveSessionPhotos("orphan", [new Blob(["photo"])]);
+      const index = JSON.parse(localStorage.getItem("food-scanner-photo-sessions") ?? "{}");
+      expect(index.orphan).toBeTypeOf("number");
+      index.orphan = Date.now() - 25 * 60 * 60 * 1000;
+      localStorage.setItem("food-scanner-photo-sessions", JSON.stringify(index));
+
+      await cleanupExpiredSession();
+
+      expect(await loadSessionPhotos("orphan")).toEqual([]);
+      expect(JSON.parse(localStorage.getItem("food-scanner-photo-sessions") ?? "{}").orphan).toBeUndefined();
+    });
+
+    it("deletes photos that have no index entry (never registered)", async () => {
+      const { getDB } = await import("@/lib/analysis-session");
+      const db = await getDB();
+      await db.put("session-photos", [new Blob(["legacy"])], "legacy-key");
+
+      await cleanupExpiredSession();
+
+      expect(await loadSessionPhotos("legacy-key")).toEqual([]);
+    });
+
+    it("keeps fresh photos (another tab's live session) and the active session's photos", async () => {
+      const activeId = createSessionId();
+      await saveSessionPhotos(activeId, [new Blob(["mine"])]);
+      await saveSessionPhotos("other-tab", [new Blob(["theirs"])]);
+
+      await cleanupExpiredSession();
+
+      expect(await loadSessionPhotos(activeId)).toHaveLength(1);
+      expect(await loadSessionPhotos("other-tab")).toHaveLength(1);
+    });
+
+    it("clearSession unregisters the session from the index", async () => {
+      await saveSessionPhotos("gone", [new Blob(["photo"])]);
+      await clearSession("gone");
+      expect(JSON.parse(localStorage.getItem("food-scanner-photo-sessions") ?? "{}").gone).toBeUndefined();
     });
   });
 

@@ -23,8 +23,13 @@ interface PhotoCaptureProps {
   restoredBlobs?: Blob[];
 }
 
-function createRestoredPreviews(blobs: Blob[]) {
-  return blobs.map((blob) => URL.createObjectURL(blob));
+// Photos restored from a previous session are plain blobs. They are adopted into the same
+// state as freshly picked photos (wrapped as File objects), so adding, removing and
+// previewing share a single code path and nothing restored can be dropped.
+function adoptRestoredBlobs(blobs: Blob[] | undefined): File[] {
+  return (blobs ?? []).map(
+    (blob, i) => new File([blob], `restored-${i + 1}.jpg`, { type: blob.type || "image/jpeg" })
+  );
 }
 
 export function PhotoCapture({
@@ -33,22 +38,17 @@ export function PhotoCapture({
   autoCapture = false,
   restoredBlobs,
 }: PhotoCaptureProps) {
-  const [photos, setPhotos] = useState<File[]>([]);
+  const [photos, setPhotos] = useState<File[]>(() => adoptRestoredBlobs(restoredBlobs));
   const [error, setError] = useState<string | null>(null);
-  const [previews, setPreviews] = useState<string[]>([]);
+  const [previews, setPreviews] = useState<string[]>(() =>
+    (restoredBlobs ?? []).map((blob) => URL.createObjectURL(blob))
+  );
   const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
   const [selectedPreviewIndex, setSelectedPreviewIndex] = useState<number | null>(null);
   const [processingCount, setProcessingCount] = useState(0);
-  const [convertedBlobsState, setConvertedBlobsState] = useState<(File | Blob)[]>([]);
-  const [restoredPreviews, setRestoredPreviews] = useState<string[]>(() => {
-    if (restoredBlobs && restoredBlobs.length > 0) {
-      return createRestoredPreviews(restoredBlobs);
-    }
-    return [];
-  });
+  const [convertedBlobsState, setConvertedBlobsState] = useState<(File | Blob)[]>(() => restoredBlobs ?? []);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
-  const restoredBlobsRef = useRef<Blob[]>(restoredBlobs ?? []);
   const warningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Revoke blob URLs on unmount to prevent memory leaks
@@ -56,14 +56,9 @@ export function PhotoCapture({
   useEffect(() => {
     previewsRef.current = previews;
   }, [previews]);
-  const restoredPreviewsRef = useRef<string[]>([]);
-  useEffect(() => {
-    restoredPreviewsRef.current = restoredPreviews;
-  }, [restoredPreviews]);
   useEffect(() => {
     return () => {
       previewsRef.current.forEach((url) => URL.revokeObjectURL(url));
-      restoredPreviewsRef.current.forEach((url) => URL.revokeObjectURL(url));
       if (warningTimeoutRef.current) {
         clearTimeout(warningTimeoutRef.current);
       }
@@ -247,19 +242,6 @@ export function PhotoCapture({
     }
   };
 
-  const handleRemoveRestoredPhoto = (index: number) => {
-    URL.revokeObjectURL(restoredPreviews[index]);
-    const newRestoredPreviews = restoredPreviews.filter((_, i) => i !== index);
-    const newRestoredBlobs = restoredBlobsRef.current.filter((_, i) => i !== index);
-    restoredBlobsRef.current = newRestoredBlobs;
-    setRestoredPreviews(newRestoredPreviews);
-    setPreviewDialogOpen(false);
-    setSelectedPreviewIndex(null);
-
-    // Always notify parent with remaining blobs (or empty arrays if all removed)
-    onPhotosChange([], newRestoredBlobs.length > 0 ? newRestoredBlobs : []);
-  };
-
   const handleTakePhoto = () => {
     cameraInputRef.current?.click();
   };
@@ -273,8 +255,7 @@ export function PhotoCapture({
     setPreviewDialogOpen(true);
   };
 
-  const totalPhotoCount = photos.length > 0 ? photos.length : restoredPreviews.length;
-  const canAddMore = totalPhotoCount < maxPhotos;
+  const canAddMore = photos.length < maxPhotos;
 
   return (
     <div className="space-y-4">
@@ -324,51 +305,13 @@ export function PhotoCapture({
       )}
 
       <p className="text-xs text-muted-foreground">
-        {photos.length > 0 ? photos.length : restoredPreviews.length}/{maxPhotos} photos selected
+        {photos.length}/{maxPhotos} photos selected
       </p>
 
       {error && (
         <p className="text-sm text-destructive" role="alert">
           {error}
         </p>
-      )}
-
-      {/* Restored photo previews (from session restore) */}
-      {restoredPreviews.length > 0 && previews.length === 0 && (
-        <div className="grid grid-cols-3 gap-2">
-          {restoredPreviews.map((preview, index) => (
-            <div
-              key={`restored-${index}`}
-              role="button"
-              tabIndex={0}
-              className="relative aspect-square cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-md"
-              onClick={() => handlePreviewClick(index)}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handlePreviewClick(index); } }}
-              aria-label={`View full-size preview ${index + 1}`}
-            >
-              <Image
-                src={preview}
-                alt={`Preview ${index + 1}`}
-                fill
-                unoptimized
-                className="object-cover rounded-md"
-              />
-              <button
-                type="button"
-                className="absolute top-0 right-0 z-10 min-w-[44px] min-h-[44px] flex items-center justify-center"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleRemoveRestoredPhoto(index);
-                }}
-                aria-label={`Remove photo ${index + 1}`}
-              >
-                <span className="w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center">
-                  <X className="h-3.5 w-3.5" />
-                </span>
-              </button>
-            </div>
-          ))}
-        </div>
       )}
 
       {(previews.length > 0 || processingCount > 0) && (
@@ -422,7 +365,7 @@ export function PhotoCapture({
       <PhotoPreviewDialog
         open={previewDialogOpen}
         onOpenChange={setPreviewDialogOpen}
-        imageUrl={selectedPreviewIndex !== null ? (previews[selectedPreviewIndex] ?? restoredPreviews[selectedPreviewIndex] ?? null) : null}
+        imageUrl={selectedPreviewIndex !== null ? (previews[selectedPreviewIndex] ?? null) : null}
         imageAlt={selectedPreviewIndex !== null ? `Preview ${selectedPreviewIndex + 1}` : undefined}
       />
 
