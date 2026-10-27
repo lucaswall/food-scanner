@@ -10,6 +10,10 @@ const DB_VERSION = 2;
 
 const STATE_KEY_PREFIX = "food-scanner-analysis-session:";
 const SESSION_ID_KEY = "food-scanner-session-id";
+// sessionStorage (and the session id with it) dies when the tab closes, but IndexedDB photo
+// blobs survive. This localStorage index (sessionId -> first-saved epoch ms) lets a later
+// visit find and delete blobs whose tab is gone, without touching another open tab's session.
+const PHOTO_INDEX_KEY = "food-scanner-photo-sessions";
 
 const TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -78,11 +82,52 @@ export function getDB(): Promise<IDBPDatabase<FoodScannerDB>> {
   return dbPromise;
 }
 
+function readPhotoIndex(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(PHOTO_INDEX_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === "number") out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writePhotoIndex(index: Record<string, number>): void {
+  try {
+    localStorage.setItem(PHOTO_INDEX_KEY, JSON.stringify(index));
+  } catch {
+    // localStorage may be unavailable
+  }
+}
+
+function registerPhotoSession(sessionId: string): void {
+  const index = readPhotoIndex();
+  if (index[sessionId] === undefined) {
+    index[sessionId] = Date.now();
+    writePhotoIndex(index);
+  }
+}
+
+function unregisterPhotoSession(sessionId: string): void {
+  const index = readPhotoIndex();
+  if (index[sessionId] !== undefined) {
+    delete index[sessionId];
+    writePhotoIndex(index);
+  }
+}
+
 export async function saveSessionPhotos(sessionId: string, blobs: Blob[]): Promise<void> {
   if (!isIndexedDBAvailable()) return;
   try {
     const db = await getDB();
     await db.put(STORE_NAME, blobs, sessionId);
+    registerPhotoSession(sessionId);
   } catch {
     // IndexedDB may fail silently
   }
@@ -104,6 +149,39 @@ async function deleteSessionPhotos(sessionId: string): Promise<void> {
   try {
     const db = await getDB();
     await db.delete(STORE_NAME, sessionId);
+  } catch {
+    // silently fail
+  }
+  unregisterPhotoSession(sessionId);
+}
+
+/**
+ * Delete photo blobs whose owning tab is gone: anything not belonging to the active session
+ * that is unregistered or older than the TTL. Fresh entries are kept — they may belong to
+ * another open tab.
+ */
+async function sweepOrphanedPhotos(): Promise<void> {
+  if (!isIndexedDBAvailable()) return;
+  try {
+    const activeId = getActiveSessionId();
+    const index = readPhotoIndex();
+    const now = Date.now();
+    const db = await getDB();
+    const keys = await db.getAllKeys(STORE_NAME);
+    for (const key of keys) {
+      const id = String(key);
+      if (id === activeId) continue;
+      const registeredAt = index[id];
+      if (registeredAt === undefined || now - registeredAt > TTL_MS) {
+        await db.delete(STORE_NAME, id);
+        delete index[id];
+      }
+    }
+    // Drop stale index entries whose blobs are already gone
+    for (const [id, registeredAt] of Object.entries(index)) {
+      if (id !== activeId && now - registeredAt > TTL_MS) delete index[id];
+    }
+    writePhotoIndex(index);
   } catch {
     // silently fail
   }
@@ -202,12 +280,13 @@ export function isSessionExpired(state: AnalysisSessionState): boolean {
 
 export async function cleanupExpiredSession(): Promise<void> {
   const sessionId = getActiveSessionId();
-  if (!sessionId) return;
-  const state = loadSessionState(sessionId);
-  if (!state) return;
-  if (isSessionExpired(state)) {
-    await clearSession(sessionId);
+  if (sessionId) {
+    const state = loadSessionState(sessionId);
+    if (state && isSessionExpired(state)) {
+      await clearSession(sessionId);
+    }
   }
+  await sweepOrphanedPhotos();
 }
 
 export function serializeFoodMatch(match: FoodMatch): SerializedFoodMatch {

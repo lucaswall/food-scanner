@@ -49,22 +49,26 @@ interface UseAnalysisSessionReturn {
   wasRestored: boolean;
 }
 
-const DEFAULT_STATE: AnalysisSessionHookState = {
-  photos: [],
-  convertedPhotoBlobs: [],
-  compressedImages: null,
-  description: "",
-  analysis: null,
-  analysisNarrative: null,
-  mealTypeId: getDefaultMealType(),
-  selectedTime: null,
-  matches: [],
-};
+// A factory, not a constant: the default meal type depends on the current time, and a
+// module-level value would go stale in a long-lived PWA tab.
+function createDefaultState(): AnalysisSessionHookState {
+  return {
+    photos: [],
+    convertedPhotoBlobs: [],
+    compressedImages: null,
+    description: "",
+    analysis: null,
+    analysisNarrative: null,
+    mealTypeId: getDefaultMealType(),
+    selectedTime: null,
+    matches: [],
+  };
+}
 
 const DEBOUNCE_MS = 300;
 
 export function useAnalysisSession(): UseAnalysisSessionReturn {
-  const [state, setState] = useState<AnalysisSessionHookState>(DEFAULT_STATE);
+  const [state, setState] = useState<AnalysisSessionHookState>(createDefaultState);
   const [isRestoring, setIsRestoring] = useState(true);
   const [wasRestored, setWasRestored] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
@@ -221,9 +225,14 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
       const blobs = convertedBlobs || [];
       setState((prev) => ({ ...prev, photos, convertedPhotoBlobs: blobs }));
       // Immediate save for photos — store convertedBlobs (or originals) to IndexedDB
-      if (photos.length > 0) {
+      const toStore = blobs.length > 0 ? blobs : photos;
+      if (toStore.length === 0) {
+        // All photos removed: overwrite what is persisted so they can't be restored later
+        if (sessionIdRef.current) {
+          saveSessionPhotos(sessionIdRef.current, []);
+        }
+      } else {
         const id = ensureSessionId();
-        const toStore = blobs.length > 0 ? blobs : photos;
         saveSessionPhotos(id, toStore);
         // Also save session state immediately so photo-only sessions are restorable
         // (the debounced effect won't fire if no other fields change)
@@ -265,7 +274,7 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
 
   const clearSessionAction = useCallback(async () => {
     await clearPersistedSessionAction();
-    setState(DEFAULT_STATE);
+    setState(createDefaultState());
     setWasRestored(false);
   }, [clearPersistedSessionAction]);
 

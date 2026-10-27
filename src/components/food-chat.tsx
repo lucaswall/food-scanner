@@ -28,6 +28,7 @@ import { useLogFood } from "@/hooks/use-log-food";
 import { compressImage } from "@/lib/image";
 import { getLocalDateTime, getDefaultMealType } from "@/lib/meal-type";
 import { savePendingSubmission } from "@/lib/pending-submission";
+import { hardNavigate } from "@/lib/hard-navigate";
 import { saveAnalysisForLater } from "@/lib/save-for-later";
 import { MiniNutritionCard } from "@/components/mini-nutrition-card";
 import type {
@@ -150,6 +151,12 @@ export function FoodChat({
   const [showPhotoMenu, setShowPhotoMenu] = useState(false);
   const [compressionWarning, setCompressionWarning] = useState<string | null>(null);
   const [compressing, setCompressing] = useState(false);
+  // Transient status from the server (e.g. "retrying") — shown next to the spinner,
+  // never stored as message content and never sent back in the conversation history.
+  const [retryStatus, setRetryStatus] = useState<string | null>(null);
+  // Synchronous in-flight guard: `loading` state only flips after the base64 await, so
+  // a fast double tap could otherwise submit the same turn twice.
+  const sendingRef = useRef(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -296,7 +303,8 @@ export function FoodChat({
   };
 
   const handleSend = async () => {
-    if (!input.trim() || loading || compressing || saving) return;
+    if (!input.trim() || loading || compressing || saving || sendingRef.current) return;
+    sendingRef.current = true;
 
     const userAddedImages = [...pendingImages];
     // Capture message count before adding anything so we can revert on error
@@ -435,7 +443,17 @@ export function FoodChat({
 
             for (let i = 0; i < events.length && !streamFinished; i++) {
               const event = events[i];
-              if (event.type === "text_delta") {
+              if (event.type === "retry") {
+                // Upstream stream failed mid-flight and is replayed from the start: drop
+                // everything this turn streamed so far (all assistant bubbles after the user
+                // message) and show the message as transient status only.
+                setMessages((prev) => [
+                  ...prev.slice(0, messageCountBeforeSend + 1),
+                  { role: "assistant", content: "" },
+                ]);
+                setRetryStatus(event.message);
+              } else if (event.type === "text_delta") {
+                setRetryStatus(null);
                 setMessages((prev) => {
                   const msgs = [...prev];
                   const last = msgs[msgs.length - 1];
@@ -528,6 +546,8 @@ export function FoodChat({
       }
     } finally {
       clearTimeout(timeoutId);
+      sendingRef.current = false;
+      setRetryStatus(null);
       setLoading(false);
     }
   };
@@ -566,7 +586,8 @@ export function FoodChat({
         ...analysis,
         mealTypeId,
         date,
-        time: selectedTime ?? editEntry.time ?? time,
+        // selectedTime starts at the entry's own time; null means the user picked "Now"
+        time: selectedTime ?? time,
         zoneOffset,
       };
 
@@ -596,7 +617,7 @@ export function FoodChat({
             zoneOffset,
             entryId: editEntry.id,
           });
-          window.location.href = "/api/auth/google-health";
+          hardNavigate("/api/auth/google-health");
           return;
         }
 
@@ -643,7 +664,8 @@ export function FoodChat({
     try {
       const fallback = getLocalDateTime();
       const date = analysis.date ?? fallback.date;
-      const time = selectedTime ?? analysis.time ?? fallback.time;
+      // selectedTime tracks the analysis/entry time; null means the user picked "Now"
+      const time = selectedTime ?? fallback.time;
       const saveBody = {
         entryId,
         ...analysis,
@@ -679,7 +701,7 @@ export function FoodChat({
             zoneOffset: fallback.zoneOffset,
             entryId,
           });
-          window.location.href = "/api/auth/google-health";
+          hardNavigate("/api/auth/google-health");
           return;
         }
         if (errorCode === "HEALTH_NOT_CONNECTED") {
@@ -859,8 +881,13 @@ export function FoodChat({
 
         {loading && (
           <div className="flex justify-start" data-testid="chat-loading">
-            <div className="px-3 py-2 rounded-2xl bg-muted rounded-bl-sm">
+            <div className="px-3 py-2 rounded-2xl bg-muted rounded-bl-sm flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
+              {retryStatus && (
+                <span data-testid="chat-retry-status" className="text-xs text-muted-foreground">
+                  {retryStatus}
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -924,7 +951,7 @@ export function FoodChat({
               <button
                 onClick={handleClearImages}
                 aria-label="Remove photos"
-                className="ml-0.5 rounded-full hover:bg-background/50 p-0.5"
+                className="-my-3 -mr-2 ml-0 flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full hover:bg-background/50"
               >
                 <X className="h-3 w-3" />
               </button>

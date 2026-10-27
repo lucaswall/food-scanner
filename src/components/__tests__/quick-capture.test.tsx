@@ -152,6 +152,34 @@ describe("QuickCapture", () => {
     expect(mockActions.clearSession).toHaveBeenCalled();
   });
 
+  it("restarts a capture session after Clear All so the next capture is not discarded", async () => {
+    setupMockHook([makeCapture()], "session-1");
+    render(<QuickCapture />);
+    await act(async () => {});
+    mockActions.startSession.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: /clear all/i }));
+    fireEvent.click(screen.getByRole("button", { name: /clear/i }));
+
+    expect(mockActions.clearSession).toHaveBeenCalled();
+    expect(mockActions.startSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("remove-photo buttons in the add form have a 44px touch target", async () => {
+    setupMockHook([], "session-1");
+    const { container } = render(<QuickCapture />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: /add capture/i }));
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [new File(["x"], "a.jpg", { type: "image/jpeg" })] },
+    });
+
+    const removeBtn = screen.getByRole("button", { name: "Remove photo 1" });
+    expect(removeBtn).toHaveClass("min-h-[44px]");
+    expect(removeBtn).toHaveClass("min-w-[44px]");
+  });
+
   it("continues loading thumbnails when getCaptureBlobs throws for one capture", async () => {
     const captures = [
       makeCapture({ id: "c1", note: "first", order: 0 }),
