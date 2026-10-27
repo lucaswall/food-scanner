@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-10-27
+
+### Added
+
+- Your daily targets now say when they are the last saved values because Google Health is temporarily unavailable.
+- Connecting Google Health now explains what went wrong when a permission wasn't granted or the account is already linked to another user.
+
+### Changed
+
+- The History page keeps its jump-to-date picker when a date has no entries, with a quick way back to the latest.
+- Nutrition values are rounded consistently on every screen.
+- Buttons and dialog close controls are easier to tap on phones.
+- The external API now rejects malformed dates, IDs and out-of-range readings with a clear error, and accepts the caller's local date for daily goals.
+
+### Fixed
+
+- You stay signed in for the full 30 days instead of being logged out after two weeks.
+- Changing goal settings or refreshing your Google Health profile in the evening now updates today's targets instead of tomorrow's.
+- Logging, editing or deleting an entry can no longer create duplicates or leave Google Health out of sync when a request is retried or two changes overlap.
+- Editing or deleting entries no longer removes a food's favorite mark or breaks its share link.
+- Photos are no longer lost when adding or removing pictures after returning to an analysis, and the log button can't save an outdated result while a new analysis is running.
+- When the AI service hiccups mid-answer, the reply no longer shows repeated text, and refusals or overly long chats now show a clear message.
+- History and Quick Select lists now update every loaded page after you log or change food.
+- Minor fixes to the System theme, the Nutrition Labels search keyboard, capture triage, API keys and error messages.
+
+### Security
+
+- Updated Next.js and Sentry to fix critical vulnerabilities, including a remote code execution flaw and a Sentry tunnel bypass.
+- Error reports no longer include session cookies, API keys or request bodies.
+- Removing someone from the allowed users now signs them out and disables their API keys immediately.
+- Google Health connections are protected against accidental disconnection and against two app users sharing one account.
+
 ## [4.0.7] - 2026-09-14
 
 ### Changed
@@ -668,7 +700,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.0.7...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.1.0...HEAD
+[4.1.0]: https://github.com/lucaswall/food-scanner/compare/v4.0.7...v4.1.0
 [4.0.7]: https://github.com/lucaswall/food-scanner/compare/v4.0.6...v4.0.7
 [4.0.6]: https://github.com/lucaswall/food-scanner/compare/v4.0.5...v4.0.6
 [4.0.5]: https://github.com/lucaswall/food-scanner/compare/v4.0.4...v4.0.5
