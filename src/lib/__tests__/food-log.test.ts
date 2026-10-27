@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost:5432/test");
 
@@ -965,6 +968,24 @@ describe("getCommonFoods", () => {
       expect(page2.nextCursor).toBeNull();
     });
 
+    it("orders tied scores by id regardless of DB row order, so pages never skip or repeat foods", async () => {
+      // Same score for all; the DB returns rows in arbitrary (non-id) order.
+      const rows = [
+        makeRow({ customFoodId: 30, foodName: "Food C", time: "12:00:00", date: "2026-02-08", mealTypeId: 3 }),
+        makeRow({ customFoodId: 10, foodName: "Food A", time: "12:00:00", date: "2026-02-08", mealTypeId: 3 }),
+        makeRow({ customFoodId: 20, foodName: "Food B", time: "12:00:00", date: "2026-02-08", mealTypeId: 3 }),
+      ];
+      mockWhere.mockResolvedValue(rows);
+
+      const page1 = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08", { limit: 2 });
+      expect(page1.foods.map((f) => f.foodName)).toEqual(["Food A", "Food B"]);
+
+      // Rows come back in yet another order on the next request
+      mockWhere.mockResolvedValue([rows[2], rows[0], rows[1]]);
+      const page2 = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08", { limit: 2, cursor: page1.nextCursor! });
+      expect(page2.foods.map((f) => f.foodName)).toEqual(["Food C"]);
+    });
+
     it("returns nextCursor when more items exist, null when no more", async () => {
       // Exactly 3 items, limit 3 → no more items → nextCursor null
       mockWhere.mockResolvedValue([
@@ -1619,12 +1640,24 @@ describe("getFoodLogEntry", () => {
   });
 });
 
+function renderSql(arg: unknown): { sql: string; params: unknown[] } {
+  return new PgDialect().sqlToQuery(arg as SQL);
+}
+
 describe("deleteFoodLogEntry", () => {
+  beforeEach(() => {
+    mockWhere.mockReset();
+    mockWhere.mockReturnValue({ orderBy: mockOrderBy });
+    mockReturning.mockReset();
+    // Orphan-cleanup NOT EXISTS subquery: .where() must return something drizzle can render
+    mockWhere.mockReturnValueOnce({ getSQL: () => sql`(select 1 from food_log_entries)` });
+    // Second DELETE (atomic orphan cleanup) deletes nothing unless a test says otherwise
+    mockDeleteReturning.mockResolvedValue([]);
+  });
+
   it("deletes the entry and returns healthLogId", async () => {
-    // Mock the delete returning healthLogId and customFoodId
-    mockDeleteReturning.mockResolvedValueOnce([{ healthLogId: "789", customFoodId: 10 }]);
-    // Mock the count query - other entries still reference this custom food
-    mockWhere.mockResolvedValueOnce([{ id: 99 }]);
+    mockDeleteReturning.mockReset();
+    mockDeleteReturning.mockResolvedValueOnce([{ healthLogId: "789", customFoodId: 10 }]).mockResolvedValueOnce([]);
 
     const result = await deleteFoodLogEntry("user-uuid-123", 5);
 
@@ -1632,67 +1665,87 @@ describe("deleteFoodLogEntry", () => {
     expect(mockDelete).toHaveBeenCalled();
   });
 
-  it("returns null when entry not found", async () => {
+  it("returns null when entry not found (and does not attempt orphan cleanup)", async () => {
+    mockDeleteReturning.mockReset();
     mockDeleteReturning.mockResolvedValueOnce([]);
 
     const result = await deleteFoodLogEntry("user-uuid-123", 999);
 
     expect(result).toBeNull();
+    expect(mockDelete).toHaveBeenCalledTimes(1);
   });
 
-  it("returns null healthLogId when entry has no Fitbit log", async () => {
-    mockDeleteReturning.mockResolvedValueOnce([{ healthLogId: null, customFoodId: 10 }]);
-    // Mock the count query - other entries still reference this custom food
-    mockWhere.mockResolvedValueOnce([{ id: 99 }]);
+  it("returns null healthLogId when entry has no Google Health log", async () => {
+    mockDeleteReturning.mockReset();
+    mockDeleteReturning.mockResolvedValueOnce([{ healthLogId: null, customFoodId: 10 }]).mockResolvedValueOnce([]);
 
     const result = await deleteFoodLogEntry("user-uuid-123", 5);
 
     expect(result).toEqual({ healthLogId: null });
   });
 
-  it("deletes orphaned custom food when last entry is removed", async () => {
-    // Mock delete returning the entry with customFoodId
-    mockDeleteReturning.mockResolvedValueOnce([{ healthLogId: "789", customFoodId: 10 }]);
-    // Mock count query - no other entries reference this custom food
-    mockWhere.mockResolvedValueOnce([]);
-    // Note: second delete doesn't call .returning(), so no second mock needed
+  it("runs the orphan cleanup as ONE atomic DELETE guarded by NOT EXISTS, not-favorite and no share link", async () => {
+    mockDeleteReturning.mockReset();
+    mockDeleteReturning.mockResolvedValueOnce([{ healthLogId: "789", customFoodId: 10 }]).mockResolvedValueOnce([{ id: 10 }]);
 
     const result = await deleteFoodLogEntry("user-uuid-123", 5);
 
     expect(result).toEqual({ healthLogId: "789" });
-    // Verify delete was called twice (entry + custom food)
+    // entry delete + single custom-food delete — no separate SELECT-then-DELETE
     expect(mockDelete).toHaveBeenCalledTimes(2);
-  });
+    expect(mockSelect).toHaveBeenCalledTimes(1); // only the NOT EXISTS subquery
 
-  it("keeps custom food when other entries still reference it", async () => {
-    // Mock delete returning the entry with customFoodId
-    mockDeleteReturning.mockResolvedValueOnce([{ healthLogId: "789", customFoodId: 10 }]);
-    // Mock count query - another entry exists
-    mockWhere.mockResolvedValueOnce([{ id: 99 }]);
-
-    const result = await deleteFoodLogEntry("user-uuid-123", 5);
-
-    expect(result).toEqual({ healthLogId: "789" });
-    // Verify delete was called only once (just the entry, not the custom food)
-    expect(mockDelete).toHaveBeenCalledTimes(1);
+    const cleanup = renderSql(mockDeleteWhere.mock.calls[1][0]);
+    expect(cleanup.sql).toContain("not exists");
+    expect(cleanup.sql).toContain('"is_favorite" = $');
+    expect(cleanup.sql).toContain('"share_token" is null');
+    expect(cleanup.sql).toContain('"user_id" = $');
   });
 
   it("includes userId in orphan cleanup DELETE WHERE clause for defense-in-depth", async () => {
-    mockDeleteReturning.mockResolvedValueOnce([{ healthLogId: "789", customFoodId: 10 }]);
-    // orphan check: no remaining entries → triggers delete
-    mockWhere.mockResolvedValueOnce([]);
+    mockDeleteReturning.mockReset();
+    mockDeleteReturning.mockResolvedValueOnce([{ healthLogId: "789", customFoodId: 10 }]).mockResolvedValueOnce([]);
 
     await deleteFoodLogEntry("user-uuid-123", 5);
 
-    // Second mockDeleteWhere call is the orphan cleanup DELETE on custom_foods.
     // and() produces 3 queryChunks vs bare eq() which produces 5.
     const orphanDeleteWhereArg = mockDeleteWhere.mock.calls[1][0];
     expect(orphanDeleteWhereArg.queryChunks).toHaveLength(3);
   });
 
+  it("without expectedHealthLogId the entry DELETE has no healthLogId condition", async () => {
+    mockDeleteReturning.mockReset();
+    mockDeleteReturning.mockResolvedValueOnce([]);
+
+    await deleteFoodLogEntry("user-uuid-123", 5);
+
+    expect(renderSql(mockDeleteWhere.mock.calls[0][0]).sql).not.toContain("health_log_id");
+  });
+
+  it("compare-and-set: expectedHealthLogId adds a healthLogId condition to the entry DELETE", async () => {
+    mockDeleteReturning.mockReset();
+    mockDeleteReturning.mockResolvedValueOnce([]);
+
+    const result = await deleteFoodLogEntry("user-uuid-123", 5, undefined, "789");
+
+    expect(result).toBeNull(); // 0 rows: the row now points at a different Health log
+    const q = renderSql(mockDeleteWhere.mock.calls[0][0]);
+    expect(q.sql).toContain('"health_log_id" = $');
+    expect(q.params).toContain("789");
+  });
+
+  it("compare-and-set: expectedHealthLogId null matches rows without a Health log (IS NULL)", async () => {
+    mockDeleteReturning.mockReset();
+    mockDeleteReturning.mockResolvedValueOnce([]);
+
+    await deleteFoodLogEntry("user-uuid-123", 5, undefined, null);
+
+    expect(renderSql(mockDeleteWhere.mock.calls[0][0]).sql).toContain('"health_log_id" is null');
+  });
+
   it("returns same shape { healthLogId } as before", async () => {
-    mockDeleteReturning.mockResolvedValueOnce([{ healthLogId: "789", customFoodId: 10 }]);
-    mockWhere.mockResolvedValueOnce([{ id: 99 }]);
+    mockDeleteReturning.mockReset();
+    mockDeleteReturning.mockResolvedValueOnce([{ healthLogId: "789", customFoodId: 10 }]).mockResolvedValueOnce([]);
 
     const result = await deleteFoodLogEntry("user-uuid-123", 5);
 
@@ -2738,16 +2791,37 @@ describe("updateFoodLogEntry", () => {
     time: "20:00:00",
   };
 
+  /**
+   * Queue the SELECT sequence inside the transaction:
+   * entry row, old custom food metadata, OTHER entries referencing the old food.
+   */
+  function setupUpdate(opts: {
+    healthLogId?: string | null;
+    isFavorite?: boolean;
+    shareToken?: string | null;
+    otherEntries?: number;
+    newFoodId?: number;
+  } = {}) {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, healthLogId: opts.healthLogId === undefined ? "789" : opts.healthLogId }]);
+    mockWhere.mockResolvedValueOnce([{ isFavorite: opts.isFavorite ?? false, shareToken: opts.shareToken ?? null }]);
+    mockWhere.mockResolvedValueOnce(Array.from({ length: opts.otherEntries ?? 0 }, (_, i) => ({ id: 100 + i })));
+    mockReturning.mockResolvedValueOnce([{ id: opts.newFoodId ?? 99 }]);
+  }
+
   beforeEach(() => {
-    mockUpdateWhere.mockResolvedValue(undefined);
+    mockWhere.mockReset();
+    mockWhere.mockReturnValue({ orderBy: mockOrderBy });
+    mockReturning.mockReset();
+    // Entry UPDATE ... RETURNING (compare-and-set): one row updated by default
+    mockUpdateWhere.mockReturnValue({ returning: mockUpdateReturning });
+    mockUpdateReturning.mockResolvedValue([{ id: 5 }]);
+    // Atomic orphan-cleanup DELETE ... RETURNING
+    mockDeleteWhere.mockReturnValue({ returning: mockDeleteReturning });
+    mockDeleteReturning.mockResolvedValue([]);
   });
 
   it("inserts new custom food with correct nutrition values", async () => {
-    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, healthLogId: "789" }]);
-    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: 555, isFavorite: false, shareToken: null }]); // old custom food
-    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
-    mockUpdateWhere.mockResolvedValueOnce(undefined);
-    mockWhere.mockResolvedValueOnce([]); // orphan check: no remaining entries
+    setupUpdate();
 
     await updateFoodLogEntry("user-uuid-123", 5, validInput);
 
@@ -2767,11 +2841,7 @@ describe("updateFoodLogEntry", () => {
   });
 
   it("updates food log entry to use new customFoodId, amount, mealTypeId, date, time", async () => {
-    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, healthLogId: "789" }]);
-    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: 555, isFavorite: false, shareToken: null }]); // old custom food
-    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
-    mockUpdateWhere.mockResolvedValueOnce(undefined);
-    mockWhere.mockResolvedValueOnce([]); // orphan check
+    setupUpdate();
 
     await updateFoodLogEntry("user-uuid-123", 5, validInput);
 
@@ -2788,37 +2858,17 @@ describe("updateFoodLogEntry", () => {
     );
   });
 
-  it("deletes orphaned old custom food when no other entries reference it", async () => {
-    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, healthLogId: "789" }]);
-    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: 555, isFavorite: false, shareToken: null }]); // old custom food
-    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
-    mockUpdateWhere.mockResolvedValueOnce(undefined);
-    mockWhere.mockResolvedValueOnce([]); // orphan: no entries remain
+  it("runs the atomic orphan cleanup DELETE for the old custom food", async () => {
+    setupUpdate();
 
     await updateFoodLogEntry("user-uuid-123", 5, validInput);
 
-    expect(mockDelete).toHaveBeenCalled();
+    expect(mockDelete).toHaveBeenCalledTimes(1);
     expect(mockDeleteWhere).toHaveBeenCalled();
   });
 
-  it("does not delete old custom food when other entries still reference it", async () => {
-    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, healthLogId: "789" }]);
-    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: 555, isFavorite: false, shareToken: null }]); // old custom food
-    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
-    mockUpdateWhere.mockResolvedValueOnce(undefined);
-    mockWhere.mockResolvedValueOnce([{ id: 55 }]); // still referenced
-
-    await updateFoodLogEntry("user-uuid-123", 5, validInput);
-
-    expect(mockDelete).not.toHaveBeenCalled();
-  });
-
   it("returns healthLogId and newCustomFoodId on success", async () => {
-    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, healthLogId: "789" }]);
-    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: 555, isFavorite: false, shareToken: null }]); // old custom food
-    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
-    mockUpdateWhere.mockResolvedValueOnce(undefined);
-    mockWhere.mockResolvedValueOnce([]); // orphan check
+    setupUpdate();
 
     const result = await updateFoodLogEntry("user-uuid-123", 5, validInput);
 
@@ -2833,93 +2883,72 @@ describe("updateFoodLogEntry", () => {
     expect(result).toBeNull();
   });
 
-  it("preserves isFavorite and shareToken from old custom food", async () => {
-    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, healthLogId: "789" }]); // entry select
-    mockWhere.mockResolvedValueOnce([{ isFavorite: true, shareToken: "abc123" }]); // old custom food
-    mockUpdateWhere.mockResolvedValueOnce(undefined); // shareToken clear UPDATE
-    mockReturning.mockResolvedValueOnce([{ id: 99 }]); // insert returning
-    mockUpdateWhere.mockResolvedValueOnce(undefined); // update entry
-    mockWhere.mockResolvedValueOnce([]); // orphan check
+  it("moves isFavorite and shareToken to the new food when the old food is about to be orphaned", async () => {
+    setupUpdate({ isFavorite: true, shareToken: "abc123", otherEntries: 0 });
 
     await updateFoodLogEntry("user-uuid-123", 5, validInput);
 
     expect(mockValues).toHaveBeenCalledWith(
-      expect.objectContaining({
-        isFavorite: true,
-        shareToken: "abc123",
-      })
+      expect.objectContaining({ isFavorite: true, shareToken: "abc123" })
     );
   });
 
-  it("clears shareToken on old custom food before inserting new one to avoid unique constraint violation", async () => {
-    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, healthLogId: "789" }]); // entry select
-    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: 555, isFavorite: true, shareToken: "shared-tok" }]); // old custom food
-    mockReturning.mockResolvedValueOnce([{ id: 99 }]); // insert returning
-    mockWhere.mockResolvedValueOnce([]); // orphan check
+  it("clears shareToken AND favorite on the orphaned old food before inserting the new one (unique constraint + cleanup guard)", async () => {
+    setupUpdate({ isFavorite: true, shareToken: "shared-tok", otherEntries: 0 });
 
     await updateFoodLogEntry("user-uuid-123", 5, validInput);
 
-    // The old food's shareToken must be cleared before the new food is inserted,
-    // otherwise the UNIQUE constraint on share_token causes a PostgreSQL error.
-    // Use nthCalledWith(1) to verify it's the FIRST updateSet call (before entry update).
-    expect(mockUpdateSet).toHaveBeenNthCalledWith(1, { shareToken: null });
+    // First UPDATE is the old food's metadata clear (before the new food insert and entry update)
+    expect(mockUpdateSet).toHaveBeenNthCalledWith(1, { shareToken: null, isFavorite: false });
   });
 
-  it("includes userId in UPDATE WHERE clause for defense-in-depth", async () => {
-    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, healthLogId: "789" }]);
-    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: null }]);
-    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
-    mockUpdateWhere.mockResolvedValueOnce(undefined);
-    mockWhere.mockResolvedValueOnce([]); // orphan check
+  it("reused favorite: does NOT duplicate the favorite or move the share link when other entries still use the old food", async () => {
+    setupUpdate({ isFavorite: true, shareToken: "shared-tok", otherEntries: 2 });
 
     await updateFoodLogEntry("user-uuid-123", 5, validInput);
 
-    // The entry UPDATE's WHERE should use and() with both id and userId.
-    // Drizzle's and() produces a SQL with 3 queryChunks: "(", inner SQL, ")".
-    // A bare eq() produces 5 queryChunks. This distinguishes and(eq, eq) from eq.
+    // New food for the edited entry is a plain (non-favorite, unshared) food
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({ isFavorite: false, shareToken: null })
+    );
+    // The old food's metadata is left alone: no UPDATE touched shareToken/isFavorite
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(expect.objectContaining({ shareToken: null }));
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(expect.objectContaining({ isFavorite: false }));
+    // The edited entry still repoints to the new food
+    expect(mockUpdateSet).toHaveBeenCalledWith(expect.objectContaining({ customFoodId: 99 }));
+  });
+
+  it("includes userId in entry UPDATE WHERE clause for defense-in-depth", async () => {
+    setupUpdate();
+
+    await updateFoodLogEntry("user-uuid-123", 5, validInput);
+
+    // Drizzle's and() produces 3 queryChunks; a bare eq() produces 5.
     const updateWhereArg = mockUpdateWhere.mock.calls[0][0];
     expect(updateWhereArg.queryChunks).toHaveLength(3);
   });
 
-  it("includes userId in metadata SELECT and shareToken UPDATE WHERE clauses for defense-in-depth", async () => {
-    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, healthLogId: "789" }]); // entry select
-    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: "tok" }]); // old food metadata
-    mockUpdateWhere.mockResolvedValueOnce(undefined); // shareToken clear
-    mockReturning.mockResolvedValueOnce([{ id: 99 }]); // insert returning
-    mockUpdateWhere.mockResolvedValueOnce(undefined); // entry update
-    mockWhere.mockResolvedValueOnce([]); // orphan check
+  it("includes userId in metadata SELECT and shareToken/favorite UPDATE WHERE clauses for defense-in-depth", async () => {
+    setupUpdate({ isFavorite: true, shareToken: "tok", otherEntries: 0 });
 
     await updateFoodLogEntry("user-uuid-123", 5, validInput);
 
-    // Second mockWhere call is the metadata SELECT on custom_foods — should use and()
-    const metadataSelectWhereArg = mockWhere.mock.calls[1][0];
-    expect(metadataSelectWhereArg.queryChunks).toHaveLength(3);
-
-    // First mockUpdateWhere call is the shareToken UPDATE on custom_foods — should use and()
-    const shareTokenUpdateWhereArg = mockUpdateWhere.mock.calls[0][0];
-    expect(shareTokenUpdateWhereArg.queryChunks).toHaveLength(3);
+    // Second mockWhere call is the metadata SELECT on custom_foods
+    expect(mockWhere.mock.calls[1][0].queryChunks).toHaveLength(3);
+    // First mockUpdateWhere call is the metadata-clear UPDATE on custom_foods
+    expect(mockUpdateWhere.mock.calls[0][0].queryChunks).toHaveLength(3);
   });
 
   it("includes userId in orphan cleanup DELETE WHERE clause for defense-in-depth", async () => {
-    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, healthLogId: "789" }]); // entry select
-    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: null }]); // old food metadata
-    mockReturning.mockResolvedValueOnce([{ id: 99 }]); // insert returning
-    mockUpdateWhere.mockResolvedValueOnce(undefined); // entry update
-    mockWhere.mockResolvedValueOnce([]); // orphan check: no remaining → triggers delete
+    setupUpdate();
 
     await updateFoodLogEntry("user-uuid-123", 5, validInput);
 
-    // The orphan DELETE on custom_foods should use and() with both id and userId
-    const orphanDeleteWhereArg = mockDeleteWhere.mock.calls[0][0];
-    expect(orphanDeleteWhereArg.queryChunks).toHaveLength(3);
+    expect(mockDeleteWhere.mock.calls[0][0].queryChunks).toHaveLength(3);
   });
 
   it("returns updated healthLogId when provided in data", async () => {
-    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, healthLogId: "789" }]); // old healthLogId is 789
-    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: null }]);
-    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
-    mockUpdateWhere.mockResolvedValueOnce(undefined);
-    mockWhere.mockResolvedValueOnce([]); // orphan check
+    setupUpdate();
 
     const result = await updateFoodLogEntry("user-uuid-123", 5, { ...validInput, healthLogId: "5555" });
 
@@ -2927,11 +2956,7 @@ describe("updateFoodLogEntry", () => {
   });
 
   it("returns null healthLogId when explicitly set to null in data", async () => {
-    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, healthLogId: "789" }]); // old healthLogId is 789
-    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: null }]);
-    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
-    mockUpdateWhere.mockResolvedValueOnce(undefined);
-    mockWhere.mockResolvedValueOnce([]); // orphan check
+    setupUpdate();
 
     const result = await updateFoodLogEntry("user-uuid-123", 5, { ...validInput, healthLogId: null });
 
@@ -2939,11 +2964,7 @@ describe("updateFoodLogEntry", () => {
   });
 
   it("passes zoneOffset through to food_log_entries .set() when provided", async () => {
-    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, healthLogId: "789" }]);
-    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: null }]);
-    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
-    mockUpdateWhere.mockResolvedValueOnce(undefined);
-    mockWhere.mockResolvedValueOnce([]); // orphan check
+    setupUpdate();
 
     await updateFoodLogEntry("user-uuid-123", 5, { ...validInput, zoneOffset: "-03:00" });
 
@@ -2951,21 +2972,74 @@ describe("updateFoodLogEntry", () => {
       expect.objectContaining({ zoneOffset: "-03:00" }),
     );
   });
+
+  describe("compare-and-set on healthLogId", () => {
+    it("throws ENTRY_CONFLICT before inserting anything when the entry's healthLogId changed since it was read", async () => {
+      mockWhere.mockResolvedValueOnce([{ customFoodId: 10, healthLogId: "other-log" }]);
+
+      await expect(
+        updateFoodLogEntry("user-uuid-123", 5, { ...validInput, expectedHealthLogId: "789" }),
+      ).rejects.toThrow("ENTRY_CONFLICT");
+
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
+
+    it("throws ENTRY_CONFLICT (rolling the transaction back) when the guarded UPDATE matches 0 rows", async () => {
+      setupUpdate();
+      mockUpdateReturning.mockResolvedValue([]); // a concurrent edit committed first
+
+      await expect(
+        updateFoodLogEntry("user-uuid-123", 5, { ...validInput, expectedHealthLogId: "789" }),
+      ).rejects.toThrow("ENTRY_CONFLICT");
+
+      // The old food must not be cleaned up after a failed flip
+      expect(mockDelete).not.toHaveBeenCalled();
+    });
+
+    it("adds the healthLogId condition to the entry UPDATE WHERE clause", async () => {
+      setupUpdate();
+
+      await updateFoodLogEntry("user-uuid-123", 5, { ...validInput, expectedHealthLogId: "789" });
+
+      const q = renderSql(mockUpdateWhere.mock.calls[0][0]);
+      expect(q.sql).toContain('"health_log_id" = $');
+      expect(q.params).toContain("789");
+    });
+
+    it("expectedHealthLogId null matches an entry without a Health log (dry-run rows)", async () => {
+      setupUpdate({ healthLogId: null });
+
+      const result = await updateFoodLogEntry("user-uuid-123", 5, { ...validInput, expectedHealthLogId: null });
+
+      expect(result).toEqual({ healthLogId: null, newCustomFoodId: 99 });
+      expect(renderSql(mockUpdateWhere.mock.calls[0][0]).sql).toContain('"health_log_id" is null');
+    });
+
+    it("without expectedHealthLogId the UPDATE has no healthLogId condition", async () => {
+      setupUpdate();
+
+      await updateFoodLogEntry("user-uuid-123", 5, validInput);
+
+      expect(renderSql(mockUpdateWhere.mock.calls[0][0]).sql).not.toContain("health_log_id");
+    });
+  });
 });
 
 describe("updateFoodLogEntryMetadata", () => {
   beforeEach(() => {
-    mockUpdateWhere.mockResolvedValue(undefined);
+    mockUpdateWhere.mockReturnValue({ returning: mockUpdateReturning });
+    mockUpdateReturning.mockResolvedValue([{ id: 42 }]);
   });
 
-  it("updates mealTypeId, date, time, healthLogId on food_log_entries", async () => {
-    await updateFoodLogEntryMetadata("user-uuid-123", 42, {
+  it("updates mealTypeId, date, time, healthLogId on food_log_entries and returns true", async () => {
+    const updated = await updateFoodLogEntryMetadata("user-uuid-123", 42, {
       mealTypeId: 3,
       date: "2026-02-20",
       time: "12:30:00",
       healthLogId: "99999",
     });
 
+    expect(updated).toBe(true);
     expect(mockUpdate).toHaveBeenCalled();
     expect(mockUpdateSet).toHaveBeenCalledWith({
       mealTypeId: 3,
@@ -2974,6 +3048,49 @@ describe("updateFoodLogEntryMetadata", () => {
       healthLogId: "99999",
     });
     expect(mockUpdateWhere).toHaveBeenCalled();
+  });
+
+  it("returns false when no row was updated (entry gone or changed)", async () => {
+    mockUpdateReturning.mockResolvedValue([]);
+
+    const updated = await updateFoodLogEntryMetadata("user-uuid-123", 42, {
+      mealTypeId: 3,
+      date: "2026-02-20",
+      time: "12:30:00",
+      healthLogId: "99999",
+      expectedHealthLogId: "old",
+    });
+
+    expect(updated).toBe(false);
+  });
+
+  it("compare-and-set: expectedHealthLogId adds a healthLogId condition (never written into .set())", async () => {
+    await updateFoodLogEntryMetadata("user-uuid-123", 42, {
+      mealTypeId: 3,
+      date: "2026-02-20",
+      time: "12:30:00",
+      healthLogId: "99999",
+      expectedHealthLogId: "old-log",
+    });
+
+    const q = renderSql(mockUpdateWhere.mock.calls[0][0]);
+    expect(q.sql).toContain('"health_log_id" = $');
+    expect(q.params).toContain("old-log");
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.not.objectContaining({ expectedHealthLogId: expect.anything() }),
+    );
+  });
+
+  it("expectedHealthLogId null compares with IS NULL", async () => {
+    await updateFoodLogEntryMetadata("user-uuid-123", 42, {
+      mealTypeId: 3,
+      date: "2026-02-20",
+      time: "12:30:00",
+      healthLogId: "99999",
+      expectedHealthLogId: null,
+    });
+
+    expect(renderSql(mockUpdateWhere.mock.calls[0][0]).sql).toContain('"health_log_id" is null');
   });
 
   it("accepts null healthLogId", async () => {

@@ -493,6 +493,56 @@ describe("POST /api/log-food", () => {
       expect(data2.foodLogId).toBe(99);
     });
 
+    it("a retry that arrives while the first attempt is still running gets 409 and does not create a second log", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      let releaseFirst: (v: { healthLogId: string }) => void = () => {};
+      mockCreateNutritionLog.mockReturnValueOnce(
+        new Promise((resolve) => {
+          releaseFirst = resolve;
+        }),
+      );
+      mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 5, foodLogId: 99 });
+
+      const body = { ...validFoodLogRequest, clientToken: "in-flight-token" };
+
+      const first = POST(createMockRequest(body));
+      // Let the first request reach createNutritionLog
+      await vi.waitFor(() => expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1));
+
+      const retry = await POST(createMockRequest(body));
+      expect(retry.status).toBe(409);
+      expect((await retry.json()).error.code).toBe("CONFLICT");
+      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
+
+      releaseFirst({ healthLogId: "log-inflight" });
+      const firstResponse = await first;
+      expect(firstResponse.status).toBe(200);
+
+      // After completion the same token is served from the cache
+      const replay = await POST(createMockRequest(body));
+      expect(replay.status).toBe(200);
+      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
+    });
+
+    it("a failed attempt releases the reservation so the retry can proceed", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockCreateNutritionLog
+        .mockRejectedValueOnce(new Error("HEALTH_API_ERROR"))
+        .mockResolvedValueOnce({ healthLogId: "log-retry-ok" });
+      mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 5, foodLogId: 99 });
+
+      const body = { ...validFoodLogRequest, clientToken: "release-on-failure" };
+
+      const failed = await POST(createMockRequest(body));
+      expect(failed.status).not.toBe(200);
+
+      const retry = await POST(createMockRequest(body));
+      expect(retry.status).toBe(200);
+      expect(mockCreateNutritionLog).toHaveBeenCalledTimes(2);
+    });
+
     it("different clientToken creates a new log", async () => {
       mockGetSession.mockResolvedValue(validSession);
       mockEnsureFreshToken.mockResolvedValue("fresh-token");

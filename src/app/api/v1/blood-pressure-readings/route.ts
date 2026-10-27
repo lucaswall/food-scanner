@@ -2,8 +2,8 @@ import { validateApiRequest, hashForRateLimit } from "@/lib/api-auth";
 import { successResponse, conditionalResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { upsertBloodPressureReadings, getBloodPressureReadings } from "@/lib/health-readings";
-import { isValidDateFormat } from "@/lib/date-utils";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { READINGS_LIMIT_EXCEEDED_MESSAGE, isValidReadingTimestamp, isPositiveIntUpTo, parseReadingsRange, READING_LIMITS } from "@/lib/reading-validation";
 import type { BloodPressureReadingInput } from "@/types";
 
 const RATE_LIMIT_MAX = 60;
@@ -11,7 +11,6 @@ const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const MAX_BATCH_SIZE = 1000;
 
 const ZONE_OFFSET_RE = /^[+-]\d{2}:\d{2}$/;
-const ISO_8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 const BODY_POSITION_VALUES = new Set([
   "standing_up", "sitting_down", "lying_down", "reclining", "unknown",
 ]);
@@ -65,14 +64,14 @@ export async function POST(request: Request) {
     }
     const r = item as Record<string, unknown>;
 
-    if (typeof r.measuredAt !== "string" || !ISO_8601_RE.test(r.measuredAt)) {
+    if (typeof r.measuredAt !== "string" || !isValidReadingTimestamp(r.measuredAt)) {
       return errorResponse("VALIDATION_ERROR", `Reading at index ${i}: measuredAt must be a valid ISO 8601 string`, 400);
     }
-    if (typeof r.systolic !== "number" || !Number.isInteger(r.systolic) || r.systolic <= 0) {
-      return errorResponse("VALIDATION_ERROR", `Reading at index ${i}: systolic must be a positive integer`, 400);
+    if (!isPositiveIntUpTo(r.systolic, READING_LIMITS.bloodPressureMmHgMax)) {
+      return errorResponse("VALIDATION_ERROR", `Reading at index ${i}: systolic must be a positive integer up to ${READING_LIMITS.bloodPressureMmHgMax}`, 400);
     }
-    if (typeof r.diastolic !== "number" || !Number.isInteger(r.diastolic) || r.diastolic <= 0) {
-      return errorResponse("VALIDATION_ERROR", `Reading at index ${i}: diastolic must be a positive integer`, 400);
+    if (!isPositiveIntUpTo(r.diastolic, READING_LIMITS.bloodPressureMmHgMax)) {
+      return errorResponse("VALIDATION_ERROR", `Reading at index ${i}: diastolic must be a positive integer up to ${READING_LIMITS.bloodPressureMmHgMax}`, 400);
     }
     if (r.bodyPosition !== undefined && r.bodyPosition !== null && !BODY_POSITION_VALUES.has(r.bodyPosition as string)) {
       return errorResponse("VALIDATION_ERROR", `Reading at index ${i}: invalid bodyPosition value`, 400);
@@ -118,50 +117,21 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const date = searchParams.get("date");
-  const from = searchParams.get("from");
-  const to = searchParams.get("to");
-
-  let fromDate: string;
-  let toDate: string;
-
-  if (date !== null) {
-    if (!isValidDateFormat(date)) {
-      return errorResponse("VALIDATION_ERROR", "Invalid date format. Use YYYY-MM-DD", 400);
-    }
-    fromDate = date;
-    toDate = date;
-  } else if (from !== null || to !== null) {
-    if (from === null) {
-      return errorResponse("VALIDATION_ERROR", "Missing 'from' parameter (required when 'to' is provided)", 400);
-    }
-    if (to === null) {
-      return errorResponse("VALIDATION_ERROR", "Missing 'to' parameter (required when 'from' is provided)", 400);
-    }
-    if (!isValidDateFormat(from)) {
-      return errorResponse("VALIDATION_ERROR", "Invalid date format for 'from'. Use YYYY-MM-DD", 400);
-    }
-    if (!isValidDateFormat(to)) {
-      return errorResponse("VALIDATION_ERROR", "Invalid date format for 'to'. Use YYYY-MM-DD", 400);
-    }
-    if (from > to) {
-      return errorResponse("VALIDATION_ERROR", "'from' must not be after 'to' in date range", 400);
-    }
-    fromDate = from;
-    toDate = to;
-  } else {
-    return errorResponse(
-      "VALIDATION_ERROR",
-      "Missing query parameter: provide 'date' or 'from'/'to' range",
-      400
-    );
+  const range = parseReadingsRange(searchParams);
+  if ("error" in range) {
+    return errorResponse("VALIDATION_ERROR", range.error, 400);
   }
+  const fromDate = range.from;
+  const toDate = range.to;
 
   try {
     const readings = await getBloodPressureReadings(authResult.userId, fromDate, toDate);
     log.debug({ action: "v1_bp_get_success", count: readings.length }, "blood pressure readings retrieved");
     return conditionalResponse(request, readings);
   } catch (error) {
+    if (error instanceof Error && error.message === READINGS_LIMIT_EXCEEDED_MESSAGE) {
+      return errorResponse("VALIDATION_ERROR", "Too many readings in range. Narrow the 'from'/'to' range.", 400);
+    }
     log.error(
       { action: "v1_bp_get_error", error: error instanceof Error ? error.message : String(error) },
       "blood pressure readings query failed"

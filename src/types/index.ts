@@ -193,6 +193,7 @@ export type ErrorCode =
   | "HEALTH_API_ERROR"
   | "HEALTH_BAD_REQUEST"
   | "NOT_FOUND"
+  | "CONFLICT"
   | "PARTIAL_ERROR"
   | "CLAUDE_API_ERROR"
   | "VALIDATION_ERROR"

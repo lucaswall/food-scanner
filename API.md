@@ -298,7 +298,7 @@ Batch upsert glucose readings. Uses composite unique constraint on `(userId, mea
 | `mealType` | string | No | `breakfast`, `lunch`, `dinner`, `snack`, `unknown` |
 | `specimenSource` | string | No | `capillary_blood`, `interstitial_fluid`, `plasma`, `serum`, `tears`, `whole_blood`, `unknown` |
 
-**Batch limit:** 1000 readings per request.
+**Batch limit:** 1000 readings per request. `measuredAt` must be a real ISO 8601 instant between 2000-01-01 and 24h in the future (otherwise 400). Readings sharing the same instant within one batch are collapsed (last wins). Value bounds: glucose `valueMgDl` <= 2000, blood pressure `systolic`/`diastolic` <= 300 (integers), hydration `volumeMl` <= 10000 (integer).
 
 **Response:** `{ "upserted": <count> }`
 
@@ -316,7 +316,7 @@ Returns glucose readings for a date or date range.
 |---|---|---|---|
 | `date` | One of `date` or `from`/`to` | `YYYY-MM-DD` | Single date query |
 | `from` | With `to` | `YYYY-MM-DD` | Range start (inclusive) |
-| `to` | With `from` | `YYYY-MM-DD` | Range end (inclusive) |
+| `to` | With `from` | `YYYY-MM-DD` | Range end (inclusive); range limited to 31 days (400 otherwise, also 400 if the range holds more than 20000 readings) |
 
 **Response schema:**
 
@@ -368,7 +368,7 @@ Batch upsert blood pressure readings. Uses composite unique constraint on `(user
 | `bodyPosition` | string | No | `standing_up`, `sitting_down`, `lying_down`, `reclining`, `unknown` |
 | `measurementLocation` | string | No | `left_upper_arm`, `right_upper_arm`, `left_wrist`, `right_wrist`, `unknown` |
 
-**Batch limit:** 1000 readings per request.
+**Batch limit:** 1000 readings per request. `measuredAt` must be a real ISO 8601 instant between 2000-01-01 and 24h in the future (otherwise 400). Readings sharing the same instant within one batch are collapsed (last wins). Value bounds: glucose `valueMgDl` <= 2000, blood pressure `systolic`/`diastolic` <= 300 (integers), hydration `volumeMl` <= 10000 (integer).
 
 **Response:** `{ "upserted": <count> }`
 
@@ -386,7 +386,7 @@ Returns blood pressure readings for a date or date range.
 |---|---|---|---|
 | `date` | One of `date` or `from`/`to` | `YYYY-MM-DD` | Single date query |
 | `from` | With `to` | `YYYY-MM-DD` | Range start (inclusive) |
-| `to` | With `from` | `YYYY-MM-DD` | Range end (inclusive) |
+| `to` | With `from` | `YYYY-MM-DD` | Range end (inclusive); range limited to 31 days (400 otherwise, also 400 if the range holds more than 20000 readings) |
 
 **Response schema:**
 
@@ -432,7 +432,7 @@ Batch upsert hydration readings. Uses composite unique constraint on `(userId, m
 | `volumeMl` | integer | Yes | Positive integer (milliliters) |
 | `zoneOffset` | string | No | `±HH:MM` format |
 
-**Batch limit:** 1000 readings per request.
+**Batch limit:** 1000 readings per request. `measuredAt` must be a real ISO 8601 instant between 2000-01-01 and 24h in the future (otherwise 400). Readings sharing the same instant within one batch are collapsed (last wins). Value bounds: glucose `valueMgDl` <= 2000, blood pressure `systolic`/`diastolic` <= 300 (integers), hydration `volumeMl` <= 10000 (integer).
 
 **Response:** `{ "upserted": <count> }`
 
@@ -450,7 +450,7 @@ Returns hydration readings for a date or date range.
 |---|---|---|---|
 | `date` | One of `date` or `from`/`to` | `YYYY-MM-DD` | Single date query |
 | `from` | With `to` | `YYYY-MM-DD` | Range start (inclusive) |
-| `to` | With `from` | `YYYY-MM-DD` | Range end (inclusive) |
+| `to` | With `from` | `YYYY-MM-DD` | Range end (inclusive); range limited to 31 days (400 otherwise, also 400 if the range holds more than 20000 readings) |
 
 **Response schema:**
 

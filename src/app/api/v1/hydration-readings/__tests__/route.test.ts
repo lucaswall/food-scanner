@@ -501,3 +501,55 @@ describe("GET /api/v1/hydration-readings", () => {
     expect(secondResponse.headers.get("ETag")).toBe(etag);
   });
 });
+
+describe("input hardening (hydration)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
+    mockGetHydrationReadings.mockResolvedValue([]);
+    mockUpsertHydrationReadings.mockResolvedValue(1);
+  });
+
+  async function post(readings: unknown[]) {
+    return POST(createPostRequest("http://localhost:3000/api/v1/hydration-readings", { readings }, { Authorization: "Bearer k" }));
+  }
+
+  it.each([
+    "2026-13-01T08:00:00Z",
+    "2026-02-30T08:00:00Z",
+    "2026-01-01T25:00:00Z",
+    "2026-01-01T08:61:00Z",
+    "2026-01-01T08:00:00+25:00",
+    "1969-12-31T23:00:00Z",
+    "2999-01-01T00:00:00Z",
+  ])("rejects measuredAt %s with 400 instead of 500", async (measuredAt) => {
+    const response = await post([{ ...VALID_READING, measuredAt }]);
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe("VALIDATION_ERROR");
+    expect(mockUpsertHydrationReadings).not.toHaveBeenCalled();
+  });
+
+  it.each([2147483648, 10001, 0, 250.5])("rejects volumeMl %s", async (volumeMl) => {
+    const response = await post([{ ...VALID_READING, volumeMl }]);
+    expect(response.status).toBe(400);
+  });
+
+  it("GET rejects a range longer than 31 days with 400", async () => {
+    const response = await GET(createGetRequest("http://localhost:3000/api/v1/hydration-readings?from=2026-01-01&to=2026-03-01", { Authorization: "Bearer k" }));
+    expect(response.status).toBe(400);
+    expect(mockGetHydrationReadings).not.toHaveBeenCalled();
+  });
+
+  it("GET accepts a 31-day range", async () => {
+    const response = await GET(createGetRequest("http://localhost:3000/api/v1/hydration-readings?from=2026-03-01&to=2026-03-31", { Authorization: "Bearer k" }));
+    expect(response.status).toBe(200);
+  });
+
+  it("GET maps the row-limit error to 400", async () => {
+    mockGetHydrationReadings.mockRejectedValue(new Error("READINGS_LIMIT_EXCEEDED"));
+    const response = await GET(createGetRequest("http://localhost:3000/api/v1/hydration-readings?date=2026-03-01", { Authorization: "Bearer k" }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe("VALIDATION_ERROR");
+  });
+});

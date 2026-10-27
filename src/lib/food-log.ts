@@ -1,4 +1,4 @@
-import { eq, and, or, isNull, gte, lte, lt, gt, desc, asc, between, inArray, sql } from "drizzle-orm";
+import { eq, and, or, isNull, gte, lte, lt, gt, desc, asc, between, inArray, sql, ne, notExists } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
@@ -6,6 +6,7 @@ import { computeMatchRatio } from "@/lib/food-matching";
 import type { CommonFood, CommonFoodsCursor, CommonFoodsResponse, RecentFoodsCursor, RecentFoodsResponse, FoodLogHistoryEntry, FoodLogEntryDetail, DailyNutritionTotals, ServingUnit } from "@/types";
 import { coerceServingUnit } from "@/types";
 import { getDailyGoalsByDateRange } from "@/lib/nutrition-goals";
+import { ENTRY_CONFLICT_MESSAGE } from "@/lib/entry-conflict";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 
@@ -63,6 +64,11 @@ export interface UpdateFoodLogInput {
   time: string;
   zoneOffset?: string | null;
   healthLogId?: string | null;
+  /**
+   * Compare-and-set guard on the entry's current healthLogId (null = no Health log).
+   * A mismatch (concurrent edit/delete) throws Error(ENTRY_CONFLICT_MESSAGE) and rolls back.
+   */
+  expectedHealthLogId?: string | null;
 }
 
 /**
@@ -313,7 +319,9 @@ export async function getCommonFoods(
 
   // Sort by descending total score
   const allSorted = [...scoreByFood.values()]
-    .sort((a, b) => b.totalScore - a.totalScore);
+    // Tie-break on id ascending so ordering is deterministic and matches the cursor's
+    // `score === cursorScore && id > cursorId` continuation rule.
+    .sort((a, b) => b.totalScore - a.totalScore || a.bestRow.custom_foods.id - b.bestRow.custom_foods.id);
 
   // Separate favorites from non-favorites — favorites are pinned on page 1 only,
   // and the cursor system only paginates over non-favorites to avoid duplicates
@@ -629,18 +637,31 @@ export interface FoodLogEntryMetadataUpdate {
   time: string;
   healthLogId: string | null;
   zoneOffset?: string | null;
+  /**
+   * Compare-and-set guard: when provided (including null), the update only applies if the
+   * row's current healthLogId still equals this value (concurrent edit/delete protection).
+   */
+  expectedHealthLogId?: string | null;
 }
 
+/** Null-safe `health_log_id = expected` condition used for compare-and-set writes. */
+function healthLogIdMatches(expected: string | null) {
+  return expected === null
+    ? isNull(foodLogEntries.healthLogId)
+    : eq(foodLogEntries.healthLogId, expected);
+}
+
+/** Returns true when the row was updated, false when it no longer matches (gone or changed). */
 export async function updateFoodLogEntryMetadata(
   userId: string,
   entryId: number,
   updates: FoodLogEntryMetadataUpdate,
   log?: Logger,
-): Promise<void> {
+): Promise<boolean> {
   const l = log ?? logger;
   const db = getDb();
 
-  await db
+  const rows = await db
     .update(foodLogEntries)
     .set({
       mealTypeId: updates.mealTypeId,
@@ -649,9 +670,18 @@ export async function updateFoodLogEntryMetadata(
       healthLogId: updates.healthLogId,
       ...(updates.zoneOffset !== undefined ? { zoneOffset: updates.zoneOffset } : {}),
     })
-    .where(and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)));
+    .where(
+      and(
+        eq(foodLogEntries.id, entryId),
+        eq(foodLogEntries.userId, userId),
+        ...(updates.expectedHealthLogId !== undefined ? [healthLogIdMatches(updates.expectedHealthLogId)] : []),
+      ),
+    )
+    .returning({ id: foodLogEntries.id });
 
-  l.debug({ action: "update_food_log_entry_metadata", entryId }, "food log entry metadata updated");
+  const updated = rows.length > 0;
+  l.debug({ action: "update_food_log_entry_metadata", entryId, updated }, "food log entry metadata updated");
+  return updated;
 }
 
 type DbTx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
@@ -705,25 +735,38 @@ export async function insertCustomFoodWithLogEntry(
   });
 }
 
+/**
+ * Atomically deletes a custom food only when nothing references it and it carries no
+ * user-visible metadata (favorite flag / share link). Single statement, so a concurrent
+ * insert/delete cannot slip between a check and the delete.
+ */
 async function cleanupOrphanCustomFood(tx: DbTx, customFoodId: number, userId: string): Promise<boolean> {
-  const remainingEntries = await tx
-    .select({ id: foodLogEntries.id })
-    .from(foodLogEntries)
-    .where(eq(foodLogEntries.customFoodId, customFoodId));
-
-  if (remainingEntries.length === 0) {
-    await tx
-      .delete(customFoods)
-      .where(and(eq(customFoods.id, customFoodId), eq(customFoods.userId, userId)));
-    return true;
-  }
-  return false;
+  const deleted = await tx
+    .delete(customFoods)
+    .where(
+      and(
+        eq(customFoods.id, customFoodId),
+        eq(customFoods.userId, userId),
+        eq(customFoods.isFavorite, false),
+        isNull(customFoods.shareToken),
+        notExists(
+          tx.select({ one: sql`1` }).from(foodLogEntries).where(eq(foodLogEntries.customFoodId, customFoodId)),
+        ),
+      ),
+    )
+    .returning({ id: customFoods.id });
+  return deleted.length > 0;
 }
 
+/**
+ * Deletes an entry. When `expectedHealthLogId` is provided (including null) the delete only
+ * applies if the row still points at that Google Health log; otherwise returns null.
+ */
 export async function deleteFoodLogEntry(
   userId: string,
   entryId: number,
   log?: Logger,
+  expectedHealthLogId?: string | null,
 ): Promise<{ healthLogId: string | null } | null> {
   const l = log ?? logger;
   const db = getDb();
@@ -733,7 +776,11 @@ export async function deleteFoodLogEntry(
     const rows = await tx
       .delete(foodLogEntries)
       .where(
-        and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)),
+        and(
+          eq(foodLogEntries.id, entryId),
+          eq(foodLogEntries.userId, userId),
+          ...(expectedHealthLogId !== undefined ? [healthLogIdMatches(expectedHealthLogId)] : []),
+        ),
       )
       .returning({
         healthLogId: foodLogEntries.healthLogId,
@@ -750,6 +797,11 @@ export async function deleteFoodLogEntry(
   });
 }
 
+/**
+ * Updates an entry by replacing its custom food. When `data.expectedHealthLogId` is provided
+ * the write is compare-and-set on the entry's healthLogId: a mismatch throws
+ * Error(ENTRY_CONFLICT_MESSAGE) and the whole transaction rolls back.
+ */
 export async function updateFoodLogEntry(
   userId: string,
   entryId: number,
@@ -772,6 +824,10 @@ export async function updateFoodLogEntry(
     const row = rows[0];
     if (!row) return null;
 
+    if (data.expectedHealthLogId !== undefined && row.healthLogId !== data.expectedHealthLogId) {
+      throw new Error(ENTRY_CONFLICT_MESSAGE);
+    }
+
     const oldCustomFoodId = row.customFoodId;
 
     // Fetch metadata from old custom food to preserve during replacement
@@ -784,31 +840,40 @@ export async function updateFoodLogEntry(
       .where(and(eq(customFoods.id, oldCustomFoodId), eq(customFoods.userId, userId)));
     const oldFood = oldFoodRows[0];
 
-    // Clear shareToken on old food before inserting new one to avoid unique constraint violation
-    if (oldFood?.shareToken) {
+    // Does any OTHER entry still use the old food (a reused favorite)? If so the old food keeps
+    // its favorite flag + share link and the edited entry gets a plain new food. Only when the
+    // old food is about to be orphaned do the favorite flag and share link move to the new food.
+    const otherEntries = await tx
+      .select({ id: foodLogEntries.id })
+      .from(foodLogEntries)
+      .where(and(eq(foodLogEntries.customFoodId, oldCustomFoodId), ne(foodLogEntries.id, entryId)));
+    const oldFoodWillBeOrphaned = otherEntries.length === 0;
+
+    if (oldFoodWillBeOrphaned && (oldFood?.shareToken || oldFood?.isFavorite)) {
+      // Clear shareToken (unique constraint) and the favorite flag on the old food before
+      // inserting the new one; orphan cleanup only deletes foods carrying no metadata.
       await tx
         .update(customFoods)
-        .set({ shareToken: null })
+        .set({ shareToken: null, isFavorite: false })
         .where(and(eq(customFoods.id, oldCustomFoodId), eq(customFoods.userId, userId)));
     }
 
-    // Insert new custom food with updated values, preserving metadata from old record
+    // Insert new custom food with updated values
     const newFoods = await tx
       .insert(customFoods)
       .values({
         userId,
         ...toCustomFoodInsertValues(data),
-        // Preserve metadata from old record (extras spread on top of base values)
-        isFavorite: oldFood?.isFavorite ?? false,
-        shareToken: oldFood?.shareToken ?? null,
+        isFavorite: oldFoodWillBeOrphaned ? (oldFood?.isFavorite ?? false) : false,
+        shareToken: oldFoodWillBeOrphaned ? (oldFood?.shareToken ?? null) : null,
       })
       .returning({ id: customFoods.id });
 
     const newFood = newFoods[0];
     if (!newFood) throw new Error("Failed to insert updated custom food: no row returned");
 
-    // Update the food log entry to point to the new custom food
-    await tx
+    // Update the food log entry to point to the new custom food (compare-and-set)
+    const updatedRows = await tx
       .update(foodLogEntries)
       .set({
         customFoodId: newFood.id,
@@ -820,9 +885,21 @@ export async function updateFoodLogEntry(
         ...(data.zoneOffset !== undefined ? { zoneOffset: data.zoneOffset } : {}),
         ...(data.healthLogId !== undefined ? { healthLogId: data.healthLogId } : {}),
       })
-      .where(and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)));
+      .where(
+        and(
+          eq(foodLogEntries.id, entryId),
+          eq(foodLogEntries.userId, userId),
+          ...(data.expectedHealthLogId !== undefined ? [healthLogIdMatches(data.expectedHealthLogId)] : []),
+        ),
+      )
+      .returning({ id: foodLogEntries.id });
 
-    // Clean up old custom food if no longer referenced
+    if (updatedRows.length === 0) {
+      // Entry changed or was deleted since it was read — roll back (incl. the new food insert).
+      throw new Error(ENTRY_CONFLICT_MESSAGE);
+    }
+
+    // Clean up old custom food if no longer referenced (atomic; skips favorited/shared foods)
     await cleanupOrphanCustomFood(tx, oldCustomFoodId, userId);
 
     l.debug({ action: "update_food_log_entry", entryId, newCustomFoodId: newFood.id }, "food log entry updated");

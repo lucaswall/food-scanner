@@ -160,7 +160,7 @@ describe("DELETE /api/food-history/[id]", () => {
     mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockDeleteNutritionLogs.mockResolvedValue(undefined);
-    mockDeleteFoodLogEntry.mockResolvedValue(undefined);
+    mockDeleteFoodLogEntry.mockResolvedValue({ healthLogId: "health-log-id-789" });
 
     const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
     expect(response.status).toBe(200);
@@ -173,16 +173,43 @@ describe("DELETE /api/food-history/[id]", () => {
       "user-uuid-123",
       "user",
     );
-    expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.any(Object));
+    expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.any(Object), sampleEntry.healthLogId);
 
     const body = await response.json();
     expect(body.data.deleted).toBe(true);
   });
 
+  it("returns 409 and keeps the row when a concurrent edit repointed the entry (CAS matched 0 rows)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogEntry.mockResolvedValueOnce(sampleEntry);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockDeleteNutritionLogs.mockResolvedValue(undefined);
+    mockDeleteFoodLogEntry.mockResolvedValue(null);
+    // Re-read after the failed conditional delete: row still exists (now points at a new log)
+    mockGetFoodLogEntry.mockResolvedValueOnce({ ...sampleEntry, healthLogId: "health-log-new" });
+
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.error.code).toBe("CONFLICT");
+  });
+
+  it("returns 200 when the row was already deleted by another request (double delete)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogEntry.mockResolvedValueOnce(sampleEntry);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockDeleteNutritionLogs.mockResolvedValue(undefined);
+    mockDeleteFoodLogEntry.mockResolvedValue(null);
+    mockGetFoodLogEntry.mockResolvedValueOnce(null);
+
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
+    expect(response.status).toBe(200);
+  });
+
   it("skips remote delete when entry has no healthLogId", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockGetFoodLogEntry.mockResolvedValue({ ...sampleEntry, healthLogId: null });
-    mockDeleteFoodLogEntry.mockResolvedValue(undefined);
+    mockDeleteFoodLogEntry.mockResolvedValue({ healthLogId: "health-log-id-789" });
 
     const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
     expect(response.status).toBe(200);
@@ -196,7 +223,7 @@ describe("DELETE /api/food-history/[id]", () => {
     vi.stubEnv("HEALTH_DRY_RUN", "true");
     mockGetSession.mockResolvedValue(validSession);
     mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
-    mockDeleteFoodLogEntry.mockResolvedValue(undefined);
+    mockDeleteFoodLogEntry.mockResolvedValue({ healthLogId: "health-log-id-789" });
 
     const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
     expect(response.status).toBe(200);
@@ -234,12 +261,12 @@ describe("DELETE /api/food-history/[id]", () => {
     mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockDeleteNutritionLogs.mockRejectedValue(new Error("HEALTH_LOG_NOT_FOUND"));
-    mockDeleteFoodLogEntry.mockResolvedValue(undefined);
+    mockDeleteFoodLogEntry.mockResolvedValue({ healthLogId: "health-log-id-789" });
 
     const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
 
     // drift is surfaced in logs, but the user is not stranded — local row is removed
-    expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.any(Object));
+    expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.any(Object), sampleEntry.healthLogId);
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.data.deleted).toBe(true);

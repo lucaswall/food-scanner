@@ -2,8 +2,9 @@ import { getSession, validateSession } from "@/lib/session";
 import { errorResponse, conditionalResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getFoodLogHistory } from "@/lib/food-log";
+import { isValidDateFormat } from "@/lib/date-utils";
+import { parseStrictId } from "@/lib/food-history-params";
 
-const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_REGEX = /^\d{2}:\d{2}:\d{2}$/;
 
 export async function GET(request: Request) {
@@ -17,14 +18,14 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
 
     const endDateParam = url.searchParams.get("endDate");
-    const endDate = endDateParam && DATE_REGEX.test(endDateParam) ? endDateParam : undefined;
+    const endDate = endDateParam && isValidDateFormat(endDateParam) ? endDateParam : undefined;
 
     const lastDateParam = url.searchParams.get("lastDate");
-    const lastDate = lastDateParam && DATE_REGEX.test(lastDateParam) ? lastDateParam : null;
+    const lastDate = lastDateParam && isValidDateFormat(lastDateParam) ? lastDateParam : null;
     const lastTimeParam = url.searchParams.get("lastTime");
     const lastTime = lastTimeParam && TIME_REGEX.test(lastTimeParam) ? lastTimeParam : null;
     const lastIdParam = url.searchParams.get("lastId");
-    const lastId = lastIdParam ? parseInt(lastIdParam, 10) : NaN;
+    const lastId = lastIdParam ? (parseStrictId(lastIdParam) ?? NaN) : NaN;
 
     const cursor = lastDate && !Number.isNaN(lastId)
       ? { lastDate, lastTime: lastTime || null, lastId }
