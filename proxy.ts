@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const sessionCookie = request.cookies.get("food-scanner-session");
   const { pathname } = request.nextUrl;
 
@@ -38,8 +38,6 @@ export function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
-// Force Node.js runtime (pino requires Node.js APIs, not compatible with Edge Runtime)
-export const runtime = "nodejs";
 
 export const config = {
   matcher: ["/app/:path*", "/settings/:path*", "/api/((?!health|auth|v1).*)"],

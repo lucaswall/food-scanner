@@ -3,7 +3,7 @@ import { claudeUsage } from "@/db/schema";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import { sql } from "drizzle-orm";
-import { eq } from "drizzle-orm";
+import { and, eq, gte } from "drizzle-orm";
 
 /**
  * Pricing per 1M tokens for each Claude model.
@@ -155,6 +155,12 @@ export async function getMonthlyUsage(
 ): Promise<MonthlyClaudeUsage[]> {
   const db = getDb();
 
+  // Only read the months that will be returned (current month + the previous months-1),
+  // not the user's full history. Month boundaries are UTC, matching date_trunc on timestamptz
+  // in a UTC session.
+  const now = new Date();
+  const windowStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+
   const rows = await db
     .select({
       month: sql<string>`to_char(date_trunc('month', ${claudeUsage.createdAt}), 'YYYY-MM')`,
@@ -164,7 +170,7 @@ export async function getMonthlyUsage(
       totalCostUsd: sql<string>`sum(${claudeUsage.costUsd}::numeric)::text`,
     })
     .from(claudeUsage)
-    .where(eq(claudeUsage.userId, userId))
+    .where(and(eq(claudeUsage.userId, userId), gte(claudeUsage.createdAt, windowStart)))
     .groupBy(sql`date_trunc('month', ${claudeUsage.createdAt})`)
     .orderBy(sql`date_trunc('month', ${claudeUsage.createdAt}) desc`)
     .limit(months);

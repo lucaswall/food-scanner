@@ -48,6 +48,16 @@ const { getSession, getRawSession, validateSession } = await import(
   "@/lib/session"
 );
 
+describe("session options", () => {
+  it("sets iron-session ttl equal to the 30-day cookie maxAge", async () => {
+    mockGetIronSession.mockResolvedValue({ save: vi.fn(), destroy: vi.fn() });
+    await getRawSession();
+    const options = mockGetIronSession.mock.calls.at(-1)![1];
+    expect(options.ttl).toBe(30 * 24 * 60 * 60);
+    expect(options.cookieOptions.maxAge).toBe(options.ttl);
+  });
+});
+
 describe("getRawSession", () => {
   it("returns the iron-session object", async () => {
     const mockSession = { sessionId: "abc", save: vi.fn(), destroy: vi.fn() };
@@ -210,6 +220,37 @@ describe("getSession", () => {
     await getSession();
 
     expect(mockTouchSession).toHaveBeenCalledWith("abc-123");
+  });
+
+  it("re-seals the cookie when sliding expiration runs", async () => {
+    const save = vi.fn();
+    mockGetIronSession.mockResolvedValue({ sessionId: "abc-123", save, destroy: vi.fn() });
+    mockGetSessionById.mockResolvedValue({
+      id: "abc-123",
+      userId: "user-uuid-123",
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 20 * 24 * 60 * 60 * 1000),
+    });
+
+    await getSession();
+
+    expect(save).toHaveBeenCalled();
+  });
+
+  it("still returns the session when the cookie cannot be re-sealed", async () => {
+    const save = vi.fn().mockRejectedValue(new Error("Cookies can only be modified in a Server Action"));
+    mockGetIronSession.mockResolvedValue({ sessionId: "abc-123", save, destroy: vi.fn() });
+    mockGetSessionById.mockResolvedValue({
+      id: "abc-123",
+      userId: "user-uuid-123",
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 20 * 24 * 60 * 60 * 1000),
+    });
+
+    const result = await getSession();
+
+    expect(result?.sessionId).toBe("abc-123");
+    expect(mockTouchSession).toHaveBeenCalled();
   });
 
   it("does NOT call touchSession when expiresAt is more than 29 days from now", async () => {

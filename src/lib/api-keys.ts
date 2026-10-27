@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "crypto";
 import { eq, and, isNull } from "drizzle-orm";
 import { getDb } from "@/db/index";
-import { apiKeys } from "@/db/schema";
+import { apiKeys, users } from "@/db/schema";
+import { isEmailAllowed } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 
@@ -127,10 +128,14 @@ export async function revokeApiKey(
   return revoked;
 }
 
+/** lastUsedAt is display-only; skip the write when it was refreshed within this window. */
+const LAST_USED_UPDATE_INTERVAL_MS = 60_000;
+
 /**
  * Validate an API key and return user info if valid.
- * Updates lastUsedAt on successful validation.
- * Returns null if key is invalid, revoked, or not found.
+ * Rejects keys whose owner is no longer in ALLOWED_EMAILS.
+ * Refreshes lastUsedAt at most once per minute.
+ * Returns null if key is invalid, revoked, not found, or its owner is no longer allowed.
  */
 export async function validateApiKey(
   rawKey: string,
@@ -145,8 +150,11 @@ export async function validateApiKey(
       id: apiKeys.id,
       userId: apiKeys.userId,
       revokedAt: apiKeys.revokedAt,
+      lastUsedAt: apiKeys.lastUsedAt,
+      email: users.email,
     })
     .from(apiKeys)
+    .innerJoin(users, eq(users.id, apiKeys.userId))
     .where(eq(apiKeys.keyHash, keyHash));
 
   const row = rows[0];
@@ -155,11 +163,21 @@ export async function validateApiKey(
     return null;
   }
 
-  // Update lastUsedAt
-  await db
-    .update(apiKeys)
-    .set({ lastUsedAt: new Date() })
-    .where(eq(apiKeys.id, row.id));
+  if (!isEmailAllowed(row.email)) {
+    l.warn(
+      { action: "validate_api_key", valid: false, keyId: row.id },
+      "API key owner is no longer in ALLOWED_EMAILS",
+    );
+    return null;
+  }
+
+  const now = Date.now();
+  if (row.lastUsedAt === null || now - row.lastUsedAt.getTime() >= LAST_USED_UPDATE_INTERVAL_MS) {
+    await db
+      .update(apiKeys)
+      .set({ lastUsedAt: new Date(now) })
+      .where(eq(apiKeys.id, row.id));
+  }
 
   l.debug({ action: "validate_api_key", valid: true, keyId: row.id }, "API key validated");
   return {

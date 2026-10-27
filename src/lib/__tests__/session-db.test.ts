@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
+vi.stubEnv("ALLOWED_EMAILS", "allowed@example.com");
 vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost:5432/test");
 
 vi.mock("@/lib/logger", () => ({
@@ -19,6 +20,7 @@ const mockReturning = vi.fn();
 const mockSelect = vi.fn();
 const mockFrom = vi.fn();
 const mockWhere = vi.fn();
+const mockInnerJoin = vi.fn();
 const mockUpdate = vi.fn();
 const mockSet = vi.fn();
 const mockDelete = vi.fn();
@@ -36,6 +38,7 @@ vi.mock("@/db/index", () => ({
 
 vi.mock("@/db/schema", () => ({
   sessions: { id: "id", userId: "user_id", createdAt: "created_at", expiresAt: "expires_at" },
+  users: { id: "users.id", email: "users.email" },
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -50,7 +53,8 @@ beforeEach(() => {
   mockInsert.mockReturnValue({ values: mockValues });
   mockValues.mockReturnValue({ returning: mockReturning });
   mockSelect.mockReturnValue({ from: mockFrom });
-  mockFrom.mockReturnValue({ where: mockWhere });
+  mockFrom.mockReturnValue({ where: mockWhere, innerJoin: mockInnerJoin });
+  mockInnerJoin.mockReturnValue({ where: mockWhere });
   mockUpdate.mockReturnValue({ set: mockSet });
   mockSet.mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
   mockDeleteReturning.mockResolvedValue([]);
@@ -87,11 +91,29 @@ describe("getSessionById", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 86400000),
     };
-    mockWhere.mockResolvedValue([row]);
+    mockWhere.mockResolvedValue([{ ...row, email: "Allowed@Example.com" }]);
 
     const result = await getSessionById("abc-123");
 
     expect(result).toEqual(row);
+    expect(mockInnerJoin).toHaveBeenCalled();
+  });
+
+  it("deletes the session and returns null when the owner is no longer in ALLOWED_EMAILS", async () => {
+    const { getSessionById } = await import("@/lib/session-db");
+    mockWhere.mockResolvedValue([{
+      id: "abc-123",
+      userId: "user-uuid-123",
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 86400000),
+      email: "removed@example.com",
+    }]);
+
+    const result = await getSessionById("abc-123");
+
+    expect(result).toBeNull();
+    expect(mockDelete).toHaveBeenCalled();
+    expect(mockDeleteWhere).toHaveBeenCalled();
   });
 
   it("returns null when session does not exist", async () => {

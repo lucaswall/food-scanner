@@ -86,10 +86,13 @@ railway variable set \
   GOOGLE_CLIENT_ID=your-google-client-id \
   GOOGLE_CLIENT_SECRET=your-google-client-secret \
   ANTHROPIC_API_KEY=your-anthropic-api-key \
+  HEALTH_DRY_RUN=false \
   LOG_LEVEL=info
 ```
 
-For staging, also set:
+`HEALTH_DRY_RUN` must be set explicitly (`true` or `false`) on every non-local host — the app refuses to boot otherwise. Production uses `false`.
+
+For staging, override it:
 ```bash
 railway variable set HEALTH_DRY_RUN=true
 ```

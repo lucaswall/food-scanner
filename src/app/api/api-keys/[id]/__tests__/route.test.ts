@@ -97,6 +97,16 @@ describe("DELETE /api/api-keys/[id]", () => {
     expect(body.error.message).toContain("Invalid");
   });
 
+  it.each(["1.5", "1e3", "99999999999", "0", "-1", "12abc"])("returns 400 for id %s", async (badId) => {
+    mockGetSession.mockResolvedValue(validSession);
+    const request = createRequest();
+
+    const response = await DELETE(request, { params: Promise.resolve({ id: badId }) });
+
+    expect(response.status).toBe(400);
+    expect(mockRevokeApiKey).not.toHaveBeenCalled();
+  });
+
   it("returns 401 when session is missing", async () => {
     mockGetSession.mockResolvedValue(null);
 

@@ -9,6 +9,8 @@ const REQUIRED_ENV_VARS = [
   "HEALTH_TOKEN_ENCRYPTION_KEY",
 ] as const;
 
+const MIN_SESSION_SECRET_LENGTH = 32;
+
 export function getRequiredEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
@@ -22,6 +24,13 @@ export function validateRequiredEnvVars(): void {
   if (missing.length > 0) {
     const message = `Missing required environment variables: ${missing.join(", ")}`;
     throw new Error(message);
+  }
+
+  // iron-session rejects passwords shorter than 32 chars on EVERY request — fail at boot instead.
+  if ((process.env.SESSION_SECRET ?? "").length < MIN_SESSION_SECRET_LENGTH) {
+    throw new Error(
+      `SESSION_SECRET must be at least ${MIN_SESSION_SECRET_LENGTH} characters (generate with: openssl rand -base64 32)`,
+    );
   }
 }
 

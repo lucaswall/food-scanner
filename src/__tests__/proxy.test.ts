@@ -14,7 +14,7 @@ vi.mock("@/lib/logger", () => ({
 // Must import after mocks are set up
 let middleware: (
   req: NextRequest,
-) => ReturnType<(typeof import("../../middleware"))["middleware"]>;
+) => ReturnType<(typeof import("../../proxy"))["proxy"]>;
 
 beforeEach(async () => {
   vi.resetModules();
@@ -31,8 +31,8 @@ beforeEach(async () => {
     },
   }));
 
-  const mod = await import("../../middleware");
-  middleware = mod.middleware;
+  const mod = await import("../../proxy");
+  middleware = mod.proxy;
 });
 
 function makeRequest(path: string, hasCookie = false): NextRequest {
@@ -44,7 +44,7 @@ function makeRequest(path: string, hasCookie = false): NextRequest {
   return req;
 }
 
-describe("middleware", () => {
+describe("proxy", () => {
   it("redirects /app to / without session cookie", () => {
     const response = middleware(makeRequest("/app"));
     expect(response.status).toBe(307);
