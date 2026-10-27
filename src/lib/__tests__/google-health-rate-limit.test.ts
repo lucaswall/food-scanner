@@ -36,7 +36,9 @@ describe("google-health-rate-limit", () => {
     userId: string | undefined,
     response: Response,
     log?: Logger,
+    retryDelayHintMs?: number | null,
   ) => void;
+  let clearRateLimitCooldown: (userId: string | undefined) => void;
   let getRateLimitSnapshot: (
     userId: string,
   ) => { cooldownUntil: number } | null;
@@ -53,6 +55,7 @@ describe("google-health-rate-limit", () => {
     const mod = await import("@/lib/google-health-rate-limit");
     recordRateLimitHeaders = mod.recordRateLimitHeaders;
     getRateLimitSnapshot = mod.getRateLimitSnapshot;
+    clearRateLimitCooldown = mod.clearRateLimitCooldown;
     assertRateLimitAllowed = mod.assertRateLimitAllowed;
     _resetForTests = mod._resetForTests;
     _resetForTests();
@@ -60,6 +63,29 @@ describe("google-health-rate-limit", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  describe("RetryInfo hint and clearing", () => {
+    it("uses the body RetryInfo hint when there is no Retry-After header", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-05-04T12:00:00Z"));
+      recordRateLimitHeaders("user-a", make429Response(), fakeLog, 5_000);
+      expect(getRateLimitSnapshot("user-a")!.cooldownUntil).toBe(Date.now() + 5_000);
+    });
+
+    it("prefers Retry-After over the body hint", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-05-04T12:00:00Z"));
+      recordRateLimitHeaders("user-a", make429Response({ "Retry-After": "30" }), fakeLog, 5_000);
+      expect(getRateLimitSnapshot("user-a")!.cooldownUntil).toBe(Date.now() + 30_000);
+    });
+
+    it("clearRateLimitCooldown removes an active cooldown", () => {
+      recordRateLimitHeaders("user-a", make429Response({ "Retry-After": "60" }), fakeLog);
+      expect(getRateLimitSnapshot("user-a")).not.toBeNull();
+      clearRateLimitCooldown("user-a");
+      expect(getRateLimitSnapshot("user-a")).toBeNull();
+    });
   });
 
   // (a) Cold start: allows all three criticalities when no cooldown has been recorded

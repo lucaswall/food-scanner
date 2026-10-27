@@ -21,12 +21,18 @@ const mockFrom = vi.fn();
 const mockWhere = vi.fn();
 const mockDelete = vi.fn();
 const mockDeleteWhere = vi.fn();
+const mockUpdate = vi.fn();
+const mockUpdateSet = vi.fn();
+const mockUpdateWhere = vi.fn();
+const mockReturning = vi.fn();
+const mockLimit = vi.fn();
 
 vi.mock("@/db/index", () => ({
   getDb: vi.fn(() => ({
     insert: mockInsert,
     select: mockSelect,
     delete: mockDelete,
+    update: mockUpdate,
   })),
 }));
 
@@ -43,6 +49,8 @@ vi.mock("@/db/schema", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((col, val) => ({ col, val, _type: "eq" })),
+  ne: vi.fn((col, val) => ({ col, val, _type: "ne" })),
+  and: vi.fn((...conds) => ({ conds, _type: "and" })),
 }));
 
 // Mock token encryption
@@ -262,5 +270,64 @@ describe("deleteHealthTokens", () => {
     await deleteHealthTokens("user-uuid-123");
     expect(mockDelete).toHaveBeenCalled();
     expect(mockDeleteWhere).toHaveBeenCalled();
+  });
+});
+
+describe("updateHealthTokensIfUnchanged", () => {
+  beforeEach(() => {
+    mockUpdate.mockReturnValue({ set: mockUpdateSet });
+    mockUpdateSet.mockReturnValue({ where: mockUpdateWhere });
+    mockUpdateWhere.mockReturnValue({ returning: mockReturning });
+  });
+
+  it("returns true and encrypts the new access token when the row is unchanged", async () => {
+    const { updateHealthTokensIfUnchanged } = await import("@/lib/health-tokens");
+    mockReturning.mockResolvedValue([{ id: 1 }]);
+    const expected = new Date("2026-01-01");
+    const ok = await updateHealthTokensIfUnchanged("u1", expected, { accessToken: "new", expiresAt: new Date("2026-12-01") });
+    expect(ok).toBe(true);
+    expect(mockUpdateSet).toHaveBeenCalledWith(expect.objectContaining({ accessToken: "encrypted:new" }));
+    const cond = mockUpdateWhere.mock.calls[0][0] as { conds: Array<{ col: string; val: unknown }> };
+    expect(cond.conds).toContainEqual(expect.objectContaining({ col: "updated_at", val: expected }));
+  });
+
+  it("returns false when the row was superseded", async () => {
+    const { updateHealthTokensIfUnchanged } = await import("@/lib/health-tokens");
+    mockReturning.mockResolvedValue([]);
+    const ok = await updateHealthTokensIfUnchanged("u1", new Date(), { accessToken: "new", expiresAt: new Date() });
+    expect(ok).toBe(false);
+  });
+});
+
+describe("deleteHealthTokensIfUnchanged", () => {
+  it("deletes only when updatedAt matches and reports whether it applied", async () => {
+    const { deleteHealthTokensIfUnchanged } = await import("@/lib/health-tokens");
+    mockDeleteWhere.mockReturnValue({ returning: mockReturning });
+    mockReturning.mockResolvedValueOnce([{ id: 1 }]).mockResolvedValueOnce([]);
+    const expected = new Date("2026-01-01");
+    expect(await deleteHealthTokensIfUnchanged("u1", expected)).toBe(true);
+    const cond = mockDeleteWhere.mock.calls[0][0] as { conds: Array<{ col: string; val: unknown }> };
+    expect(cond.conds).toContainEqual(expect.objectContaining({ col: "updated_at", val: expected }));
+    expect(await deleteHealthTokensIfUnchanged("u1", expected)).toBe(false);
+  });
+});
+
+describe("isHealthAccountLinkedToOtherUser", () => {
+  beforeEach(() => {
+    mockWhere.mockReturnValue({ limit: mockLimit });
+  });
+
+  it("returns true when another user holds the Health account", async () => {
+    const { isHealthAccountLinkedToOtherUser } = await import("@/lib/health-tokens");
+    mockLimit.mockResolvedValue([{ id: 9 }]);
+    expect(await isHealthAccountLinkedToOtherUser("u1", "h1")).toBe(true);
+    const cond = mockWhere.mock.calls[0][0] as { conds: Array<{ _type: string }> };
+    expect(cond.conds.map((c) => c._type)).toEqual(["eq", "ne"]);
+  });
+
+  it("returns false when no other user holds it", async () => {
+    const { isHealthAccountLinkedToOtherUser } = await import("@/lib/health-tokens");
+    mockLimit.mockResolvedValue([]);
+    expect(await isHealthAccountLinkedToOtherUser("u1", "h1")).toBe(false);
   });
 });

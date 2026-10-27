@@ -52,10 +52,12 @@ vi.mock("@/lib/session-db", () => ({
 
 // Mock health-tokens
 const mockGetHealthTokens = vi.fn();
+const mockIsLinkedToOther = vi.fn();
 const mockUpsertHealthTokens = vi.fn();
 vi.mock("@/lib/health-tokens", () => ({
   getHealthTokens: (...args: unknown[]) => mockGetHealthTokens(...args),
   upsertHealthTokens: (...args: unknown[]) => mockUpsertHealthTokens(...args),
+  isHealthAccountLinkedToOtherUser: (...args: unknown[]) => mockIsLinkedToOther(...args),
 }));
 
 // Mock rate limiter
@@ -113,6 +115,7 @@ beforeEach(() => {
   mockCreateSession.mockResolvedValue("new-session-uuid");
   mockGetHealthTokens.mockResolvedValue(null);
   mockUpsertHealthTokens.mockResolvedValue(undefined);
+  mockIsLinkedToOther.mockResolvedValue(false);
   mockGetSessionById.mockResolvedValue(null);
   mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 9 });
   mockGetOrCreateUser.mockResolvedValue(fakeUser);
@@ -447,6 +450,63 @@ describe("GET /api/auth/google/callback", () => {
     expect(response.headers.get("location")).toBe("http://localhost:3000/app/connect-health?error=missing_scope");
   });
 
+  it("health-connect: a partial scope grant (missing a non-write scope) also routes to re-consent", async () => {
+    const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect" });
+    mockRawSession.oauthState = healthState;
+    mockRawSession.sessionId = "existing-session-id";
+    mockGetSessionById.mockResolvedValue(fakeDbSession);
+    // Write scope present but another required scope missing — checkHealthConnection would say scope_mismatch.
+    mockExchangeGoogleHealthCode.mockResolvedValue({
+      access_token: "health-at",
+      refresh_token: "health-rt",
+      expires_in: 3600,
+      scope: ALL_HEALTH_SCOPES.split(" ").slice(0, 1).join(" "),
+    });
+    mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
+
+    const response = await GET(makeCallbackRequest("health-code", healthState));
+    expect(response.headers.get("location")).toBe("http://localhost:3000/app/connect-health?error=missing_scope");
+  });
+
+  it("health-connect: rejects a Health account already linked to a different user, without saving tokens", async () => {
+    const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect" });
+    mockRawSession.oauthState = healthState;
+    mockRawSession.sessionId = "existing-session-id";
+    mockGetSessionById.mockResolvedValue(fakeDbSession);
+    mockExchangeGoogleHealthCode.mockResolvedValue({
+      access_token: "health-at",
+      refresh_token: "health-rt",
+      expires_in: 3600,
+      scope: ALL_HEALTH_SCOPES,
+    });
+    mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
+    mockIsLinkedToOther.mockResolvedValue(true);
+
+    const response = await GET(makeCallbackRequest("health-code", healthState));
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("http://localhost:3000/app/connect-health?error=account_in_use");
+    expect(mockIsLinkedToOther).toHaveBeenCalledWith("user-uuid-123", "health-uid-123");
+    expect(mockUpsertHealthTokens).not.toHaveBeenCalled();
+  });
+
+  it("login: returns 500 INTERNAL_ERROR (logged) when user/session persistence throws", async () => {
+    mockGetOrCreateUser.mockRejectedValue(new Error("db down"));
+    const response = await GET(makeCallbackRequest("valid-code", "test-state"));
+    expect(response.status).toBe(500);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "google_login_persist_error" }),
+      expect.any(String),
+    );
+  });
+
+  it("login: falls back to /app/connect-health when the health-token lookup throws after the session is saved", async () => {
+    mockGetHealthTokens.mockRejectedValue(new Error("db down"));
+    const response = await GET(makeCallbackRequest("valid-code", "test-state"));
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("http://localhost:3000/app/connect-health");
+    expect(mockRawSession.save).toHaveBeenCalled();
+  });
+
   it("health-connect: does not call createSession", async () => {
     const healthState = JSON.stringify({ nonce: "abc", flow: "health-connect" });
     mockRawSession.oauthState = healthState;
@@ -455,6 +515,7 @@ describe("GET /api/auth/google/callback", () => {
     mockExchangeGoogleHealthCode.mockResolvedValue({
       access_token: "health-at",
       refresh_token: "health-rt",
+      scope: ALL_HEALTH_SCOPES,
     });
     mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
 
@@ -505,6 +566,7 @@ describe("GET /api/auth/google/callback", () => {
     mockExchangeGoogleHealthCode.mockResolvedValue({
       access_token: "health-at",
       refresh_token: "health-rt",
+      scope: ALL_HEALTH_SCOPES,
       expires_in: 3600,
     });
     mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
@@ -527,6 +589,7 @@ describe("GET /api/auth/google/callback", () => {
     mockExchangeGoogleHealthCode.mockResolvedValue({
       access_token: "health-at",
       refresh_token: "health-rt",
+      scope: ALL_HEALTH_SCOPES,
       expires_in: 3600,
     });
     mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
@@ -559,6 +622,7 @@ describe("GET /api/auth/google/callback", () => {
     mockExchangeGoogleHealthCode.mockResolvedValue({
       access_token: "health-at",
       refresh_token: "health-rt",
+      scope: ALL_HEALTH_SCOPES,
       expires_in: 3600,
     });
     mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");
@@ -581,6 +645,7 @@ describe("GET /api/auth/google/callback", () => {
     mockExchangeGoogleHealthCode.mockResolvedValue({
       access_token: "health-at",
       refresh_token: "health-rt",
+      scope: ALL_HEALTH_SCOPES,
       expires_in: 3600,
     });
     mockGetGoogleHealthIdentity.mockResolvedValue("health-uid-123");

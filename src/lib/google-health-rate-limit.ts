@@ -19,9 +19,9 @@ const DEFAULT_COOLDOWN_MS = 60_000;
 /**
  * Parse the Retry-After header into a cooldown duration in milliseconds.
  * Supports integer seconds and HTTP-date formats (RFC 7231).
- * Returns DEFAULT_COOLDOWN_MS when the header is absent or unparseable.
+ * Returns null when the header is absent or unparseable.
  */
-function parseCooldownMs(response: Response): number {
+function parseRetryAfterMs(response: Response): number | null {
   const retryAfter = response.headers.get("Retry-After");
   if (retryAfter) {
     const trimmed = retryAfter.trim();
@@ -37,7 +37,7 @@ function parseCooldownMs(response: Response): number {
       return Math.max(0, dateMs - Date.now());
     }
   }
-  return DEFAULT_COOLDOWN_MS;
+  return null;
 }
 
 /**
@@ -67,6 +67,7 @@ export function recordResourceExhaustedCooldown(userId: string, log?: Logger): v
 
 /**
  * Record a 429 response and set a per-user 429 cooldown.
+ * `retryDelayHintMs` is the google.rpc.RetryInfo delay parsed from the body, if any.
  * No-ops for non-429 responses or when userId is undefined.
  * Logs at warn level when a cooldown is set.
  */
@@ -74,11 +75,13 @@ export function recordRateLimitHeaders(
   userId: string | undefined,
   response: Response,
   log?: Logger,
+  retryDelayHintMs?: number | null,
 ): void {
   if (!userId) return;
   if (response.status !== 429) return;
 
-  const cooldownMs = parseCooldownMs(response);
+  // Precedence: Retry-After header, then the caller-parsed RetryInfo body hint, then default.
+  const cooldownMs = parseRetryAfterMs(response) ?? retryDelayHintMs ?? DEFAULT_COOLDOWN_MS;
   const cooldownUntil = Date.now() + cooldownMs;
   cooldowns.set(userId, cooldownUntil);
 
@@ -91,6 +94,12 @@ export function recordRateLimitHeaders(
     },
     `Google Health API rate-limited; cooling down for ${cooldownMs}ms`,
   );
+}
+
+/** Clear the user's cooldown after a successful call proves the quota window has reopened. */
+export function clearRateLimitCooldown(userId: string | undefined): void {
+  if (!userId) return;
+  cooldowns.delete(userId);
 }
 
 /**
