@@ -498,7 +498,12 @@ export async function ensureFreshToken(
   // including the initial token read so concurrent callers always join a single promise.
   const existing = refreshInFlight.get(userId);
   if (existing) {
-    return existing;
+    if (!opts.rejectedAccessToken) return existing;
+    // A 401 caller must not accept the very token it was rejected with (the in-flight call
+    // may be a fast-path read that returned it). Fall through to a forced refresh then.
+    const joined = await existing;
+    if (joined !== opts.rejectedAccessToken) return joined;
+    if (refreshInFlight.has(userId)) return ensureFreshToken(userId, log, opts);
   }
 
   // Register the promise synchronously BEFORE any await so concurrent callers arriving in

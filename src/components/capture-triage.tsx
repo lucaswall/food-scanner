@@ -138,6 +138,10 @@ export function CaptureTriage() {
     setStatusMessage(null);
     narrativeRef.current = "";
 
+    // Created up front so Cancel works while captures are still being read from IndexedDB
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     const formData = new FormData();
     const captureMetadataArray: Array<{
       captureId: string;
@@ -178,6 +182,9 @@ export function CaptureTriage() {
       });
     }
 
+    // Cancelled (or unmounted) while loading blobs — handleCancelAnalyze already restored the preview
+    if (controller.signal.aborted) return;
+
     if (skippedCount > 0) {
       console.warn(`Skipped ${skippedCount} capture(s) with missing images`);
     }
@@ -192,8 +199,6 @@ export function CaptureTriage() {
     // The user's local date — a UTC slice would triage evening captures against "tomorrow"
     formData.append("clientDate", getLocalDateTime().date);
 
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
     // Manual timeout — AbortSignal.any() not available on iOS 16, Chrome <116
     const timeoutId = setTimeout(
       () => controller.abort(new DOMException("signal timed out", "TimeoutError")),

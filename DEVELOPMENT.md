@@ -333,7 +333,7 @@ rewrite, and Next 16.3's rewrite proxy logs `MaxListenersExceededWarning` on eve
 
 ### script-src uses 'unsafe-inline' (accepted)
 
-A per-request nonce would be stronger, but it requires threading a nonce from `proxy.ts`
+A per-request nonce would be stronger, but it requires adding a `src/proxy.ts` that threads a nonce
 through the root layout onto every inline hydration script, and missing one breaks RSC
 hydration. Accepted as-is for this allowlisted single-user app; revisit if the app ever opens up.
 

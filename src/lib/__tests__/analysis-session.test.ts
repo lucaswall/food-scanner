@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   saveSessionPhotos,
   loadSessionPhotos,
@@ -198,6 +198,39 @@ describe("analysis-session", () => {
 
       expect(await loadSessionPhotos(activeId)).toHaveLength(1);
       expect(await loadSessionPhotos("other-tab")).toHaveLength(1);
+    });
+
+    it("refreshes the registered timestamp on every save", async () => {
+      await saveSessionPhotos("long-open", [new Blob(["a"])]);
+      const index = JSON.parse(localStorage.getItem("food-scanner-photo-sessions") ?? "{}");
+      index["long-open"] = Date.now() - 25 * 60 * 60 * 1000;
+      localStorage.setItem("food-scanner-photo-sessions", JSON.stringify(index));
+
+      await saveSessionPhotos("long-open", [new Blob(["a"]), new Blob(["b"])]);
+      const after = JSON.parse(localStorage.getItem("food-scanner-photo-sessions") ?? "{}");
+      expect(Date.now() - after["long-open"]).toBeLessThan(60 * 1000);
+    });
+
+    it("does not delete a photo registered after the sweep started", async () => {
+      const { getDB } = await import("@/lib/analysis-session");
+      const db = await getDB();
+      await db.put("session-photos", [new Blob(["late"])], "late");
+      const original = db.getAllKeys.bind(db);
+      const spy = vi.spyOn(db, "getAllKeys").mockImplementation(async (...args: Parameters<typeof original>) => {
+        const keys = await original(...args);
+        // A save in another tab/flow registers its session while the sweep is awaiting
+        localStorage.setItem("food-scanner-photo-sessions", JSON.stringify({ late: Date.now() }));
+        return keys;
+      });
+
+      try {
+        await cleanupExpiredSession();
+      } finally {
+        spy.mockRestore();
+      }
+
+      expect(await loadSessionPhotos("late")).toHaveLength(1);
+      expect(JSON.parse(localStorage.getItem("food-scanner-photo-sessions") ?? "{}").late).toBeTypeOf("number");
     });
 
     it("clearSession unregisters the session from the index", async () => {

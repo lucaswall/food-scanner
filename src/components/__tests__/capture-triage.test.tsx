@@ -747,6 +747,29 @@ describe("CaptureTriage audit fixes", () => {
     expect(screen.queryByTestId("error-banner")).not.toBeInTheDocument();
   });
 
+  it("Cancel during blob loading prevents the analyze request", async () => {
+    mockCaptures([makeCapture()]);
+    const resolvers: Array<(b: Blob[]) => void> = [];
+    mockGetCaptureBlobs.mockImplementation(
+      () => new Promise<Blob[]>((resolve) => { resolvers.push(resolve); })
+    );
+    await act(async () => {
+      render(<CaptureTriage />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("analyze-all-btn"));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("cancel-analyze-btn"));
+    });
+    await act(async () => {
+      resolvers.forEach((r) => r([new Blob(["x"], { type: "image/jpeg" })]));
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(screen.getByTestId("analyze-all-btn")).toBeInTheDocument();
+    expect(screen.queryByTestId("analyzing-state")).not.toBeInTheDocument();
+  });
+
   it("times out a stalled Analyze All after 120s with a retryable error", async () => {
     vi.useFakeTimers();
     try {

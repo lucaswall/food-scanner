@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import useSWRInfinite from "swr/infinite";
+import { useFoodListInvalidation } from "@/hooks/use-food-list-invalidation";
 import { apiFetcher } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import {
@@ -101,9 +102,8 @@ export function FoodHistory() {
     isValidating,
     mutate,
     error,
-  } = useSWRInfinite<{ entries: FoodLogHistoryEntry[] }>(getKey, apiFetcher, {
-    revalidateAll: true,
-  });
+  } = useSWRInfinite<{ entries: FoodLogHistoryEntry[] }>(getKey, apiFetcher);
+  useFoodListInvalidation(getKey, mutate);
 
   const {
     deleteTargetId,
@@ -126,8 +126,10 @@ export function FoodHistory() {
   // isValidating is a dependency so the observer is recreated when a fetch finishes;
   // a new observer reports the sentinel's current intersection immediately, so a
   // sentinel that became visible mid-validation can't stall the list.
+  // A failed page fetch stops auto-loading (otherwise each failed validation would
+  // recreate the observer and request the next page again, in a loop).
   useEffect(() => {
-    if (!sentinelRef.current || !hasMore || isValidating) return;
+    if (!sentinelRef.current || !hasMore || isValidating || error) return;
     const observer = new IntersectionObserver(
       (intersections) => {
         if (intersections[0]?.isIntersecting) {
@@ -138,7 +140,7 @@ export function FoodHistory() {
     );
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [hasMore, isValidating, setSize]);
+  }, [hasMore, isValidating, error, setSize]);
 
   const handleJumpToDate = () => {
     if (!jumpDate) return;

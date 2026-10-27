@@ -51,6 +51,7 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn((col, val) => ({ col, val, _type: "eq" })),
   ne: vi.fn((col, val) => ({ col, val, _type: "ne" })),
   and: vi.fn((...conds) => ({ conds, _type: "and" })),
+  sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({ strings: [...strings], values, _type: "sql" })),
 }));
 
 // Mock token encryption
@@ -287,8 +288,10 @@ describe("updateHealthTokensIfUnchanged", () => {
     const ok = await updateHealthTokensIfUnchanged("u1", expected, { accessToken: "new", expiresAt: new Date("2026-12-01") });
     expect(ok).toBe(true);
     expect(mockUpdateSet).toHaveBeenCalledWith(expect.objectContaining({ accessToken: "encrypted:new" }));
-    const cond = mockUpdateWhere.mock.calls[0][0] as { conds: Array<{ col: string; val: unknown }> };
-    expect(cond.conds).toContainEqual(expect.objectContaining({ col: "updated_at", val: expected }));
+    const cond = mockUpdateWhere.mock.calls[0][0] as { conds: Array<{ _type: string; strings?: string[]; values?: unknown[] }> };
+    const match = cond.conds.find((c) => c._type === "sql");
+    expect(match?.strings?.join("?")).toContain("date_trunc('milliseconds'");
+    expect(match?.values).toContain(expected.toISOString());
   });
 
   it("returns false when the row was superseded", async () => {
@@ -306,8 +309,10 @@ describe("deleteHealthTokensIfUnchanged", () => {
     mockReturning.mockResolvedValueOnce([{ id: 1 }]).mockResolvedValueOnce([]);
     const expected = new Date("2026-01-01");
     expect(await deleteHealthTokensIfUnchanged("u1", expected)).toBe(true);
-    const cond = mockDeleteWhere.mock.calls[0][0] as { conds: Array<{ col: string; val: unknown }> };
-    expect(cond.conds).toContainEqual(expect.objectContaining({ col: "updated_at", val: expected }));
+    const cond = mockDeleteWhere.mock.calls[0][0] as { conds: Array<{ _type: string; strings?: string[]; values?: unknown[] }> };
+    const match = cond.conds.find((c) => c._type === "sql");
+    expect(match?.strings?.join("?")).toContain("date_trunc('milliseconds'");
+    expect(match?.values).toContain(expected.toISOString());
     expect(await deleteHealthTokensIfUnchanged("u1", expected)).toBe(false);
   });
 });

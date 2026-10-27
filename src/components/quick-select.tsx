@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import useSWRInfinite from "swr/infinite";
+import { useFoodListInvalidation } from "@/hooks/use-food-list-invalidation";
 import { apiFetcher } from "@/lib/swr";
 import { FoodLogConfirmation } from "./food-log-confirmation";
 import { useLogFood } from "@/hooks/use-log-food";
@@ -80,10 +81,11 @@ export function QuickSelect() {
     isLoading: loadingFoods,
     isValidating,
     mutate,
+    error: listError,
   } = useSWRInfinite<PaginatedFoodsPage>(getKey, apiFetcher, {
-    revalidateAll: true,
     revalidateOnFocus: false,
   });
+  useFoodListInvalidation(getKey, mutate);
 
   const { mutate: globalMutate } = useSWRConfig();
 
@@ -104,8 +106,10 @@ export function QuickSelect() {
   // isValidating is a dependency so the observer is recreated when a fetch finishes;
   // a new observer reports the sentinel's current intersection immediately, so a
   // sentinel that became visible mid-validation can't stall the list.
+  // A failed page fetch stops auto-loading (otherwise each failed validation would
+  // recreate the observer and request the next page again, in a loop).
   useEffect(() => {
-    if (!sentinelRef.current || !hasMore || isSearchActive || isValidating) return;
+    if (!sentinelRef.current || !hasMore || isSearchActive || isValidating || listError) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) {
@@ -116,7 +120,7 @@ export function QuickSelect() {
     );
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [hasMore, setSize, isSearchActive, isValidating]);
+  }, [hasMore, setSize, isSearchActive, isValidating, listError]);
 
   const [selectedFood, setSelectedFood] = useState<CommonFood | null>(null);
   const [mealTypeId, setMealTypeId] = useState(getDefaultMealType());

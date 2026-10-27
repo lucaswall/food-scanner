@@ -107,11 +107,10 @@ function writePhotoIndex(index: Record<string, number>): void {
 }
 
 function registerPhotoSession(sessionId: string): void {
+  // Refreshed on every save so a long-open tab's photos are never swept for age
   const index = readPhotoIndex();
-  if (index[sessionId] === undefined) {
-    index[sessionId] = Date.now();
-    writePhotoIndex(index);
-  }
+  index[sessionId] = Date.now();
+  writePhotoIndex(index);
 }
 
 function unregisterPhotoSession(sessionId: string): void {
@@ -126,8 +125,9 @@ export async function saveSessionPhotos(sessionId: string, blobs: Blob[]): Promi
   if (!isIndexedDBAvailable()) return;
   try {
     const db = await getDB();
-    await db.put(STORE_NAME, blobs, sessionId);
+    // Register first: a sweep running between put and register must already see the entry
     registerPhotoSession(sessionId);
+    await db.put(STORE_NAME, blobs, sessionId);
   } catch {
     // IndexedDB may fail silently
   }
@@ -163,25 +163,25 @@ async function deleteSessionPhotos(sessionId: string): Promise<void> {
 async function sweepOrphanedPhotos(): Promise<void> {
   if (!isIndexedDBAvailable()) return;
   try {
-    const activeId = getActiveSessionId();
-    const index = readPhotoIndex();
-    const now = Date.now();
     const db = await getDB();
     const keys = await db.getAllKeys(STORE_NAME);
     for (const key of keys) {
       const id = String(key);
-      if (id === activeId) continue;
-      const registeredAt = index[id];
-      if (registeredAt === undefined || now - registeredAt > TTL_MS) {
+      // Re-read state right before each delete: a save may have started since the sweep did
+      if (id === getActiveSessionId()) continue;
+      const registeredAt = readPhotoIndex()[id];
+      if (registeredAt === undefined || Date.now() - registeredAt > TTL_MS) {
         await db.delete(STORE_NAME, id);
-        delete index[id];
+        unregisterPhotoSession(id);
       }
     }
-    // Drop stale index entries whose blobs are already gone
+    // Drop stale index entries whose blobs are already gone (fresh read, targeted deletes)
+    const index = readPhotoIndex();
+    const activeId = getActiveSessionId();
+    const now = Date.now();
     for (const [id, registeredAt] of Object.entries(index)) {
-      if (id !== activeId && now - registeredAt > TTL_MS) delete index[id];
+      if (id !== activeId && now - registeredAt > TTL_MS) unregisterPhotoSession(id);
     }
-    writePhotoIndex(index);
   } catch {
     // silently fail
   }

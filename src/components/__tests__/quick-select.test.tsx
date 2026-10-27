@@ -770,6 +770,7 @@ describe("QuickSelect", () => {
 
       mockFetch.mockReset();
       mockFetch
+        .mockResolvedValue(mockPaginatedResponse([], { score: 0.1, id: 9 }))
         .mockResolvedValueOnce(mockPaginatedResponse(mockFoods, { score: 0.5, id: 2 }))
         .mockReturnValueOnce(page2Promise);
 
@@ -799,6 +800,31 @@ describe("QuickSelect", () => {
       await waitFor(() => {
         expect(mockObserve.mock.calls.length).toBeGreaterThan(initialObserveCount);
       });
+    });
+
+    it("stops auto-loading after a failed page fetch (no request loop)", async () => {
+      mockFetch.mockReset();
+      mockFetch
+        .mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({ success: false, error: { code: "INTERNAL_ERROR", message: "boom" } }) })
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods, { score: 0.5, id: 2 }));
+
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      const observeCountBefore = mockObserve.mock.calls.length;
+      const calls = MockIntersectionObserver.mock.calls as unknown as [[IntersectionObserverCallback]];
+      calls[calls.length - 1][0]([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+
+      await waitFor(() => {
+        expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(2);
+      });
+      await new Promise((r) => setTimeout(r, 200));
+      // A recreated observer would immediately re-report the visible sentinel and
+      // request the failing page again — none must be created after the error.
+      expect(mockObserve.mock.calls.length).toBe(observeCountBefore);
     });
 
     it("loading spinner has consistent w-6 h-6 border-2 sizing", async () => {

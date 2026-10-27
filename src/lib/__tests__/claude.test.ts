@@ -678,6 +678,36 @@ describe("analyzeFood", () => {
     expect(errorEvent?.code).toBe("AI_REFUSAL");
   });
 
+  it("records usage before yielding AI_REFUSAL / CONTEXT_EXCEEDED errors (analyzeFood, conversationalRefine)", async () => {
+    const { analyzeFood, conversationalRefine } = await import("@/lib/claude");
+    for (const stop of ["refusal", "model_context_window_exceeded"]) {
+      for (const which of ["analyze", "refine"]) {
+        mockRecordUsage.mockClear();
+        mockStream.mockReturnValueOnce(createMockStream(
+          [{ type: "message_stop" }],
+          {
+            model: "claude-sonnet-4-6",
+            stop_reason: stop,
+            content: [],
+            usage: { input_tokens: 123, output_tokens: 7, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          }
+        ));
+        const gen = which === "analyze"
+          ? analyzeFood([], "x", "user-123", "2026-02-15")
+          : conversationalRefine([{ role: "user", content: "x" }], "user-123", "2026-02-15");
+        const events = await collectEvents(gen);
+        expect(events.some((e) => e.type === "error")).toBe(true);
+        expect(mockRecordUsage).toHaveBeenCalledTimes(1);
+        expect(mockRecordUsage).toHaveBeenCalledWith(
+          "user-123",
+          "claude-sonnet-4-6",
+          which === "analyze" ? "food-analysis" : "food-chat",
+          expect.objectContaining({ inputTokens: 123, outputTokens: 7 }),
+        );
+      }
+    }
+  });
+
   // --- Keyword normalization ---
 
   it("normalizes multi-word keywords by replacing spaces with hyphens", async () => {

@@ -1,4 +1,4 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { healthTokens } from "@/db/schema";
 import { encryptToken, decryptToken, TokenDecryptionError } from "@/lib/token-encryption";
@@ -105,6 +105,15 @@ export async function deleteHealthTokens(userId: string, log?: Logger): Promise<
 }
 
 /**
+ * updatedAt equality at millisecond precision. A JS Date only carries milliseconds while
+ * timestamptz stores microseconds, so a plain `=` would never match a row stamped by
+ * Postgres (e.g. `defaultNow()`), making every refresh look superseded.
+ */
+function updatedAtMatches(expected: Date) {
+  return sql`date_trunc('milliseconds', ${healthTokens.updatedAt}) = ${expected.toISOString()}::timestamptz`;
+}
+
+/**
  * Refresh-path write: updates the access token + expiry ONLY if the row is still the one the
  * refresh started from (same updatedAt). A concurrent reconnect bumps updatedAt, so a stale
  * refresh can never clobber the newer row. Returns false when superseded (or row gone).
@@ -124,7 +133,7 @@ export async function updateHealthTokensIfUnchanged(
       expiresAt: data.expiresAt,
       updatedAt: new Date(),
     })
-    .where(and(eq(healthTokens.userId, userId), eq(healthTokens.updatedAt, expectedUpdatedAt)))
+    .where(and(eq(healthTokens.userId, userId), updatedAtMatches(expectedUpdatedAt)))
     .returning({ id: healthTokens.id });
   const applied = updated.length > 0;
   l.debug({ action: "update_health_tokens_if_unchanged", applied }, "conditional health token update");
@@ -141,7 +150,7 @@ export async function deleteHealthTokensIfUnchanged(
   const db = getDb();
   const deleted = await db
     .delete(healthTokens)
-    .where(and(eq(healthTokens.userId, userId), eq(healthTokens.updatedAt, expectedUpdatedAt)))
+    .where(and(eq(healthTokens.userId, userId), updatedAtMatches(expectedUpdatedAt)))
     .returning({ id: healthTokens.id });
   const applied = deleted.length > 0;
   l.debug({ action: "delete_health_tokens_if_unchanged", applied }, "conditional health token delete");

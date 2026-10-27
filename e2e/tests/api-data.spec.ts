@@ -82,15 +82,18 @@ test.describe('API Data Verification', () => {
     }
   });
 
-  test('GET /api/earliest-entry returns today\'s date', async ({ request }) => {
+  test('GET /api/earliest-entry returns the oldest seeded date', async ({ request }) => {
     const response = await request.get('/api/earliest-entry');
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
     expect(body.data).toHaveProperty('date');
 
-    // The seeded data is for today, so earliest entry should be today
-    expect(body.data.date).toBe(today);
+    // seedTestData adds one entry 10 days back (fixtures/db.ts) besides today's entries
+    const tenDaysAgo = new Date(now);
+    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
+    const oldestSeeded = `${tenDaysAgo.getFullYear()}-${String(tenDaysAgo.getMonth() + 1).padStart(2, "0")}-${String(tenDaysAgo.getDate()).padStart(2, "0")}`;
+    expect(body.data.date).toBe(oldestSeeded);
   });
 
   test('GET /api/claude-usage returns months array', async ({ request }) => {

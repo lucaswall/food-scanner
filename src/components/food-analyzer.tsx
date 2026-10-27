@@ -287,6 +287,9 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      // Step label to restore once a transient retry message is superseded by replayed text
+      let currentStep: string | undefined = "Analyzing food...";
+      let retryShown = false;
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -296,18 +299,25 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           buffer = remaining;
           for (const event of events) {
             if (event.type === "text_delta") {
+              if (retryShown) {
+                retryShown = false;
+                setLoadingStep(currentStep);
+              }
               textDeltaBufferRef.current += event.text;
               setStreamingText(textDeltaBufferRef.current);
             } else if (event.type === "tool_start") {
               textDeltaBufferRef.current = "";
               setStreamingText("");
-              setLoadingStep(TOOL_DESCRIPTIONS[event.tool] ?? "Processing...");
+              currentStep = TOOL_DESCRIPTIONS[event.tool] ?? "Processing...";
+              retryShown = false;
+              setLoadingStep(currentStep);
             } else if (event.type === "retry") {
               // Upstream stream failed mid-flight and is being replayed from the start:
               // discard the partial text so it isn't duplicated, and surface the message
               // as transient status only (never as analysis narrative).
               textDeltaBufferRef.current = "";
               setStreamingText("");
+              retryShown = true;
               setLoadingStep(event.message);
             } else if (event.type === "analysis") {
               actions.setAnalysis(event.analysis);

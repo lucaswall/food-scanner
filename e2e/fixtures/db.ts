@@ -170,14 +170,33 @@ export async function seedTestData() {
   const tenDaysAgo = new Date(now);
   tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
   const olderDate = `${tenDaysAgo.getFullYear()}-${String(tenDaysAgo.getMonth() + 1).padStart(2, "0")}-${String(tenDaysAgo.getDate()).padStart(2, "0")}`;
+  // Its own food, so food names stay unique across the seeded history (specs locate entries by name).
+  const [olderFood] = await db
+    .insert(customFoods)
+    .values({
+      userId: testUser.id,
+      foodName: 'Greek Yogurt',
+      amount: '100',
+      unitId: 'g',
+      calories: 59,
+      proteinG: '10',
+      carbsG: '3.6',
+      fatG: '0.4',
+      fiberG: '0',
+      sodiumMg: '36',
+      confidence: 'high',
+      notes: 'E2E test food',
+      keywords: ['greek', 'yogurt'],
+    })
+    .returning();
   await db.insert(foodLogEntries).values({
     userId: testUser.id,
-    customFoodId: customFood1!.id,
-    mealTypeId: 3, // Lunch
+    customFoodId: olderFood!.id,
+    mealTypeId: 1, // Breakfast
     amount: '150',
     unitId: 'g',
     date: olderDate,
-    time: '12:30:00',
+    time: '08:00:00',
   });
 
   // Seed Google Health tokens for guard bypass (HEALTH_DRY_RUN mode)

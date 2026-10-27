@@ -1,6 +1,6 @@
 import { getDb } from "@/db/index";
 import { dailyCalorieGoals } from "@/db/schema";
-import { eq, and, between, asc, isNotNull } from "drizzle-orm";
+import { eq, and, or, between, asc, gt, isNotNull } from "drizzle-orm";
 
 /**
  * Engine-written goal rows in [fromDate, toDate]. Invalidated rows (macro columns
@@ -26,7 +26,9 @@ export async function getDailyGoalsByDateRange(
       and(
         eq(dailyCalorieGoals.userId, userId),
         between(dailyCalorieGoals.date, fromDate, toDate),
-        isNotNull(dailyCalorieGoals.proteinGoal)
+        // Skip invalidated rows (calorieGoal=0, macros null) but keep legacy
+        // calorie-only rows written before the macro columns existed.
+        or(isNotNull(dailyCalorieGoals.proteinGoal), gt(dailyCalorieGoals.calorieGoal, 0))
       )
     )
     .orderBy(asc(dailyCalorieGoals.date));

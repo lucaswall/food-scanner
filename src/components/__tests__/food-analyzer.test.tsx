@@ -5071,6 +5071,9 @@ describe("FoodAnalyzer re-analysis, retry and photo handling", () => {
     act(() => {
       send({ type: "text_delta", text: "fresh answer that is long enough" });
     });
+    await waitFor(() => {
+      expect(screen.queryByText(/Connection hiccup/)).not.toBeInTheDocument();
+    });
     act(() => {
       send({ type: "analysis", analysis: mockAnalysis });
       close();

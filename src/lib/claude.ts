@@ -274,6 +274,30 @@ function webSearchUsage(usage: Anthropic.Message["usage"]): { webSearchRequests?
   return typeof count === "number" && count > 0 ? { webSearchRequests: count } : {};
 }
 
+/** Record usage and build the `usage` stream event for an early-exit response (refusal / context exceeded). */
+function recordEarlyExitUsage(
+  userId: string | undefined,
+  operation: string,
+  response: Anthropic.Message,
+  l: Logger,
+): StreamEvent {
+  const data = {
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
+    cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+    cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+  };
+  if (userId) {
+    recordUsage(userId, response.model, operation, { ...data, ...webSearchUsage(response.usage) }).catch((error) => {
+      l.warn(
+        { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
+        "failed to record API usage"
+      );
+    });
+  }
+  return { type: "usage", data };
+}
+
 /** Build a debug payload summarizing a Claude API response */
 function summarizeResponse(response: Anthropic.Message): Record<string, unknown> {
   const blockTypes = response.content.map((b) => b.type);
@@ -1127,6 +1151,7 @@ export async function* analyzeFood(
         { action: "analyze_food_context_window_exceeded" },
         "model_context_window_exceeded on initial analyzeFood call"
       );
+      yield recordEarlyExitUsage(userId, "food-analysis", response, l);
       yield { type: "error", message: "The conversation is too long to analyze. Please start a new session.", code: "CONTEXT_EXCEEDED" };
       return;
     }
@@ -1136,6 +1161,7 @@ export async function* analyzeFood(
         { action: "analyze_food_refusal" },
         "Claude refused to analyze the food content"
       );
+      yield recordEarlyExitUsage(userId, "food-analysis", response, l);
       yield { type: "error", message: "The request was flagged by our safety systems and cannot be processed.", code: "AI_REFUSAL" };
       return;
     }
@@ -1574,6 +1600,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         { action: "conversational_refine_context_window_exceeded" },
         "model_context_window_exceeded on initial conversationalRefine call"
       );
+      yield recordEarlyExitUsage(userId, "food-chat", response, l);
       yield { type: "error", message: "The conversation is too long to continue. Please start a new session.", code: "CONTEXT_EXCEEDED" };
       return;
     }
@@ -1583,6 +1610,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         { action: "conversational_refine_refusal" },
         "Claude refused the conversational refinement request"
       );
+      yield recordEarlyExitUsage(userId, "food-chat", response, l);
       yield { type: "error", message: "The request was flagged by our safety systems and cannot be processed.", code: "AI_REFUSAL" };
       return;
     }

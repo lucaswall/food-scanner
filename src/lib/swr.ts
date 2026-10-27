@@ -51,21 +51,34 @@ const FOOD_CACHE_PREFIXES = [
 ];
 
 /**
- * useSWRInfinite stores its page list under `$inf$<first page key>`, and the
- * key-filter form of `mutate` deliberately skips those entries, so lists with
- * several loaded pages (history, quick-select) would keep stale pages. Revalidate
- * them explicitly. Those hooks set `revalidateAll: true`, so the revalidation
- * refetches every loaded page (and a remounted list does the same on mount).
+ * Mounted useSWRInfinite food lists (history, quick-select), keyed by their
+ * `$inf$` cache key. Their bound `mutate()` refetches every loaded page, which a
+ * key-filter `mutate` cannot do (it skips `$inf$` entries, and a plain revalidation
+ * of an infinite key only refetches the first page). See `useFoodListInvalidation`.
+ */
+const mountedFoodLists = new Map<string, () => Promise<unknown>>();
+
+export function registerFoodList(infiniteKey: string, revalidateAll: () => Promise<unknown>): () => void {
+  mountedFoodLists.set(infiniteKey, revalidateAll);
+  return () => {
+    if (mountedFoodLists.get(infiniteKey) === revalidateAll) mountedFoodLists.delete(infiniteKey);
+  };
+}
+
+/**
+ * Refresh every page of mounted food lists; drop the cached pages of unmounted
+ * ones so they start again from page 1 (fresh) when next shown.
  */
 function revalidateInfiniteLists(prefixes: readonly string[]): Promise<unknown[]> {
   const { cache } = SWRConfig.defaultValue;
   const pending: Promise<unknown>[] = [];
-  for (const key of cache.keys()) {
-    if (
-      key.startsWith("$inf$") &&
-      prefixes.some((prefix) => key.startsWith(`$inf$${prefix}`))
-    ) {
-      pending.push(mutate(key));
+  for (const key of Array.from(cache.keys())) {
+    if (!prefixes.some((prefix) => key.startsWith(`$inf$${prefix}`))) continue;
+    const revalidateAll = mountedFoodLists.get(key);
+    if (revalidateAll) {
+      pending.push(revalidateAll());
+    } else {
+      cache.delete(key);
     }
   }
   return Promise.all(pending);

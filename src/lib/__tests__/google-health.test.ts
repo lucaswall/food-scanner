@@ -1124,6 +1124,19 @@ describe("google-health", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    it("a 401 caller joining an in-flight fast-path read still forces a refresh", async () => {
+      getHealthTokensMock.mockResolvedValue({ ...makeFreshRow(), accessToken: "revoked-token" });
+      fetchMock.mockResolvedValue(makeJsonResponse({ access_token: "new-token", expires_in: 3600 }));
+      updateHealthTokensMock.mockResolvedValue(true);
+
+      const plain = ensureFreshToken("user-a", fakeLog);
+      const forced = ensureFreshToken("user-a", fakeLog, { rejectedAccessToken: "revoked-token" });
+
+      await expect(plain).resolves.toBe("revoked-token");
+      await expect(forced).resolves.toBe("new-token");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it("rejectedAccessToken is ignored when the stored token was already replaced", async () => {
       getHealthTokensMock.mockResolvedValue({ ...makeFreshRow(), accessToken: "already-new" });
 
