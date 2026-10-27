@@ -281,6 +281,8 @@ function makeSseAnalyzeResponse(events: StreamEvent[]) {
   };
 }
 
+const mockLocationAssign = vi.fn();
+
 beforeEach(() => {
   mockFetch.mockReset();
   vi.clearAllMocks();
@@ -289,7 +291,7 @@ beforeEach(() => {
   // Prevent actual navigation
   Object.defineProperty(window, "location", {
     writable: true,
-    value: { href: "", assign: vi.fn(), replace: vi.fn() },
+    value: { href: "", origin: "http://localhost", assign: mockLocationAssign, replace: vi.fn() },
   });
 });
 
@@ -364,7 +366,7 @@ describe("FoodAnalyzer reconnect flow", () => {
       fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
-        expect(window.location.href).toBe("/api/auth/google-health");
+        expect(String(mockLocationAssign.mock.calls[0]?.[0])).toBe("http://localhost/api/auth/google-health");
       });
     });
 

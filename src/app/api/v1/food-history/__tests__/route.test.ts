@@ -147,6 +147,32 @@ describe("GET /api/v1/food-history", () => {
     );
   });
 
+  it.each([
+    ["endDate=2026-13-45", "calendar-invalid endDate"],
+    ["endDate=2026-02-30", "non-existent endDate"],
+    ["endDate=yesterday", "malformed endDate"],
+    ["lastDate=2026-02-30&lastId=5", "non-existent lastDate"],
+    ["lastDate=2026-02-10&lastId=12abc", "partly numeric lastId"],
+    ["lastDate=2026-02-10&lastId=7.5", "fractional lastId"],
+    ["lastDate=2026-02-10&lastId=99999999999", "lastId beyond int4"],
+    ["lastDate=2026-02-10&lastId=0", "zero lastId"],
+    ["lastDate=2026-02-10&lastId=5&lastTime=25:00:00", "out-of-range lastTime"],
+    ["lastDate=2026-02-10&lastId=5&lastTime=8am", "malformed lastTime"],
+    ["lastDate=2026-02-10", "lastDate without lastId"],
+    ["lastId=5", "lastId without lastDate"],
+  ])("returns 400 (not 500, not silently ignored) for %s (%s)", async (query) => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
+
+    const response = await GET(
+      createRequest(`http://localhost:3000/api/v1/food-history?${query}`, { Authorization: "Bearer valid-key" })
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe("VALIDATION_ERROR");
+    expect(mockGetFoodLogHistory).not.toHaveBeenCalled();
+  });
+
   it("clamps limit to min 1 and max 50, defaults to 20", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
     mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });

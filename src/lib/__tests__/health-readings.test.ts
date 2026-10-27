@@ -8,6 +8,7 @@ const mockOnConflictDoUpdate = vi.fn();
 const mockValues = vi.fn();
 const mockWhere = vi.fn();
 const mockOrderBy = vi.fn();
+const mockLimit = vi.fn();
 const mockAnd = vi.fn();
 const mockBetween = vi.fn();
 const mockEq = vi.fn();
@@ -37,7 +38,8 @@ function setupMocks() {
   mockInsert.mockReturnValue({ values: mockValues });
 
   // Setup default mock chain for select
-  mockOrderBy.mockResolvedValue([]);
+  mockLimit.mockResolvedValue([]);
+  mockOrderBy.mockReturnValue({ limit: mockLimit });
   mockWhere.mockReturnValue({ orderBy: mockOrderBy });
   mockFrom.mockReturnValue({ where: mockWhere });
   mockSelect.mockReturnValue({ from: mockFrom });
@@ -189,7 +191,7 @@ describe("getGlucoseReadings", () => {
   });
 
   it("queries single date with start-of-day and end-of-day bounds ordered ascending", async () => {
-    mockOrderBy.mockResolvedValueOnce([
+    mockLimit.mockResolvedValueOnce([
       {
         id: 1,
         measuredAt: new Date("2026-03-01T08:00:00.000Z"),
@@ -231,7 +233,7 @@ describe("getGlucoseReadings", () => {
   });
 
   it("queries date range with inclusive end-of-day bound ordered ascending", async () => {
-    mockOrderBy.mockResolvedValueOnce([]);
+    mockLimit.mockResolvedValueOnce([]);
     mockBetween.mockReturnValue("mocked-between-condition");
     mockEq.mockReturnValue("mocked-eq-condition");
     mockAnd.mockReturnValue("mocked-and-condition");
@@ -247,7 +249,7 @@ describe("getGlucoseReadings", () => {
   });
 
   it("returns empty array when no readings in range", async () => {
-    mockOrderBy.mockResolvedValueOnce([]);
+    mockLimit.mockResolvedValueOnce([]);
 
     const { getGlucoseReadings } = await import("@/lib/health-readings");
     const result = await getGlucoseReadings("user-123", "2026-03-01", "2026-03-07");
@@ -269,7 +271,7 @@ describe("getBloodPressureReadings", () => {
   });
 
   it("queries single date with start-of-day and end-of-day bounds ordered ascending", async () => {
-    mockOrderBy.mockResolvedValueOnce([
+    mockLimit.mockResolvedValueOnce([
       {
         id: 1,
         measuredAt: new Date("2026-03-01T09:00:00.000Z"),
@@ -309,7 +311,7 @@ describe("getBloodPressureReadings", () => {
   });
 
   it("queries date range with inclusive end-of-day bound ordered ascending", async () => {
-    mockOrderBy.mockResolvedValueOnce([]);
+    mockLimit.mockResolvedValueOnce([]);
     mockBetween.mockReturnValue("mocked-between-condition");
     mockEq.mockReturnValue("mocked-eq-condition");
     mockAnd.mockReturnValue("mocked-and-condition");
@@ -325,11 +327,102 @@ describe("getBloodPressureReadings", () => {
   });
 
   it("returns empty array when no readings in range", async () => {
-    mockOrderBy.mockResolvedValueOnce([]);
+    mockLimit.mockResolvedValueOnce([]);
 
     const { getBloodPressureReadings } = await import("@/lib/health-readings");
     const result = await getBloodPressureReadings("user-123", "2026-03-01", "2026-03-07");
 
     expect(result).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Batch dedupe, hydration, and row limit
+// ---------------------------------------------------------------------------
+describe("readings batch dedupe (same measuredAt in one batch, last wins)", () => {
+  beforeEach(() => {
+    setupMocks();
+    mockOnConflictDoUpdate.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("glucose: collapses duplicate instants (different offsets spelling the same instant) keeping the last", async () => {
+    const { upsertGlucoseReadings } = await import("@/lib/health-readings");
+
+    const count = await upsertGlucoseReadings("user-123", [
+      { measuredAt: "2026-03-01T08:00:00.000Z", zoneOffset: null, valueMgDl: 90, relationToMeal: null, mealType: null, specimenSource: null },
+      { measuredAt: "2026-03-01T09:00:00.000Z", zoneOffset: null, valueMgDl: 110, relationToMeal: null, mealType: null, specimenSource: null },
+      { measuredAt: "2026-03-01T05:00:00-03:00", zoneOffset: "-03:00", valueMgDl: 95, relationToMeal: null, mealType: null, specimenSource: null },
+    ]);
+
+    expect(count).toBe(2);
+    const values = mockValues.mock.calls[0][0] as { valueMgDl: string }[];
+    expect(values).toHaveLength(2);
+    // the 08:00Z instant keeps the LAST submitted value (95), listed after the 09:00Z reading
+    expect(values.map((v) => v.valueMgDl)).toEqual(["110", "95"]);
+  });
+
+  it("blood pressure: collapses duplicate instants keeping the last", async () => {
+    const { upsertBloodPressureReadings } = await import("@/lib/health-readings");
+
+    const count = await upsertBloodPressureReadings("user-123", [
+      { measuredAt: "2026-03-01T08:00:00Z", zoneOffset: null, systolic: 120, diastolic: 80, bodyPosition: null, measurementLocation: null },
+      { measuredAt: "2026-03-01T08:00:00Z", zoneOffset: null, systolic: 130, diastolic: 85, bodyPosition: null, measurementLocation: null },
+    ]);
+
+    expect(count).toBe(1);
+    const values = mockValues.mock.calls[0][0] as { systolic: number }[];
+    expect(values).toHaveLength(1);
+    expect(values[0].systolic).toBe(130);
+  });
+
+  it("hydration: collapses duplicate instants keeping the last", async () => {
+    const { upsertHydrationReadings } = await import("@/lib/health-readings");
+
+    const count = await upsertHydrationReadings("user-123", [
+      { measuredAt: "2026-03-01T08:00:00Z", zoneOffset: null, volumeMl: 200 },
+      { measuredAt: "2026-03-01T08:00:00Z", zoneOffset: null, volumeMl: 350 },
+    ]);
+
+    expect(count).toBe(1);
+    const values = mockValues.mock.calls[0][0] as { volumeMl: number }[];
+    expect(values).toEqual([expect.objectContaining({ volumeMl: 350 })]);
+  });
+});
+
+describe("readings GET row limit", () => {
+  beforeEach(() => {
+    setupMocks();
+  });
+
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it.each([
+    ["getGlucoseReadings"],
+    ["getBloodPressureReadings"],
+    ["getHydrationReadings"],
+  ] as const)("%s requests MAX+1 rows and throws instead of truncating silently", async (fn) => {
+    const mod = await import("@/lib/health-readings");
+    const { MAX_READINGS_ROWS } = await import("@/lib/reading-validation");
+
+    mockLimit.mockResolvedValueOnce(new Array(MAX_READINGS_ROWS + 1).fill({}));
+    await expect(mod[fn]("user-123", "2026-03-01", "2026-03-31")).rejects.toThrow("READINGS_LIMIT_EXCEEDED");
+    expect(mockLimit).toHaveBeenCalledWith(MAX_READINGS_ROWS + 1);
+  });
+
+  it("hydration: returns mapped rows within the limit", async () => {
+    const { getHydrationReadings } = await import("@/lib/health-readings");
+    mockLimit.mockResolvedValueOnce([
+      { id: 1, measuredAt: new Date("2026-03-01T08:00:00.000Z"), zoneOffset: null, volumeMl: 250 },
+    ]);
+
+    const result = await getHydrationReadings("user-123", "2026-03-01", "2026-03-01");
+
+    expect(result).toEqual([{ id: 1, measuredAt: "2026-03-01T08:00:00.000Z", zoneOffset: null, volumeMl: 250 }]);
   });
 });

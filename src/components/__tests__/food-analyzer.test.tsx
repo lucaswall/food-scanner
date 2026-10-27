@@ -958,11 +958,12 @@ describe("FoodAnalyzer", () => {
   });
 
   it("saves pending and redirects on HEALTH_TOKEN_INVALID", async () => {
+    const mockLocationAssign = vi.fn();
     // Override window.location for this test
     const originalLocation = window.location;
     Object.defineProperty(window, "location", {
       writable: true,
-      value: { ...originalLocation, href: "" },
+      value: { ...originalLocation, href: "", origin: "http://localhost", assign: mockLocationAssign },
     });
 
     const { savePendingSubmission } = await import("@/lib/pending-submission");
@@ -1000,7 +1001,7 @@ describe("FoodAnalyzer", () => {
 
     await waitFor(() => {
       expect(savePendingSubmission).toHaveBeenCalled();
-      expect(window.location.href).toBe("/api/auth/google-health");
+      expect(String(mockLocationAssign.mock.calls[0]?.[0])).toBe("http://localhost/api/auth/google-health");
     });
 
     // Restore

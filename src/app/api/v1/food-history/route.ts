@@ -2,13 +2,11 @@ import { validateApiRequest, hashForRateLimit } from "@/lib/api-auth";
 import { conditionalResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getFoodLogHistory } from "@/lib/food-log";
+import { parseFoodHistoryParams } from "@/lib/food-history-params";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 const RATE_LIMIT_MAX = 60;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
-
-const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
-const TIME_REGEX = /^\d{2}:\d{2}:\d{2}$/;
 
 export async function GET(request: Request) {
   const log = createRequestLogger("GET", "/api/v1/food-history");
@@ -28,19 +26,12 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const endDateParam = searchParams.get("endDate");
-  const endDate = endDateParam && DATE_REGEX.test(endDateParam) ? endDateParam : undefined;
-
-  const lastDateParam = searchParams.get("lastDate");
-  const lastDate = lastDateParam && DATE_REGEX.test(lastDateParam) ? lastDateParam : null;
-  const lastTimeParam = searchParams.get("lastTime");
-  const lastTime = lastTimeParam && TIME_REGEX.test(lastTimeParam) ? lastTimeParam : null;
-  const lastIdParam = searchParams.get("lastId");
-  const lastId = lastIdParam ? parseInt(lastIdParam, 10) : NaN;
-
-  const cursor = lastDate && !Number.isNaN(lastId)
-    ? { lastDate, lastTime: lastTime || null, lastId }
-    : undefined;
+  const parsedParams = parseFoodHistoryParams(searchParams);
+  if ("error" in parsedParams) {
+    log.warn({ action: "v1_food_history_validation" }, "invalid query parameters");
+    return errorResponse("VALIDATION_ERROR", parsedParams.error, 400);
+  }
+  const { endDate, cursor } = parsedParams;
 
   const limitParam = searchParams.get("limit");
   const parsedLimit = limitParam ? parseInt(limitParam, 10) : NaN;
