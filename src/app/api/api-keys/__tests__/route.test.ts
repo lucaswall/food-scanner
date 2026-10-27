@@ -117,6 +117,24 @@ describe("POST /api/api-keys", () => {
     expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
+  it("returns 400 VALIDATION_ERROR when name is longer than 100 characters", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const response = await POST(createRequest({ name: "x".repeat(101) }));
+
+    expect(response.status).toBe(400);
+    expect(mockCreateApiKey).not.toHaveBeenCalled();
+  });
+
+  it("trims the name before storing it", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockCreateApiKey.mockResolvedValue({ id: 1, name: "My Script", rawKey: "fsk_x", keyPrefix: "x", createdAt: new Date() });
+
+    await POST(createRequest({ name: "  My Script  " }));
+
+    expect(mockCreateApiKey).toHaveBeenCalledWith("user-uuid-123", "My Script", expect.anything());
+  });
+
   it("returns 400 VALIDATION_ERROR when name is not a string", async () => {
     mockGetSession.mockResolvedValue(validSession);
 

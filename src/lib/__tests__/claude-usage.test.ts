@@ -48,6 +48,8 @@ vi.mock("@/db/schema", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((col, val) => ({ col, val, _type: "eq" })),
+  gte: vi.fn((col, val) => ({ col, val, _type: "gte" })),
+  and: vi.fn((...args: unknown[]) => ({ args, _type: "and" })),
   sql: vi.fn((parts, ...values) => ({ parts, values, _type: "sql" })),
 }));
 
@@ -308,6 +310,23 @@ describe("getMonthlyUsage", () => {
       totalOutputTokens: 2500,
       totalCostUsd: "0.052500",
     });
+  });
+
+  it("bounds the query to the requested number of months", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-27T12:00:00Z"));
+    try {
+      const { getMonthlyUsage } = await import("@/lib/claude-usage");
+      const { gte } = await import("drizzle-orm");
+      mockLimit.mockResolvedValue([]);
+
+      await getMonthlyUsage("user-uuid-123", 3);
+
+      const call = vi.mocked(gte).mock.calls.at(-1)!;
+      expect(call[1]).toEqual(new Date("2026-08-01T00:00:00Z"));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns empty array when no usage exists", async () => {

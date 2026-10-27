@@ -5,7 +5,7 @@
  *
  * IMPORTANT: point INTEGRATION_DATABASE_URL at a dedicated throwaway Postgres
  * instance — NEVER at DATABASE_URL (dev/prod). The lead applies the schema
- * first via `drizzle-kit push` (see MIGRATIONS.md for the exact setup commands).
+ * first via `drizzle-kit push` (see "Integration tests" in DEVELOPMENT.md for the exact setup commands).
  *
  * These tests are excluded from the default `npm test` loop. They require a
  * live DB, take longer (~30 s), and are run as an E2E gate after merge.

@@ -2,6 +2,12 @@ import { createHash } from "crypto";
 import { errorResponse } from "@/lib/api-response";
 import { validateApiKey } from "@/lib/api-keys";
 import { logger } from "@/lib/logger";
+import { checkRateLimit } from "@/lib/rate-limit";
+
+// One aggregate bucket per presented key across all /api/v1 routes, checked BEFORE the
+// key lookup so floods (valid, revoked or garbage keys) never reach the database.
+const V1_KEY_RATE_LIMIT_MAX = 150;
+const V1_KEY_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 
 export async function validateApiRequest(
   request: Request,
@@ -20,6 +26,17 @@ export async function validateApiRequest(
   }
 
   const rawKey = match[1];
+
+  const { allowed } = checkRateLimit(
+    `v1:all:${hashForRateLimit(rawKey)}`,
+    V1_KEY_RATE_LIMIT_MAX,
+    V1_KEY_RATE_LIMIT_WINDOW_MS,
+  );
+  if (!allowed) {
+    logger.warn({ action: "api_auth_rate_limited" }, "API key rate limit exceeded");
+    return errorResponse("RATE_LIMIT_EXCEEDED", "Too many requests. Please try again later.", 429);
+  }
+
   const result = await validateApiKey(rawKey);
 
   if (!result) {

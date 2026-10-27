@@ -130,21 +130,6 @@ export type WeightGoalType = "LOSE" | "MAINTAIN" | "GAIN";
 const WEIGHT_GOAL_TYPES: readonly WeightGoalType[] = ["LOSE", "MAINTAIN", "GAIN"];
 
 /**
- * Read the local display-only weight-goal direction for the user.
- * Returns null when the user has not selected one.
- */
-export async function getWeightGoalType(userId: string): Promise<WeightGoalType | null> {
-  const db = getDb();
-  const rows = await db
-    .select({ weightGoalType: users.weightGoalType })
-    .from(users)
-    .where(eq(users.id, userId));
-
-  const value = rows[0]?.weightGoalType ?? null;
-  return value as WeightGoalType | null;
-}
-
-/**
  * Persist the local weight-goal direction. Validates the enum (throws on an
  * out-of-range value) and scopes the write by userId. Pass null to clear it.
  */

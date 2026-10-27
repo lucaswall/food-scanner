@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
+vi.stubEnv("ALLOWED_EMAILS", "allowed@example.com");
 vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost:5432/test");
 
 vi.mock("@/lib/logger", () => ({
@@ -18,6 +19,7 @@ const mockReturning = vi.fn();
 const mockSelect = vi.fn();
 const mockFrom = vi.fn();
 const mockWhere = vi.fn();
+const mockInnerJoin = vi.fn();
 const mockUpdate = vi.fn();
 const mockSet = vi.fn();
 const mockUpdateWhere = vi.fn();
@@ -42,6 +44,7 @@ vi.mock("@/db/schema", () => ({
     revokedAt: "revoked_at",
     createdAt: "created_at",
   },
+  users: { id: "users.id", email: "users.email" },
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -56,7 +59,8 @@ beforeEach(() => {
   mockValues.mockReturnValue({ returning: mockReturning });
   mockReturning.mockResolvedValue([]);
   mockSelect.mockReturnValue({ from: mockFrom });
-  mockFrom.mockReturnValue({ where: mockWhere });
+  mockFrom.mockReturnValue({ where: mockWhere, innerJoin: mockInnerJoin });
+  mockInnerJoin.mockReturnValue({ where: mockWhere });
   mockWhere.mockResolvedValue([]);
   mockUpdate.mockReturnValue({ set: mockSet });
   mockSet.mockReturnValue({ where: mockUpdateWhere });
@@ -227,6 +231,8 @@ describe("validateApiKey", () => {
       id: 1,
       userId: "user-uuid-123",
       revokedAt: null,
+      lastUsedAt: null,
+      email: "allowed@example.com",
     }]);
 
     // Mock the update call for lastUsedAt
@@ -251,6 +257,8 @@ describe("validateApiKey", () => {
       id: 1,
       userId: "user-uuid-123",
       revokedAt: new Date("2026-01-15T10:00:00Z"),
+      lastUsedAt: null,
+      email: "allowed@example.com",
     }]);
 
     const result = await validateApiKey(rawKey);
@@ -275,6 +283,8 @@ describe("validateApiKey", () => {
       id: 1,
       userId: "user-uuid-123",
       revokedAt: null,
+      lastUsedAt: null,
+      email: "allowed@example.com",
     }]);
 
     mockUpdateReturning.mockResolvedValueOnce([]);
@@ -287,5 +297,37 @@ describe("validateApiKey", () => {
         lastUsedAt: expect.any(Date),
       })
     );
+  });
+
+  it("returns null and does not touch lastUsedAt when the owner is no longer in ALLOWED_EMAILS", async () => {
+    const { validateApiKey } = await import("@/lib/api-keys");
+    mockWhere.mockResolvedValueOnce([{
+      id: 1,
+      userId: "user-uuid-123",
+      revokedAt: null,
+      lastUsedAt: null,
+      email: "removed@example.com",
+    }]);
+
+    const result = await validateApiKey("fsk_abc123");
+
+    expect(result).toBeNull();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("skips the lastUsedAt write when it was refreshed within the last minute", async () => {
+    const { validateApiKey } = await import("@/lib/api-keys");
+    mockWhere.mockResolvedValueOnce([{
+      id: 1,
+      userId: "user-uuid-123",
+      revokedAt: null,
+      lastUsedAt: new Date(Date.now() - 5_000),
+      email: "allowed@example.com",
+    }]);
+
+    const result = await validateApiKey("fsk_abc123");
+
+    expect(result).toEqual({ userId: "user-uuid-123", keyId: 1 });
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 });

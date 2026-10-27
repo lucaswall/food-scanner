@@ -10,6 +10,8 @@ import { checkHealthConnection } from "@/lib/health-connection";
 let touchFailCount = 0;
 const TOUCH_FAIL_THRESHOLD = 3;
 
+const SESSION_LIFETIME_SECONDS = 30 * 24 * 60 * 60; // 30 days — matches DB session lifetime
+
 let _sessionOptions: SessionOptions | null = null;
 
 function getSessionOptions(): SessionOptions {
@@ -17,11 +19,15 @@ function getSessionOptions(): SessionOptions {
     _sessionOptions = {
       password: getRequiredEnv("SESSION_SECRET"),
       cookieName: "food-scanner-session",
+      // iron-session seals expire after `ttl` (default 14 days) independently of the cookie
+      // maxAge. Keep both equal to the DB session lifetime so the seal never dies before
+      // the sliding DB expiry does.
+      ttl: SESSION_LIFETIME_SECONDS,
       cookieOptions: {
         httpOnly: true,
         secure: true,
         sameSite: "lax", // Must be "lax" for OAuth redirect flows
-        maxAge: 30 * 24 * 60 * 60, // 30 days
+        maxAge: SESSION_LIFETIME_SECONDS,
         path: "/",
       },
     };
@@ -54,6 +60,16 @@ export async function getSession(): Promise<FullSession | null> {
   // This debounces to at most once per day of active use (30 - 29 = 1 day window).
   const msUntilExpiry = dbSession.expiresAt.getTime() - Date.now();
   if (msUntilExpiry < TWENTY_NINE_DAYS_MS) {
+    // Re-seal the cookie so its seal expiry and maxAge slide together with the DB expiry.
+    // save() can't set cookies from a Server Component render — best effort only.
+    try {
+      await rawSession.save();
+    } catch (err) {
+      logger.debug(
+        { action: "session_cookie_refresh_skipped", error: err instanceof Error ? err.message : String(err) },
+        "could not refresh session cookie in this context",
+      );
+    }
     touchSession(dbSession.id).then(() => {
       touchFailCount = 0;
     }).catch((err) => {

@@ -143,7 +143,9 @@ export const claudeUsage = pgTable("claude_usage", {
   outputPricePerMToken: numeric("output_price_per_m_token").notNull(),
   costUsd: numeric("cost_usd").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => ({
+  userCreatedIdx: index("claude_usage_user_created_idx").on(table.userId, table.createdAt),
+}));
 
 export const nutritionLabels = pgTable("nutrition_labels", {
   id: serial("id").primaryKey(),

@@ -90,6 +90,43 @@ describe("validateApiRequest", () => {
   });
 });
 
+describe("validateApiRequest rate limiting", () => {
+  it("returns 429 before touching the database once the per-key bucket is exhausted", async () => {
+    mockValidateApiKey.mockResolvedValue({ userId: "user-123" });
+    const make = () =>
+      new Request("http://localhost:3000/api/v1/test", {
+        headers: { Authorization: "Bearer flood-key" },
+      });
+
+    for (let i = 0; i < 150; i++) {
+      await validateApiRequest(make());
+    }
+    mockValidateApiKey.mockClear();
+
+    const result = await validateApiRequest(make());
+
+    expect((result as Response).status).toBe(429);
+    const data = await (result as Response).json();
+    expect(data.error.code).toBe("RATE_LIMIT_EXCEEDED");
+    expect(mockValidateApiKey).not.toHaveBeenCalled();
+  });
+
+  it("throttles garbage keys too (no DB lookup after the limit)", async () => {
+    mockValidateApiKey.mockResolvedValue(null);
+    const make = () =>
+      new Request("http://localhost:3000/api/v1/test", {
+        headers: { Authorization: "Bearer garbage-key" },
+      });
+    for (let i = 0; i < 150; i++) await validateApiRequest(make());
+    mockValidateApiKey.mockClear();
+
+    const result = await validateApiRequest(make());
+
+    expect((result as Response).status).toBe(429);
+    expect(mockValidateApiKey).not.toHaveBeenCalled();
+  });
+});
+
 describe("hashForRateLimit", () => {
   it("returns a 16-char hex string", () => {
     const result = hashForRateLimit("fsk_abc123");
