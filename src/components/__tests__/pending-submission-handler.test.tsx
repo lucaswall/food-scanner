@@ -39,7 +39,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockGetPending.mockReturnValue(null);
   Object.defineProperty(window, "location", {
-    value: { href: "" },
+    value: { href: "", origin: "http://localhost:3000" },
     writable: true,
     configurable: true,
   });
@@ -175,7 +175,7 @@ describe("PendingSubmissionHandler", () => {
 
     await waitFor(() => {
       expect(mockSavePending).toHaveBeenCalledWith(pending);
-      expect(window.location.href).toBe("/api/auth/google-health");
+      expect(window.location.href).toBe("http://localhost:3000/api/auth/google-health");
     });
   });
 

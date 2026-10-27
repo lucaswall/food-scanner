@@ -28,7 +28,7 @@ import { useLogFood } from "@/hooks/use-log-food";
 import { compressImage } from "@/lib/image";
 import { getLocalDateTime, getDefaultMealType } from "@/lib/meal-type";
 import { savePendingSubmission } from "@/lib/pending-submission";
-import { hardNavigate } from "@/lib/hard-navigate";
+import { hardNavigate } from "@/lib/navigation";
 import { saveAnalysisForLater } from "@/lib/save-for-later";
 import { MiniNutritionCard } from "@/components/mini-nutrition-card";
 import type {

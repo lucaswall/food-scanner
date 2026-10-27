@@ -9,7 +9,7 @@ import {
 import { invalidateFoodCaches } from "@/lib/swr";
 import { clearSession } from "@/lib/analysis-session";
 import { getLocalDateTime } from "@/lib/meal-type";
-import { hardNavigate } from "@/lib/hard-navigate";
+import { hardNavigate } from "@/lib/navigation";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 

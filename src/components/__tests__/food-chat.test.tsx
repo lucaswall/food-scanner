@@ -2759,7 +2759,7 @@ describe("FoodChat edit mode", () => {
       // FOO-1173: the entryId must travel with the pending submission so the resumed save
       // updates this entry instead of logging a duplicate.
       expect(savePendingSubmission).toHaveBeenCalledWith(expect.objectContaining({ entryId: 42 }));
-      expect(window.location.href).toBe("/api/auth/google-health");
+      expect(window.location.href).toBe("http://localhost:3000/api/auth/google-health");
     });
 
     Object.defineProperty(window, "location", {
@@ -2918,7 +2918,7 @@ describe("FOO-750: editingEntryId in analyze mode", () => {
       expect(savePendingSubmission).toHaveBeenCalledWith(
         expect.objectContaining({ entryId: 99, date: "2026-02-14" })
       );
-      expect(window.location.href).toBe("/api/auth/google-health");
+      expect(window.location.href).toBe("http://localhost:3000/api/auth/google-health");
     });
 
     Object.defineProperty(window, "location", {
