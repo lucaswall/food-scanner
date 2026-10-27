@@ -38,7 +38,7 @@ interface CreatedKey {
 }
 
 export function ApiKeyManager() {
-  const { data, mutate } = useSWR<ApiKeyResponse>("/api/api-keys", apiFetcher);
+  const { data, error: loadError, isLoading, mutate } = useSWR<ApiKeyResponse>("/api/api-keys", apiFetcher);
   const [isGenerating, setIsGenerating] = useState(false);
   const [keyName, setKeyName] = useState("");
   const [createdKey, setCreatedKey] = useState<CreatedKey | null>(null);
@@ -63,6 +63,7 @@ export function ApiKeyManager() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: keyName }),
+        signal: AbortSignal.timeout(10000),
       });
 
       if (response.ok) {
@@ -106,6 +107,7 @@ export function ApiKeyManager() {
     try {
       const response = await fetch(`/api/api-keys/${revokeId}`, {
         method: "DELETE",
+        signal: AbortSignal.timeout(10000),
       });
 
       if (response.ok) {
@@ -180,7 +182,20 @@ export function ApiKeyManager() {
             </div>
           )}
 
-          {keys.length === 0 && !isGenerating && (
+          {isLoading && !data && (
+            <p className="text-sm text-muted-foreground">Loading API keys...</p>
+          )}
+
+          {loadError && !data && (
+            <div role="alert" className="space-y-2">
+              <p className="text-sm text-destructive">Failed to load API keys.</p>
+              <Button variant="outline" onClick={() => void mutate()} className="min-h-[44px]">
+                Retry
+              </Button>
+            </div>
+          )}
+
+          {data && keys.length === 0 && !isGenerating && (
             <p className="text-sm text-muted-foreground">No API keys</p>
           )}
 
@@ -216,8 +231,13 @@ export function ApiKeyManager() {
       </Card>
 
       {/* Created Key Dialog */}
-      <Dialog open={createdKey !== null} onOpenChange={() => setCreatedKey(null)}>
-        <DialogContent>
+      {/* The raw key is shown once: only Done dismisses it, never an outside tap or Escape */}
+      <Dialog open={createdKey !== null}>
+        <DialogContent
+          hideClose
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>API Key Created</DialogTitle>
             <DialogDescription>
@@ -232,14 +252,14 @@ export function ApiKeyManager() {
                 </AlertDescription>
               </Alert>
               <div className="flex gap-2">
-                <Button onClick={handleCopy} className="flex-1">
+                <Button onClick={handleCopy} className="flex-1 min-h-[44px]">
                   {copySuccess ? "Copied!" : "Copy"}
                 </Button>
               </div>
             </div>
           )}
           <DialogFooter>
-            <Button onClick={() => setCreatedKey(null)}>Done</Button>
+            <Button onClick={() => setCreatedKey(null)} className="min-h-[44px]">Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

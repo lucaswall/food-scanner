@@ -80,34 +80,13 @@ export function NutritionLabels() {
 
   const labels = data ?? [];
 
-  if (isLoading) {
-    return (
-      <div className="flex flex-col gap-4">
-        <Skeleton className="h-10 w-full rounded-md" />
-        <Skeleton className="h-20 rounded-lg" />
-        <Skeleton className="h-20 rounded-lg" />
-        <Skeleton className="h-20 rounded-lg" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-8">
-        <p className="text-sm text-destructive">Failed to load labels</p>
-        <Button variant="outline" className="mt-4 min-h-[44px]" onClick={() => mutate()}>
-          Retry
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <>
       <div className="flex flex-col gap-4">
         {deleteError && (
           <p className="text-sm text-destructive text-center">Failed to delete label. Please try again.</p>
         )}
+        {/* The search input stays mounted while results load or fail, so typing keeps focus */}
         <Input
           type="search"
           placeholder="Search labels..."
@@ -116,7 +95,24 @@ export function NutritionLabels() {
           className="min-h-[44px]"
         />
 
-        {labels.length === 0 && !debouncedSearch && (
+        {isLoading && (
+          <div className="flex flex-col gap-4">
+            <Skeleton className="h-20 rounded-lg" />
+            <Skeleton className="h-20 rounded-lg" />
+            <Skeleton className="h-20 rounded-lg" />
+          </div>
+        )}
+
+        {!isLoading && error && (
+          <div className="text-center py-8">
+            <p className="text-sm text-destructive">Failed to load labels</p>
+            <Button variant="outline" className="mt-4 min-h-[44px]" onClick={() => mutate()}>
+              Retry
+            </Button>
+          </div>
+        )}
+
+        {!isLoading && !error && labels.length === 0 && !debouncedSearch && (
           <div className="flex flex-col items-center gap-2 py-12 text-center">
             <p className="font-medium">No nutrition labels yet</p>
             <p className="text-sm text-muted-foreground">
@@ -125,13 +121,13 @@ export function NutritionLabels() {
           </div>
         )}
 
-        {labels.length === 0 && debouncedSearch && (
+        {!isLoading && !error && labels.length === 0 && debouncedSearch && (
           <div className="py-8 text-center">
             <p className="text-sm text-muted-foreground">No results</p>
           </div>
         )}
 
-        {labels.length > 0 && (
+        {!isLoading && !error && labels.length > 0 && (
           <div className="flex flex-col gap-3">
             {labels.map((label) => (
               <div key={label.id} className="flex items-center gap-2 rounded-lg border bg-card p-3">

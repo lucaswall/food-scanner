@@ -134,6 +134,30 @@ describe("NutritionLabels", () => {
     });
   });
 
+  it("keeps the same search input element mounted while a query loads and after it fails", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: sampleLabels }),
+    });
+    renderNutritionLabels();
+    const input = await screen.findByPlaceholderText("Search labels...");
+    await screen.findByText("Acme Foods");
+
+    // Next query never resolves quickly, then fails
+    let rejectSearch: (e: Error) => void = () => {};
+    mockFetch.mockImplementationOnce(
+      () => new Promise((_, reject) => { rejectSearch = reject; }),
+    );
+    fireEvent.change(input, { target: { value: "gran" } });
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+    expect(screen.getByPlaceholderText("Search labels...")).toBe(input);
+
+    await act(async () => { rejectSearch(new Error("network")); });
+    await screen.findByText("Failed to load labels");
+    expect(screen.getByPlaceholderText("Search labels...")).toBe(input);
+  });
+
   it("shows brand for second label", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,

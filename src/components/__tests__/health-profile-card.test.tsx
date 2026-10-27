@@ -9,9 +9,11 @@ vi.stubGlobal("fetch", mockFetch);
 const mockUseSWRImplementation = vi.fn();
 vi.mock("swr", () => ({
   default: (key: string, ...args: unknown[]) => mockUseSWRImplementation(key, ...args),
+  useSWRConfig: () => ({ mutate: (...args: unknown[]) => mockGlobalMutate(...args) }),
 }));
 
 const mockMutate = vi.fn();
+const mockGlobalMutate = vi.fn();
 
 const mockProfileData: HealthProfileData = {
   ageYears: 34,
@@ -209,5 +211,29 @@ describe("HealthProfileCard", () => {
       "/api/health-profile?refresh=1",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+  });
+
+  it("revalidates Today's Targets keys after a successful refresh", async () => {
+    mockUseSWRImplementation.mockImplementation((key: string) => {
+      if (key === "/api/health-profile") {
+        return { data: mockProfileData, error: null, isLoading: false, mutate: mockMutate };
+      }
+      return { data: null, error: null, isLoading: false };
+    });
+    mockFetch.mockResolvedValue({ ok: true });
+    mockMutate.mockResolvedValue(undefined);
+    mockGlobalMutate.mockResolvedValue(undefined);
+
+    const { HealthProfileCard } = await import("@/components/health-profile-card");
+    render(<HealthProfileCard />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /refresh from google health/i }));
+    });
+
+    expect(mockGlobalMutate).toHaveBeenCalledTimes(1);
+    const matcher = mockGlobalMutate.mock.calls[0][0] as (key: unknown) => boolean;
+    expect(matcher("/api/nutrition-goals?clientDate=2026-01-14")).toBe(true);
+    expect(matcher("/api/health-profile")).toBe(false);
   });
 });

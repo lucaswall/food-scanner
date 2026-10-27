@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
-import useSWR from "swr";
+import { useState, useEffect, useRef, useCallback } from "react";
+import useSWR, { useSWRConfig } from "swr";
 import useSWRInfinite from "swr/infinite";
 import { apiFetcher } from "@/lib/swr";
 import { FoodLogConfirmation } from "./food-log-confirmation";
@@ -81,9 +81,11 @@ export function QuickSelect() {
     isValidating,
     mutate,
   } = useSWRInfinite<PaginatedFoodsPage>(getKey, apiFetcher, {
-    revalidateFirstPage: true,
+    revalidateAll: true,
     revalidateOnFocus: false,
   });
+
+  const { mutate: globalMutate } = useSWRConfig();
 
   const { data: searchData, isLoading: searchLoading, error: searchError } = useSWR<{ foods: CommonFood[] }>(
     isSearchActive ? `/api/search-foods?q=${encodeURIComponent(debouncedQuery)}` : null,
@@ -98,17 +100,15 @@ export function QuickSelect() {
 
   // Infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const isValidatingRef = useRef(false);
 
-  useLayoutEffect(() => {
-    isValidatingRef.current = isValidating;
-  }, [isValidating]);
-
+  // isValidating is a dependency so the observer is recreated when a fetch finishes;
+  // a new observer reports the sentinel's current intersection immediately, so a
+  // sentinel that became visible mid-validation can't stall the list.
   useEffect(() => {
-    if (!sentinelRef.current || !hasMore || isSearchActive) return;
+    if (!sentinelRef.current || !hasMore || isSearchActive || isValidating) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && hasMore && !isValidatingRef.current) {
+        if (entries[0]?.isIntersecting) {
           setSize((s) => s + 1);
         }
       },
@@ -116,7 +116,7 @@ export function QuickSelect() {
     );
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [hasMore, setSize, isSearchActive]);
+  }, [hasMore, setSize, isSearchActive, isValidating]);
 
   const [selectedFood, setSelectedFood] = useState<CommonFood | null>(null);
   const [mealTypeId, setMealTypeId] = useState(getDefaultMealType());
@@ -129,11 +129,19 @@ export function QuickSelect() {
   const handleToggleFavorite = async (food: CommonFood, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await fetch(`/api/custom-foods/${food.customFoodId}/favorite`, { method: "PATCH" });
-      mutate();
+      const res = await fetch(`/api/custom-foods/${food.customFoodId}/favorite`, {
+        method: "PATCH",
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) return;
     } catch {
-      // no-op: SWR revalidation will correct state
+      return;
     }
+    // Refresh both the paginated lists and any active search results
+    void mutate();
+    void globalMutate(
+      (key) => typeof key === "string" && key.startsWith("/api/search-foods"),
+    );
   };
 
   const handleSelectFood = (food: CommonFood) => {

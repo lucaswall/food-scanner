@@ -13,27 +13,25 @@ export function ChatPageClient() {
   const [loggedMealTypeId, setLoggedMealTypeId] = useState<number | null>(null);
 
   return (
-    <main id="main-content" className="contents">
-      <div className="flex flex-col h-[calc(100dvh-5rem)]">
-        {logResponse && loggedAnalysis ? (
-          <FoodLogConfirmation
-            response={logResponse}
-            foodName={loggedAnalysis.food_name}
-            analysis={loggedAnalysis}
-            mealTypeId={loggedMealTypeId ?? undefined}
-          />
-        ) : (
-          <FoodChat
-            title="Chat"
-            onClose={() => router.push("/app")}
-            onLogged={(response, analysis, mealTypeId) => {
-              setLogResponse(response);
-              setLoggedAnalysis(analysis);
-              setLoggedMealTypeId(mealTypeId);
-            }}
-          />
-        )}
-      </div>
-    </main>
+    <div className="flex flex-col h-[calc(100dvh-5rem)]">
+      {logResponse && loggedAnalysis ? (
+        <FoodLogConfirmation
+          response={logResponse}
+          foodName={loggedAnalysis.food_name}
+          analysis={loggedAnalysis}
+          mealTypeId={loggedMealTypeId ?? undefined}
+        />
+      ) : (
+        <FoodChat
+          title="Chat"
+          onClose={() => router.push("/app")}
+          onLogged={(response, analysis, mealTypeId) => {
+            setLogResponse(response);
+            setLoggedAnalysis(analysis);
+            setLoggedMealTypeId(mealTypeId);
+          }}
+        />
+      )}
+    </div>
   );
 }

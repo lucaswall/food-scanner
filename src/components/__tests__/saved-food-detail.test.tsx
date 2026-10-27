@@ -32,6 +32,13 @@ vi.mock("swr", () => ({
 
 vi.mock("@/lib/swr", () => ({
   apiFetcher: vi.fn(),
+  ApiError: class ApiError extends Error {
+    code: string;
+    constructor(message: string, code: string) {
+      super(message);
+      this.code = code;
+    }
+  },
   invalidateFoodCaches: mockInvalidateFoodCaches,
   invalidateSavedAnalysesCaches: mockInvalidateSavedAnalysesCaches,
 }));
@@ -281,11 +288,28 @@ describe("SavedFoodDetail", () => {
   });
 
   describe("Not found / error state", () => {
-    it("shows error message and back button when saved analysis not found", () => {
-      setupSWR({ savedAnalysis: null, savedError: new Error("Not found") });
+    it("shows error message and back button when saved analysis not found (404)", async () => {
+      const { ApiError } = await import("@/lib/swr");
+      setupSWR({ savedAnalysis: null, savedError: new ApiError("Not found", "NOT_FOUND") });
       render(<SavedFoodDetail savedId={42} />);
       expect(screen.getByTestId("saved-not-found")).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /back/i })).toBeInTheDocument();
+    });
+
+    it("shows a retryable error (not 'not found') for non-404 load failures", async () => {
+      const { ApiError } = await import("@/lib/swr");
+      const mutate = vi.fn();
+      mockUseSWR.mockImplementation((key: string | null) => {
+        if (key && typeof key === "string" && key.startsWith("/api/saved-analyses/")) {
+          return { data: undefined, isLoading: false, error: new ApiError("boom", "INTERNAL_ERROR"), mutate };
+        }
+        return { data: undefined, isLoading: false, error: null };
+      });
+      render(<SavedFoodDetail savedId={42} />);
+      expect(screen.queryByTestId("saved-not-found")).not.toBeInTheDocument();
+      expect(screen.getByTestId("saved-load-error")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+      expect(mutate).toHaveBeenCalled();
     });
   });
 
@@ -394,6 +418,29 @@ describe("SavedFoodDetail", () => {
       // Result is FoodMatch[] extracted from result.data.matches
       // Date objects become strings after JSON serialization through safeResponseJson
       expect(result).toEqual([{ ...mockMatch, lastLoggedAt: mockMatch.lastLoggedAt.toISOString() }]);
+    });
+  });
+
+  describe("find-matches fetcher errors", () => {
+    it("throws on a non-OK response instead of returning []", async () => {
+      let capturedFetcher: (() => Promise<unknown>) | null = null;
+      mockUseSWR.mockImplementation((key: unknown, fetcher?: unknown) => {
+        if (key && typeof key === "string" && key.startsWith("/api/saved-analyses/")) {
+          return { data: mockSavedAnalysis, isLoading: false, error: null };
+        }
+        if (key === "find-matches-42" && fetcher) {
+          capturedFetcher = fetcher as () => Promise<unknown>;
+        }
+        return { data: undefined, isLoading: false, error: null };
+      });
+      render(<SavedFoodDetail savedId={42} />);
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: vi.fn().mockResolvedValue(JSON.stringify({ success: false, error: { code: "INTERNAL_ERROR", message: "boom" } })),
+      });
+      await expect(capturedFetcher!()).rejects.toThrow("boom");
     });
   });
 

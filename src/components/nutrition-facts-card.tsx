@@ -1,5 +1,6 @@
 import { getUnitLabel, MEAL_TYPE_LABELS } from "@/types";
 import type { ServingUnit } from "@/types";
+import { formatGrams, formatWhole } from "@/lib/nutrient-format";
 
 interface NutritionFactsCardProps {
   foodName: string;
@@ -47,52 +48,52 @@ export function NutritionFactsCard({
       <div className="border-t-4 border-foreground dark:border-foreground/50 mt-2 pt-2">
         <div className="flex justify-between items-baseline">
           <span className="text-sm font-bold">Calories</span>
-          <span className="text-2xl font-bold">{calories}</span>
+          <span className="text-2xl font-bold">{formatWhole(calories)}</span>
         </div>
         {caloriesFromFat != null && (
           <div className="text-xs text-muted-foreground mt-0.5">
-            Calories from Fat {caloriesFromFat}
+            Calories from Fat {formatWhole(caloriesFromFat)}
           </div>
         )}
       </div>
       <div className="border-t border-foreground dark:border-foreground/50 mt-1 pt-1 space-y-1">
         <div className="flex justify-between text-sm">
           <span className="font-bold">Protein</span>
-          <span>{proteinG}g</span>
+          <span>{formatGrams(proteinG)}g</span>
         </div>
         <div className="flex justify-between text-sm">
           <span className="font-bold">Carbs</span>
-          <span>{carbsG}g</span>
+          <span>{formatGrams(carbsG)}g</span>
         </div>
         {sugarsG != null && (
           <div className="flex justify-between text-sm pl-4 text-muted-foreground">
             <span>Sugars</span>
-            <span>{sugarsG}g</span>
+            <span>{formatGrams(sugarsG)}g</span>
           </div>
         )}
         <div className="flex justify-between text-sm">
           <span className="font-bold">Fat</span>
-          <span>{fatG}g</span>
+          <span>{formatGrams(fatG)}g</span>
         </div>
         {saturatedFatG != null && (
           <div className="flex justify-between text-sm pl-4 text-muted-foreground">
             <span>Saturated Fat</span>
-            <span>{saturatedFatG}g</span>
+            <span>{formatGrams(saturatedFatG)}g</span>
           </div>
         )}
         {transFatG != null && (
           <div className="flex justify-between text-sm pl-4 text-muted-foreground">
             <span>Trans Fat</span>
-            <span>{transFatG}g</span>
+            <span>{formatGrams(transFatG)}g</span>
           </div>
         )}
         <div className="flex justify-between text-sm">
           <span className="font-bold">Fiber</span>
-          <span>{fiberG}g</span>
+          <span>{formatGrams(fiberG)}g</span>
         </div>
         <div className="flex justify-between text-sm">
           <span className="font-bold">Sodium</span>
-          <span>{sodiumMg}mg</span>
+          <span>{formatWhole(sodiumMg)}mg</span>
         </div>
       </div>
       {mealTypeId !== undefined && (

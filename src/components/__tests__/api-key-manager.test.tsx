@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ApiKeyManager } from "../api-key-manager";
 
@@ -105,6 +105,51 @@ describe("ApiKeyManager", () => {
 
     expect(screen.getByText(/only be shown once/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Copy/i })).toBeInTheDocument();
+  });
+
+  it("shows a load error with Retry instead of 'No API keys' when the list fails to load", async () => {
+    const user = userEvent.setup();
+    mockUseSWR.mockReturnValue({
+      data: undefined,
+      error: new Error("boom"),
+      isLoading: false,
+      mutate: mockMutate,
+    });
+    render(<ApiKeyManager />);
+
+    expect(screen.queryByText(/No API keys/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/failed to load api keys/i);
+    await user.click(screen.getByRole("button", { name: /retry/i }));
+    expect(mockMutate).toHaveBeenCalled();
+  });
+
+  it("does not dismiss the one-time key on Escape or outside click", async () => {
+    const user = userEvent.setup();
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { id: 1, name: "My Script", rawKey: "fsk_abc123def456", keyPrefix: "abc12345", createdAt: "2026-01-15T10:00:00.000Z" },
+      }),
+    });
+    render(<ApiKeyManager />);
+
+    await user.click(screen.getByRole("button", { name: /Generate API Key/i }));
+    await user.type(screen.getByLabelText(/Key Name/i), "My Script");
+    await user.click(screen.getByRole("button", { name: /Create/i }));
+    await waitFor(() => {
+      expect(screen.getByText("fsk_abc123def456")).toBeInTheDocument();
+    });
+
+    await user.keyboard("{Escape}");
+    fireEvent.pointerDown(document.body);
+    expect(screen.getByText("fsk_abc123def456")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^close$/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Done/i }));
+    await waitFor(() => {
+      expect(screen.queryByText("fsk_abc123def456")).not.toBeInTheDocument();
+    });
   });
 
   it("adds the new key to the list after dismissing raw key display", async () => {

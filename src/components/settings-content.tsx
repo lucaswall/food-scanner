@@ -12,6 +12,7 @@ import { HealthProfileCard } from "@/components/health-profile-card";
 import { DailyGoalsCard } from "@/components/daily-goals-card";
 import { TargetsCard } from "@/components/targets-card";
 import { getTodayDate } from "@/lib/date-utils";
+import { hardNavigate } from "@/lib/navigation";
 
 interface SessionInfo {
   email: string | null;
@@ -37,7 +38,7 @@ export function SettingsContent() {
     } catch {
       // Best-effort logout — redirect anyway to clear client state
     }
-    window.location.href = "/";
+    hardNavigate("/");
   }
 
   return (

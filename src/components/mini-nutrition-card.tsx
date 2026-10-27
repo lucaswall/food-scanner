@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { FoodAnalysis } from "@/types";
 import { getUnitLabel } from "@/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { formatGrams, formatWhole } from "@/lib/nutrient-format";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
 
 interface MiniNutritionCardProps {
@@ -45,7 +46,7 @@ export function MiniNutritionCard({
           {/* Calories */}
           <div className="flex items-baseline gap-1">
             <span className={`text-lg font-bold ${highlight(changed("calories"))}`}>
-              {analysis.calories}
+              {formatWhole(analysis.calories)}
             </span>
             <span className="text-xs text-muted-foreground">cal</span>
           </div>
@@ -53,13 +54,13 @@ export function MiniNutritionCard({
           {/* Macros row */}
           <div className="flex gap-3 text-xs">
             <span className={highlight(changed("protein_g"))}>
-              P: {analysis.protein_g}g
+              P: {formatGrams(analysis.protein_g)}g
             </span>
             <span className={highlight(changed("carbs_g"))}>
-              C: {analysis.carbs_g}g
+              C: {formatGrams(analysis.carbs_g)}g
             </span>
             <span className={highlight(changed("fat_g"))}>
-              F: {analysis.fat_g}g
+              F: {formatGrams(analysis.fat_g)}g
             </span>
           </div>
         </div>

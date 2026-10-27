@@ -32,6 +32,11 @@ describe("GET /api/health", () => {
     expect(body.data.status).toBe("ok");
   });
 
+  it("sets Cache-Control: private, no-cache", async () => {
+    const response = await GET();
+    expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
+  });
+
   it("logs debug on health check", async () => {
     await GET();
     expect(logger.debug).toHaveBeenCalledWith(

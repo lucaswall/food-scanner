@@ -760,37 +760,34 @@ describe("QuickSelect", () => {
       expect(mockObserve).toHaveBeenCalledTimes(1);
     });
 
-    it("observer is not recreated when isValidating changes", async () => {
-      // FOO-478: Observer should not be recreated when isValidating toggles
-      // This prevents rapid-fire pagination loops
+    it("observer is recreated when validation finishes so a visible sentinel cannot stall", async () => {
+      // A new IntersectionObserver reports the sentinel's current intersection, so
+      // a sentinel that became visible while a fetch was in flight still triggers the next page.
       let resolvePage2: ((value: unknown) => void) | null = null;
       const page2Promise = new Promise((resolve) => {
         resolvePage2 = resolve;
       });
 
+      mockFetch.mockReset();
       mockFetch
         .mockResolvedValueOnce(mockPaginatedResponse(mockFoods, { score: 0.5, id: 2 }))
         .mockReturnValueOnce(page2Promise);
 
       renderQuickSelect();
 
-      // Wait for initial load
       await waitFor(() => {
         expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
       });
 
-      // Observer set up once
       const initialObserveCount = mockObserve.mock.calls.length;
-      const initialDisconnectCount = mockDisconnect.mock.calls.length;
 
-      // Simulate intersection (triggers setSize, which starts validation)
       const calls = MockIntersectionObserver.mock.calls as unknown as [[IntersectionObserverCallback]];
       calls[0][0]([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
 
-      // Wait a bit for any potential re-renders
-      await new Promise(r => setTimeout(r, 50));
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+      });
 
-      // Resolve page 2 (ends validation) - keep hasMore=true with another cursor
       resolvePage2!({
         ok: true,
         json: () => Promise.resolve({
@@ -800,13 +797,8 @@ describe("QuickSelect", () => {
       });
 
       await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledTimes(2);
+        expect(mockObserve.mock.calls.length).toBeGreaterThan(initialObserveCount);
       });
-
-      // Observer should NOT have been recreated (no new disconnect/observe calls)
-      // since hasMore is still true and only isValidating changed
-      expect(mockDisconnect).toHaveBeenCalledTimes(initialDisconnectCount);
-      expect(mockObserve).toHaveBeenCalledTimes(initialObserveCount);
     });
 
     it("loading spinner has consistent w-6 h-6 border-2 sizing", async () => {
@@ -1412,6 +1404,54 @@ describe("QuickSelect", () => {
       expect(mockFetch).toHaveBeenCalledWith(
         "/api/custom-foods/10/favorite",
         expect.objectContaining({ method: "PATCH" }),
+      );
+    });
+
+    it("star tap in an active search refreshes the search results", async () => {
+      const searchResult = { ...favoriteFood, foodName: "Searched Oats" };
+      let searchCalls = 0;
+      mockFetch.mockImplementation((url: string, init?: { method?: string }) => {
+        if (init?.method === "PATCH") {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: { isFavorite: true } }) });
+        }
+        if (url.includes("/api/search-foods")) {
+          searchCalls++;
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: { foods: [searchResult] } }) });
+        }
+        return Promise.resolve(mockPaginatedResponse([favoriteFood]));
+      });
+
+      renderQuickSelect();
+      await waitFor(() => expect(screen.getByText("Favorite Oatmeal")).toBeInTheDocument());
+
+      fireEvent.change(screen.getByPlaceholderText("Search foods..."), { target: { value: "oat" } });
+      await waitFor(() => expect(screen.getByText("Searched Oats")).toBeInTheDocument());
+      expect(searchCalls).toBe(1);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /toggle favorite/i }));
+      });
+
+      await waitFor(() => expect(searchCalls).toBeGreaterThan(1));
+      mockFetch.mockReset();
+    });
+
+    it("failed favorite toggle (non-OK) does not refetch and passes a timeout signal", async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse([favoriteFood]))
+        .mockResolvedValueOnce({ ok: false, status: 500, json: () => Promise.resolve({ success: false }) });
+
+      renderQuickSelect();
+      await waitFor(() => expect(screen.getByText("Favorite Oatmeal")).toBeInTheDocument());
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /toggle favorite/i }));
+      });
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch).toHaveBeenLastCalledWith(
+        "/api/custom-foods/10/favorite",
+        expect.objectContaining({ method: "PATCH", signal: expect.any(AbortSignal) }),
       );
     });
 

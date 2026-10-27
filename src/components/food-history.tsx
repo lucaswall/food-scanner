@@ -102,7 +102,7 @@ export function FoodHistory() {
     mutate,
     error,
   } = useSWRInfinite<{ entries: FoodLogHistoryEntry[] }>(getKey, apiFetcher, {
-    revalidateFirstPage: true,
+    revalidateAll: true,
   });
 
   const {
@@ -122,14 +122,15 @@ export function FoodHistory() {
 
   // Infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const isValidatingRef = useRef(false);
-  isValidatingRef.current = isValidating;
 
+  // isValidating is a dependency so the observer is recreated when a fetch finishes;
+  // a new observer reports the sentinel's current intersection immediately, so a
+  // sentinel that became visible mid-validation can't stall the list.
   useEffect(() => {
-    if (!sentinelRef.current || !hasMore) return;
+    if (!sentinelRef.current || !hasMore || isValidating) return;
     const observer = new IntersectionObserver(
       (intersections) => {
-        if (intersections[0]?.isIntersecting && hasMore && !isValidatingRef.current) {
+        if (intersections[0]?.isIntersecting) {
           setSize((s) => s + 1);
         }
       },
@@ -137,12 +138,18 @@ export function FoodHistory() {
     );
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [hasMore, setSize]);
+  }, [hasMore, isValidating, setSize]);
 
   const handleJumpToDate = () => {
     if (!jumpDate) return;
     mutate(undefined, { revalidate: false });
     setEndDate(jumpDate);
+  };
+
+  const handleBackToLatest = () => {
+    mutate(undefined, { revalidate: false });
+    setEndDate(null);
+    setJumpDate("");
   };
 
   const handleToggleFavorite = async (entry: FoodLogHistoryEntry) => {
@@ -217,7 +224,7 @@ export function FoodHistory() {
     );
   }
 
-  if (entries.length === 0 && !error) {
+  if (entries.length === 0 && !error && !endDate) {
     return (
       <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
         <UtensilsCrossed data-testid="empty-state-icon" className="h-12 w-12 text-muted-foreground" />
@@ -257,6 +264,15 @@ export function FoodHistory() {
           Go
         </Button>
       </div>
+
+      {entries.length === 0 && endDate && !error && (
+        <div className="flex flex-col items-center py-8 space-y-4 text-center">
+          <p className="text-muted-foreground">No entries on or before {formatDateHeader(endDate)}</p>
+          <Button onClick={handleBackToLatest} variant="outline" className="min-h-[44px]">
+            Back to latest
+          </Button>
+        </div>
+      )}
 
       {error && (
         <div role="alert" className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
