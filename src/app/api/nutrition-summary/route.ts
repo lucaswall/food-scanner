@@ -2,7 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { conditionalResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getDailyNutritionSummary, getDateRangeNutritionSummary } from "@/lib/food-log";
-import { isValidDateFormat } from "@/lib/date-utils";
+import { isValidDateFormat, exceedsMaxDateRange, MAX_DATE_RANGE_DAYS } from "@/lib/date-utils";
 
 export async function GET(request: Request) {
   const log = createRequestLogger("GET", "/api/nutrition-summary");
@@ -85,6 +85,14 @@ export async function GET(request: Request) {
       return errorResponse(
         "VALIDATION_ERROR",
         "from date must be before or equal to to date",
+        400
+      );
+    }
+
+    if (exceedsMaxDateRange(from, to)) {
+      return errorResponse(
+        "VALIDATION_ERROR",
+        `Date range must not exceed ${MAX_DATE_RANGE_DAYS} days`,
         400
       );
     }

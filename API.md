@@ -228,7 +228,7 @@ weight — **not** a passthrough of an upstream goal.
 
 **Data source:** macro engine + Google Health weight read (30 req/min)
 
-**Query parameters:** `date`, or `from`/`to` for range mode. Omit for today.
+**Query parameters:** `date`, or `from`/`to` for range mode. Optional `clientDate` (`YYYY-MM-DD`, the caller's local today) is the default for single-date mode and decides which dates are treated as settled past days; without it the server's date is used. Range mode omits invalidated rows (reported as `not_computed` gaps). `stale: true` on a result means last-known-good goals were served after a transient Google Health error.
 
 **Response schema:** `NutritionGoals` — see `src/types/index.ts` for the authoritative shape
 (`calories`, `proteinG`, `carbsG`, `fatG`, `status`, and when blocked a `reason` + `hint`).
@@ -477,7 +477,7 @@ Results are ordered by `measuredAt` ascending.
 | GET | `/api/v1/common-foods` | 60/min | PostgreSQL | `tab`, `limit`, `cursor` |
 | GET | `/api/v1/search-foods` | 60/min | PostgreSQL | `q`, `limit` |
 | GET | `/api/v1/earliest-entry` | 60/min | PostgreSQL | None |
-| GET | `/api/v1/fasting` | 60/min | PostgreSQL | `date` or `from`/`to` |
+| GET | `/api/v1/fasting` | 60/min | PostgreSQL | `date` or `from`/`to` (range max 366 days) |
 | GET | `/api/v1/nutrition-goals` | 30/min | Macro engine + Google Health | `date` or `from`/`to` |
 | GET | `/api/v1/activity-summary` | 30/min | Google Health | `date` |
 | POST | `/api/v1/glucose-readings` | 60/min | PostgreSQL | Body: `readings[]` |

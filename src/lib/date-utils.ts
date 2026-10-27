@@ -65,6 +65,19 @@ export function addDays(dateStr: string, days: number): string {
   return `${year}-${month}-${day}`;
 }
 
+/** Maximum inclusive span (in days) accepted by date-range read endpoints. */
+export const MAX_DATE_RANGE_DAYS = 366;
+
+/**
+ * True when the inclusive range [from, to] spans more than MAX_DATE_RANGE_DAYS days.
+ * Both inputs must be valid YYYY-MM-DD strings.
+ */
+export function exceedsMaxDateRange(from: string, to: string): boolean {
+  const spanDays =
+    Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+  return spanDays > MAX_DATE_RANGE_DAYS;
+}
+
 /**
  * Check if a date string represents today.
  */

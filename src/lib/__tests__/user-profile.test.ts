@@ -255,7 +255,7 @@ describe("buildUserProfile", () => {
     const { buildUserProfile } = await import("@/lib/user-profile");
     await buildUserProfile(TEST_USER_ID, TEST_DATE);
 
-    expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith(TEST_USER_ID, TEST_DATE, expect.any(Object));
+    expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith(TEST_USER_ID, TEST_DATE, expect.any(Object), TEST_DATE);
     expect(mockGetNutritionSummary).toHaveBeenCalledWith(TEST_USER_ID, TEST_DATE);
   });
 

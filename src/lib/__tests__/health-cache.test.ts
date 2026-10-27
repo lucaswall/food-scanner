@@ -51,7 +51,6 @@ describe("health-cache", () => {
     targetDate: string,
     log?: Logger,
     criticality?: HealthCallCriticality,
-    zoneOffset?: string | null,
   ) => Promise<ActivitySummary>;
   let invalidateHealthProfileCache: (userId: string) => void;
 
@@ -243,24 +242,6 @@ describe("health-cache", () => {
 
       expect(mockGetHealthActivitySummary).toHaveBeenCalledWith("test-access-token", "2024-01-15", expect.any(Object), "user-1", "optional");
       expect(result).toEqual(mockActivity);
-    });
-
-    it("does NOT pass zoneOffset to getHealthActivitySummary (CivilDateTime forbids an offset; it stays in the cache key)", async () => {
-      mockGetHealthActivitySummary.mockResolvedValue(mockActivity);
-
-      await getCachedHealthActivitySummary("user-1", "2024-01-15", undefined, "optional", "-03:00");
-
-      expect(mockGetHealthActivitySummary).toHaveBeenCalledWith("test-access-token", "2024-01-15", expect.any(Object), "user-1", "optional");
-    });
-
-    it("keys the cache by zoneOffset (different offsets do not collide)", async () => {
-      mockGetHealthActivitySummary.mockResolvedValue(mockActivity);
-
-      await getCachedHealthActivitySummary("user-1", "2024-01-15", undefined, "optional", "-03:00");
-      await getCachedHealthActivitySummary("user-1", "2024-01-15", undefined, "optional", "+05:30");
-
-      // Same user+date but different civil-day windows → two distinct fetches.
-      expect(mockGetHealthActivitySummary).toHaveBeenCalledTimes(2);
     });
 
     it("returns cached value on second call within TTL", async () => {
@@ -515,6 +496,51 @@ describe("health-cache", () => {
       // user-size-user-0 was the oldest; it should have been evicted
       await mod.getCachedHealthProfile("size-user-0");
       expect(mockGetHealthProfile).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ─── expireHealthProfileCache / getHealthProfileSyncedAt ─────────────────
+
+  describe("expireHealthProfileCache", () => {
+    it("forces a refetch but keeps the last value as a serve-stale fallback when the refetch fails", async () => {
+      mockGetHealthProfile.mockResolvedValue(mockProfile);
+      mockGetHealthLatestWeightKg.mockResolvedValue(mockWeightLog);
+      const { expireHealthProfileCache } = await import("@/lib/health-cache");
+
+      await getCachedHealthProfile("user-1");
+      await getCachedHealthWeightKg("user-1", "2024-01-15");
+
+      expireHealthProfileCache("user-1");
+
+      // Refetch is attempted (cache was expired) ...
+      mockGetHealthProfile.mockRejectedValue(new Error("HEALTH_API_ERROR"));
+      mockGetHealthLatestWeightKg.mockRejectedValue(new Error("HEALTH_TIMEOUT"));
+      const profile = await getCachedHealthProfile("user-1");
+      const weight = await getCachedHealthWeightKg("user-1", "2024-01-15");
+
+      // ... and the last-known values survive the failure.
+      expect(mockGetHealthProfile).toHaveBeenCalledTimes(2);
+      expect(profile).toEqual(mockProfile);
+      expect(weight).toEqual(mockWeightLog);
+    });
+  });
+
+  describe("getHealthProfileSyncedAt", () => {
+    it("returns the time the data was fetched (oldest of profile + weight), null when absent", async () => {
+      mockGetHealthProfile.mockResolvedValue(mockProfile);
+      mockGetHealthLatestWeightKg.mockResolvedValue(mockWeightLog);
+      const { getHealthProfileSyncedAt } = await import("@/lib/health-cache");
+      expect(getHealthProfileSyncedAt("user-1", "2024-01-15")).toBeNull();
+
+      vi.useFakeTimers();
+      const t0 = Date.now();
+      vi.setSystemTime(t0);
+      await getCachedHealthProfile("user-1");
+      vi.setSystemTime(t0 + 5 * 60 * 1000);
+      await getCachedHealthWeightKg("user-1", "2024-01-15");
+      vi.setSystemTime(t0 + 10 * 60 * 1000);
+
+      expect(getHealthProfileSyncedAt("user-1", "2024-01-15")).toBe(t0);
     });
   });
 

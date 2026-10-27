@@ -347,7 +347,9 @@ const computeInFlight = new Map<string, Promise<ComputeResult>>();
 async function doCompute(
   userId: string,
   date: string,
-  log?: Logger,
+  log: Logger | undefined,
+  todayDate: string,
+  isCurrent: () => boolean,
 ): Promise<ComputeResult> {
   const l = log ?? logger;
 
@@ -364,7 +366,7 @@ async function doCompute(
       .where(eq(users.id, userId));
 
     const userSettings = userRows[0] as UserSettingsRow | undefined;
-    const isPast = date < getTodayDate();
+    const isPast = date < todayDate;
 
     // ── Step 2: Read existing row (early — past historical rows are stable
     //           regardless of current users.* state, so we can short-circuit
@@ -470,10 +472,12 @@ async function doCompute(
       fresh.goalRateKgPerWeek === userGoalRateKgPerWeek &&
       fresh.sex               === userSex;
 
-    if (!stillFresh) {
+    // An invalidation (settings change / health refresh) fired while this compute
+    // was running: its inputs are pre-invalidation, so do not persist them.
+    if (!stillFresh || !isCurrent()) {
       l.debug(
         { action: "daily_goals_compute_skipped_write_drift", userId, date },
-        "settings drifted during compute — returning fresh values without persisting",
+        "settings drifted or goals invalidated during compute — returning fresh values without persisting",
       );
       return buildOkResponseFromEngine(
         engineOut,
@@ -588,19 +592,48 @@ async function doCompute(
   }
 }
 
-// Non-async so concurrent callers receive the EXACT same Promise object reference
+// Per-user generation, bumped on every invalidation. A compute snapshots it at
+// start and refuses to persist if it changed (its inputs predate the invalidation).
+const goalsGeneration = new Map<string, number>();
+
+function getGoalsGeneration(userId: string): number {
+  return goalsGeneration.get(userId) ?? 0;
+}
+
+function bumpGoalsGeneration(userId: string): void {
+  goalsGeneration.set(userId, getGoalsGeneration(userId) + 1);
+}
+
+/**
+ * Non-async so concurrent callers receive the EXACT same Promise object reference.
+ *
+ * `todayDate` is the caller's local "today" (the client's date); it decides whether
+ * `date` is a stable past row. Defaults to the server's date.
+ */
 export function getOrComputeDailyGoals(
   userId: string,
   date: string,
   log?: Logger,
+  todayDate?: string,
 ): Promise<ComputeResult> {
   const key = `${userId}:${date}`;
   const inflight = computeInFlight.get(key);
   if (inflight) return inflight;
 
-  const promise = doCompute(userId, date, log).finally(() =>
-    computeInFlight.delete(key),
-  );
+  const generationAtStart = getGoalsGeneration(userId);
+  // `let !` so finally can compare against the bound promise (assigned before it runs).
+  let promise!: Promise<ComputeResult>;
+  // eslint-disable-next-line prefer-const
+  promise = doCompute(
+    userId,
+    date,
+    log,
+    todayDate ?? getTodayDate(),
+    () => getGoalsGeneration(userId) === generationAtStart,
+  ).finally(() => {
+    // Only evict our own entry — an invalidation may have replaced it.
+    if (computeInFlight.get(key) === promise) computeInFlight.delete(key);
+  });
   computeInFlight.set(key, promise);
   return promise;
 }
@@ -616,6 +649,7 @@ export async function invalidateUserDailyGoalsForSettingsChange(
   userId: string,
   fromDate: string,
 ): Promise<void> {
+  bumpGoalsGeneration(userId);
   // Clear in-flight promises for this user at fromDate and after
   for (const key of computeInFlight.keys()) {
     if (key.startsWith(`${userId}:`)) {
@@ -646,6 +680,7 @@ export async function invalidateUserDailyGoalsForDate(
   userId: string,
   date: string,
 ): Promise<void> {
+  bumpGoalsGeneration(userId);
   computeInFlight.delete(`${userId}:${date}`);
 
   await getDb()
@@ -668,38 +703,6 @@ export async function invalidateUserDailyGoalsForDate(
     .where(and(eq(dailyCalorieGoals.userId, userId), eq(dailyCalorieGoals.date, date)));
 }
 
-// ─── Accessors ────────────────────────────────────────────────────────────────
-
-export async function getDailyGoalsByDate(
-  userId: string,
-  date: string,
-): Promise<{
-  date: string;
-  calorieGoal: number;
-  proteinGoal: number | null;
-  carbsGoal: number | null;
-  fatGoal: number | null;
-  weightKg: string | null;
-  rmr: number | null;
-  tdee: number | null;
-} | null> {
-  const rows = await getDb()
-    .select({
-      date:        dailyCalorieGoals.date,
-      calorieGoal: dailyCalorieGoals.calorieGoal,
-      proteinGoal: dailyCalorieGoals.proteinGoal,
-      carbsGoal:   dailyCalorieGoals.carbsGoal,
-      fatGoal:     dailyCalorieGoals.fatGoal,
-      weightKg:    dailyCalorieGoals.weightKg,
-      rmr:         dailyCalorieGoals.rmr,
-      tdee:        dailyCalorieGoals.tdee,
-    })
-    .from(dailyCalorieGoals)
-    .where(and(eq(dailyCalorieGoals.userId, userId), eq(dailyCalorieGoals.date, date)));
-
-  return (rows[0] as typeof rows[0] | undefined) ?? null;
-}
-
 /**
  * Map a `ComputeResult` to the public `NutritionGoals` API response shape.
  * Shared by `/api/nutrition-goals` (internal) and `/api/v1/nutrition-goals`
@@ -715,6 +718,7 @@ export function mapComputeResultToNutritionGoals(result: ComputeResult): Nutriti
       status:   "ok",
       ...(result.audit ? { audit: result.audit } : {}),
       ...(result.weightStale ? { weightStale: true } : {}),
+      ...(result.stale ? { stale: true } : {}),
     };
   }
   return {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getTodayDate, formatDisplayDate, addDays, isToday, getWeekBounds, formatWeekRange, addWeeks, isValidDateFormat, isValidTimeFormat, formatTime, formatTimeFromDate } from "@/lib/date-utils";
+import { exceedsMaxDateRange, getTodayDate, formatDisplayDate, addDays, isToday, getWeekBounds, formatWeekRange, addWeeks, isValidDateFormat, isValidTimeFormat, formatTime, formatTimeFromDate } from "@/lib/date-utils";
 
 describe("getTodayDate", () => {
   it("returns today's date in YYYY-MM-DD format", () => {
@@ -89,6 +89,17 @@ describe("addDays", () => {
   it("returns same date when adding 0 days", () => {
     const result = addDays("2026-02-10", 0);
     expect(result).toBe("2026-02-10");
+  });
+});
+
+describe("exceedsMaxDateRange", () => {
+  it("allows a single day and up to 366 inclusive days", () => {
+    expect(exceedsMaxDateRange("2026-01-01", "2026-01-01")).toBe(false);
+    expect(exceedsMaxDateRange("2024-01-01", "2024-12-31")).toBe(false); // 366 days (leap year)
+  });
+
+  it("rejects spans over 366 inclusive days", () => {
+    expect(exceedsMaxDateRange("2024-01-01", "2025-01-01")).toBe(true); // 367 days
   });
 });
 

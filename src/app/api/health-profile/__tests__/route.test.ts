@@ -33,11 +33,13 @@ vi.mock("@/lib/logger", () => {
 
 const mockGetCachedHealthProfile = vi.fn();
 const mockGetCachedHealthWeightKg = vi.fn();
-const mockInvalidateHealthProfileCache = vi.fn();
+const mockExpireHealthProfileCache = vi.fn();
+const mockGetHealthProfileSyncedAt = vi.fn();
 vi.mock("@/lib/health-cache", () => ({
   getCachedHealthProfile: (...args: unknown[]) => mockGetCachedHealthProfile(...args),
   getCachedHealthWeightKg: (...args: unknown[]) => mockGetCachedHealthWeightKg(...args),
-  invalidateHealthProfileCache: (...args: unknown[]) => mockInvalidateHealthProfileCache(...args),
+  expireHealthProfileCache: (...args: unknown[]) => mockExpireHealthProfileCache(...args),
+  getHealthProfileSyncedAt: (...args: unknown[]) => mockGetHealthProfileSyncedAt(...args),
 }));
 
 const mockGetUserGoalSettings = vi.fn();
@@ -77,6 +79,7 @@ beforeEach(() => {
     weightGoalType: "LOSE",
   });
   mockInvalidateUserDailyGoalsForDate.mockResolvedValue(undefined);
+  mockGetHealthProfileSyncedAt.mockReturnValue(null);
 });
 
 describe("GET /api/health-profile", () => {
@@ -128,16 +131,45 @@ describe("GET /api/health-profile", () => {
     expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
   });
 
-  it("?refresh=1 invalidates health cache and daily goals", async () => {
-    const response = await GET(createRequest("http://localhost:3000/api/health-profile?refresh=1"));
+  it("?refresh=1 expires the health cache and, once data is refetched, invalidates the user's daily-goals row", async () => {
+    mockGetHealthProfileSyncedAt.mockImplementation(() => Date.now() + 1000);
+    const response = await GET(createRequest("http://localhost:3000/api/health-profile?refresh=1&clientDate=2026-05-07"));
     expect(response.status).toBe(200);
-    expect(mockInvalidateHealthProfileCache).toHaveBeenCalledWith("user-uuid-123");
-    expect(mockInvalidateUserDailyGoalsForDate).toHaveBeenCalledWith("user-uuid-123", expect.any(String));
+    expect(mockExpireHealthProfileCache).toHaveBeenCalledWith("user-uuid-123");
+    expect(mockGetCachedHealthWeightKg).toHaveBeenCalledWith("user-uuid-123", "2026-05-07", expect.anything(), "important");
+    expect(mockInvalidateUserDailyGoalsForDate).toHaveBeenCalledWith("user-uuid-123", "2026-05-07");
   });
 
-  it("?refresh=1 not present — no invalidation", async () => {
+  it("?refresh=1 does NOT invalidate goals when the refetch failed", async () => {
+    mockGetCachedHealthProfile.mockRejectedValue(new Error("HEALTH_API_ERROR"));
+    const response = await GET(createRequest("http://localhost:3000/api/health-profile?refresh=1"));
+    expect(response.status).toBe(502);
+    expect(mockInvalidateUserDailyGoalsForDate).not.toHaveBeenCalled();
+  });
+
+  it("?refresh=1 does NOT invalidate goals when stale data was served (nothing was refetched)", async () => {
+    mockGetHealthProfileSyncedAt.mockReturnValue(Date.now() - 3_600_000);
+    const response = await GET(createRequest("http://localhost:3000/api/health-profile?refresh=1"));
+    expect(response.status).toBe(200);
+    expect(mockInvalidateUserDailyGoalsForDate).not.toHaveBeenCalled();
+  });
+
+  it("lastSyncedAt reflects when the data was fetched, not the request time", async () => {
+    const fetchedAt = Date.now() - 600_000;
+    mockGetHealthProfileSyncedAt.mockReturnValue(fetchedAt);
+    const response = await GET(createRequest("http://localhost:3000/api/health-profile"));
+    const body = await response.json();
+    expect(body.data.lastSyncedAt).toBe(fetchedAt);
+  });
+
+  it("returns 400 for an invalid clientDate", async () => {
+    const response = await GET(createRequest("http://localhost:3000/api/health-profile?clientDate=nope"));
+    expect(response.status).toBe(400);
+  });
+
+  it("no refresh param — no invalidation", async () => {
     await GET(createRequest("http://localhost:3000/api/health-profile"));
-    expect(mockInvalidateHealthProfileCache).not.toHaveBeenCalled();
+    expect(mockExpireHealthProfileCache).not.toHaveBeenCalled();
     expect(mockInvalidateUserDailyGoalsForDate).not.toHaveBeenCalled();
   });
 

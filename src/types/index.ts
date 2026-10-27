@@ -681,4 +681,6 @@ export interface NutritionGoals {
   audit?: NutritionGoalsAudit;
   /** True when the health weight log used was logged > 7 days before the target date (FOO-1010). */
   weightStale?: boolean;
+  /** True when these are last-known-good goals served because a transient Google Health error blocked a fresh compute (P1-9). */
+  stale?: boolean;
 }

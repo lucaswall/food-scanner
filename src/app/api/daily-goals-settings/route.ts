@@ -3,7 +3,7 @@ import { successResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getUserGoalSettings, updateUserGoalSettings, SEX_VALUES, type Sex, type WeightGoalType } from "@/lib/users";
 import { invalidateUserDailyGoalsForSettingsChange } from "@/lib/daily-goals";
-import { getTodayDate } from "@/lib/date-utils";
+import { getTodayDate, isValidDateFormat } from "@/lib/date-utils";
 import type { ActivityLevel } from "@/types";
 
 /** ActivityLevel values — mirrors the union in @/types (added by schema migration). */
@@ -64,16 +64,24 @@ export async function GET() {
   const validationError = validateSession(session);
   if (validationError) return validationError;
 
-  const raw = await getUserGoalSettings(session!.userId);
+  try {
+    const raw = await getUserGoalSettings(session!.userId);
 
-  log.debug(
-    { action: "daily_goals_settings_get", userId: session!.userId },
-    "daily goals settings fetched",
-  );
+    log.debug(
+      { action: "daily_goals_settings_get", userId: session!.userId },
+      "daily goals settings fetched",
+    );
 
-  const response = successResponse(buildResponse(raw));
-  response.headers.set("Cache-Control", "private, no-cache");
-  return response;
+    const response = successResponse(buildResponse(raw));
+    response.headers.set("Cache-Control", "private, no-cache");
+    return response;
+  } catch (error) {
+    log.error(
+      { action: "daily_goals_settings_get_error", error: error instanceof Error ? error.message : String(error) },
+      "daily goals settings fetch failed",
+    );
+    return errorResponse("INTERNAL_ERROR", "Failed to fetch daily goals settings", 500);
+  }
 }
 
 export async function PATCH(request: Request) {
@@ -92,6 +100,16 @@ export async function PATCH(request: Request) {
   const raw = body as Record<string, unknown> | null;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return errorResponse("VALIDATION_ERROR", "Request body must be a JSON object", 400);
+  }
+
+  // Optional caller-local "today" (YYYY-MM-DD): goal invalidation starts from the user's
+  // own day, matching how the dashboard reads goals (`clientDate`). Defaults to server today.
+  let invalidateFrom = getTodayDate();
+  if ("clientDate" in raw && raw.clientDate !== undefined) {
+    if (typeof raw.clientDate !== "string" || !isValidDateFormat(raw.clientDate)) {
+      return errorResponse("VALIDATION_ERROR", "clientDate must be a YYYY-MM-DD date", 400);
+    }
+    invalidateFrom = raw.clientDate;
   }
 
   const update: {
@@ -167,26 +185,34 @@ export async function PATCH(request: Request) {
     update.weightGoalType = v === undefined ? null : (v as WeightGoalType | null);
   }
 
-  if (Object.keys(update).length === 0) {
-    const current = await getUserGoalSettings(session!.userId);
-    log.debug(
-      { action: "daily_goals_settings_patch_noop", userId: session!.userId },
-      "PATCH with empty body — no settings changed",
+  try {
+    if (Object.keys(update).length === 0) {
+      const current = await getUserGoalSettings(session!.userId);
+      log.debug(
+        { action: "daily_goals_settings_patch_noop", userId: session!.userId },
+        "PATCH with empty body — no settings changed",
+      );
+      return successResponse(buildResponse(current));
+    }
+
+    const updated = await updateUserGoalSettings(session!.userId, update);
+    await invalidateUserDailyGoalsForSettingsChange(session!.userId, invalidateFrom);
+
+    log.info(
+      {
+        action: "daily_goals_settings_patch",
+        userId: session!.userId,
+        fields: Object.keys(update),
+      },
+      "daily goals settings updated; daily goals invalidated",
     );
-    return successResponse(buildResponse(current));
+
+    return successResponse(buildResponse(updated));
+  } catch (error) {
+    log.error(
+      { action: "daily_goals_settings_patch_error", error: error instanceof Error ? error.message : String(error) },
+      "daily goals settings update failed",
+    );
+    return errorResponse("INTERNAL_ERROR", "Failed to update daily goals settings", 500);
   }
-
-  const updated = await updateUserGoalSettings(session!.userId, update);
-  await invalidateUserDailyGoalsForSettingsChange(session!.userId, getTodayDate());
-
-  log.info(
-    {
-      action: "daily_goals_settings_patch",
-      userId: session!.userId,
-      fields: Object.keys(update),
-    },
-    "daily goals settings updated; daily goals invalidated",
-  );
-
-  return successResponse(buildResponse(updated));
 }
