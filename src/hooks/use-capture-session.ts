@@ -120,8 +120,13 @@ export function useCaptureSession(): UseCaptureSessionReturn {
   }, [setStateWithRef]);
 
   const addCapture = useCallback(async (images: Blob[], note: string | null) => {
+    // The session may have been cleared since mount ("Clear All" then add) — start a new one
+    // rather than silently discarding the capture.
+    if (!stateRef.current.sessionId) {
+      startSession();
+    }
     const { sessionId, captures } = stateRef.current;
-    if (!sessionId) return;
+    if (!sessionId) throw new Error("No active capture session");
 
     // Compress images (skip if text-only capture)
     const compressed = images.length > 0
@@ -154,7 +159,7 @@ export function useCaptureSession(): UseCaptureSessionReturn {
 
     const newState = { ...stateRef.current, captures: updatedCaptures };
     setStateWithRef(newState);
-  }, [setStateWithRef]);
+  }, [setStateWithRef, startSession]);
 
   const removeCapture = useCallback((captureId: string) => {
     const { sessionId, captures } = stateRef.current;

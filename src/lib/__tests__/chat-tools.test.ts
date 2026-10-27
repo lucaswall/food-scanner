@@ -45,14 +45,12 @@ const mockSearchLabels = vi.fn();
 const mockInsertLabel = vi.fn();
 const mockUpdateLabel = vi.fn();
 const mockDeleteLabel = vi.fn();
-const mockGetLabelById = vi.fn();
 const mockFindDuplicateLabel = vi.fn();
 vi.mock("@/lib/nutrition-labels", () => ({
   searchLabels: (...args: unknown[]) => mockSearchLabels(...args),
   insertLabel: (...args: unknown[]) => mockInsertLabel(...args),
   updateLabel: (...args: unknown[]) => mockUpdateLabel(...args),
   deleteLabel: (...args: unknown[]) => mockDeleteLabel(...args),
-  getLabelById: (...args: unknown[]) => mockGetLabelById(...args),
   findDuplicateLabel: (...args: unknown[]) => mockFindDuplicateLabel(...args),
 }));
 
@@ -1584,5 +1582,78 @@ describe("executeTool - new tool router dispatching", () => {
     mockDeleteLabel.mockResolvedValue(true);
     await executeTool("manage_nutrition_label", { action: "delete", label_id: 1, update_fields: null }, "user-123", "2026-03-28");
     expect(mockDeleteLabel).toHaveBeenCalled();
+  });
+});
+
+describe("executeTool - nutrition label input validation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const PARAMS = {
+    brand: "Brand",
+    product_name: "Prod",
+    variant: null,
+    serving_size_g: 100,
+    serving_size_label: "1 cup",
+    calories: 130.6,
+    protein_g: 6,
+    carbs_g: 9,
+    fat_g: 6,
+    fiber_g: 0,
+    sodium_mg: 100,
+    saturated_fat_g: null,
+    trans_fat_g: null,
+    sugars_g: null,
+    extra_nutrients: null,
+    notes: null,
+  };
+
+  it("rounds fractional calories before writing", async () => {
+    mockFindDuplicateLabel.mockResolvedValue([]);
+    mockInsertLabel.mockResolvedValue({ id: 1, createdAt: new Date() });
+    await executeTool("save_nutrition_label", PARAMS, "user-123", "2026-03-28");
+    expect(mockInsertLabel).toHaveBeenCalledWith("user-123", expect.objectContaining({ calories: 131 }), expect.anything());
+  });
+
+  it.each([
+    ["calories", NaN],
+    ["protein_g", -1],
+    ["sodium_mg", Infinity],
+    ["calories", "abc"],
+  ])("rejects invalid %s=%s without writing", async (field, value) => {
+    const result = await executeTool("save_nutrition_label", { ...PARAMS, [field]: value }, "user-123", "2026-03-28");
+    expect(result).toContain("Error");
+    expect(result).toContain(field);
+    expect(mockInsertLabel).not.toHaveBeenCalled();
+    expect(mockUpdateLabel).not.toHaveBeenCalled();
+  });
+
+  it("rejects empty brand", async () => {
+    const result = await executeTool("save_nutrition_label", { ...PARAMS, brand: "  " }, "user-123", "2026-03-28");
+    expect(result).toContain("brand");
+    expect(mockFindDuplicateLabel).not.toHaveBeenCalled();
+  });
+
+  it("manage update rejects negative values and rounds calories", async () => {
+    const bad = await executeTool(
+      "manage_nutrition_label",
+      { action: "update", label_id: 5, update_fields: { fat_g: -3 } },
+      "user-123",
+      "2026-03-28"
+    );
+    expect(bad).toContain("Error");
+    expect(mockUpdateLabel).not.toHaveBeenCalled();
+
+    mockUpdateLabel.mockResolvedValue({
+      id: 5, brand: "B", productName: "P", variant: null, calories: 101, proteinG: 1, carbsG: 1, fatG: 1,
+    });
+    await executeTool(
+      "manage_nutrition_label",
+      { action: "update", label_id: 5, update_fields: { calories: 100.5 } },
+      "user-123",
+      "2026-03-28"
+    );
+    expect(mockUpdateLabel).toHaveBeenCalledWith("user-123", 5, expect.objectContaining({ calories: 101 }), expect.anything());
   });
 });

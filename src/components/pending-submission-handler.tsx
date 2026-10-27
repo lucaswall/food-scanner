@@ -9,6 +9,7 @@ import {
 import { invalidateFoodCaches } from "@/lib/swr";
 import { clearSession } from "@/lib/analysis-session";
 import { getLocalDateTime } from "@/lib/meal-type";
+import { hardNavigate } from "@/lib/navigation";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 
@@ -23,6 +24,9 @@ export function PendingSubmissionHandler() {
     async function handlePendingSubmission() {
       const pending = getPendingSubmission();
       if (!pending) return;
+      // Claim the submission before any await: it is re-saved only on HEALTH_TOKEN_INVALID.
+      // Without this, a re-mount (or a second consumer) could resubmit the same entry twice.
+      clearPendingSubmission();
 
       setStatus("resubmitting");
       setFoodName(pending.foodName);
@@ -80,7 +84,7 @@ export function PendingSubmissionHandler() {
 
           if (errorCode === "HEALTH_TOKEN_INVALID") {
             savePendingSubmission(pending);
-            window.location.href = "/api/auth/google-health";
+            hardNavigate("/api/auth/google-health");
             return;
           }
 

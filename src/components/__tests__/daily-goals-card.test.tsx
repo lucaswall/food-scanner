@@ -95,7 +95,7 @@ beforeEach(() => {
     if (key === "/api/daily-goals-settings") {
       return { data: sampleSettings, error: null, isLoading: false, mutate: vi.fn() };
     }
-    if (key === "/api/health-profile") {
+    if (String(key).startsWith("/api/health-profile?clientDate=")) {
       return { data: sampleProfile, error: null, isLoading: false, mutate: vi.fn() };
     }
     return { data: null, error: null, isLoading: true, mutate: vi.fn() };
@@ -126,7 +126,7 @@ describe("DailyGoalsCard", () => {
 
     it("renders Skeletons while profile SWR is loading", () => {
       mockUseSWR.mockImplementation((key: string) => {
-        if (key === "/api/health-profile") {
+        if (String(key).startsWith("/api/health-profile?clientDate=")) {
           return { data: undefined, error: null, isLoading: true, mutate: vi.fn() };
         }
         return { data: sampleSettings, error: null, isLoading: false, mutate: vi.fn() };
@@ -253,7 +253,7 @@ describe("DailyGoalsCard", () => {
     it("shows safety warning below female floor (1200) for FEMALE sex setting", () => {
       // Floor now keys off the local sex SETTING (the form value), not the Health profile.
       mockUseSWR.mockImplementation((key: string) => {
-        if (key === "/api/health-profile") {
+        if (String(key).startsWith("/api/health-profile?clientDate=")) {
           return { data: sampleProfile, error: null, isLoading: false, mutate: vi.fn() };
         }
         return {
@@ -321,6 +321,8 @@ describe("DailyGoalsCard", () => {
           }),
         );
       });
+      const patchBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      expect(patchBody.clientDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     });
 
     it("calls globalMutate for /api/nutrition-goals on successful save", async () => {
@@ -490,7 +492,7 @@ describe("DailyGoalsCard", () => {
         if (key === "/api/daily-goals-settings") {
           return { data: sampleSettings, error: null, isLoading: false, mutate: vi.fn() };
         }
-        if (key === "/api/health-profile") {
+        if (String(key).startsWith("/api/health-profile?clientDate=")) {
           return { data: undefined, error, isLoading: false, mutate: vi.fn() };
         }
         return { data: null, error: null, isLoading: true, mutate: vi.fn() };

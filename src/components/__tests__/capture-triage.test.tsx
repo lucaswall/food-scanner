@@ -646,3 +646,183 @@ describe("CaptureTriage", () => {
     });
   });
 });
+
+describe("CaptureTriage audit fixes", () => {
+  function mockCaptures(captures: CaptureItem[]) {
+    vi.mocked(useCaptureSession).mockReturnValue({
+      ...defaultCaptureSession,
+      state: { sessionId: "sess-1", captures, isActive: true },
+    });
+  }
+
+  it("sends the user's LOCAL date as clientDate, not a UTC slice", async () => {
+    // 22:30 in Buenos Aires (UTC-3) on Apr 9 is already Apr 10 in UTC
+    const tzSpy = vi.spyOn(Date.prototype, "getTimezoneOffset").mockReturnValue(180);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 3, 9, 22, 30, 0));
+    try {
+      mockCaptures([makeCapture()]);
+      mockFetch.mockResolvedValueOnce(
+        makeSSEResponse([{ type: "session_items", items: [makeFoodAnalysis()] }, { type: "done" }])
+      );
+      await act(async () => {
+        render(<CaptureTriage />);
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("analyze-all-btn"));
+      });
+      const call = mockFetch.mock.calls.find((c) => c[0] === "/api/process-captures");
+      const body = call![1].body as FormData;
+      expect(body.get("clientDate")).toBe("2026-04-09");
+    } finally {
+      vi.useRealTimers();
+      tzSpy.mockRestore();
+    }
+  });
+
+  it("keeps the success banner visible after the session is cleared, then redirects once", async () => {
+    mockCaptures([makeCapture()]);
+    mockFetch.mockResolvedValueOnce(
+      makeSSEResponse([{ type: "session_items", items: [makeFoodAnalysis()] }, { type: "done" }])
+    );
+    await act(async () => {
+      render(<CaptureTriage />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("analyze-all-btn"));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("approve-save-btn")).toBeInTheDocument();
+    });
+
+    // Clearing the session empties the captures, exactly like the real hook
+    mockClearSession.mockImplementation(async () => {
+      mockCaptures([]);
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { items: [{ id: 1, createdAt: new Date().toISOString() }] },
+        timestamp: Date.now(),
+      }),
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("approve-save-btn"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("save-success-banner")).toBeInTheDocument();
+    });
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("Cancel aborts an in-flight Analyze All and returns to the preview", async () => {
+    mockCaptures([makeCapture()]);
+    let signal: AbortSignal | undefined;
+    mockFetch.mockImplementation(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          signal = init.signal as AbortSignal;
+          signal.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError"))
+          );
+        })
+    );
+    await act(async () => {
+      render(<CaptureTriage />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("analyze-all-btn"));
+    });
+    expect(screen.getByTestId("analyzing-state")).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("cancel-analyze-btn"));
+    });
+
+    expect(signal?.aborted).toBe(true);
+    expect(screen.getByTestId("analyze-all-btn")).toBeInTheDocument();
+    expect(screen.queryByTestId("analyzing-state")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("error-banner")).not.toBeInTheDocument();
+  });
+
+  it("Cancel during blob loading prevents the analyze request", async () => {
+    mockCaptures([makeCapture()]);
+    const resolvers: Array<(b: Blob[]) => void> = [];
+    mockGetCaptureBlobs.mockImplementation(
+      () => new Promise<Blob[]>((resolve) => { resolvers.push(resolve); })
+    );
+    await act(async () => {
+      render(<CaptureTriage />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("analyze-all-btn"));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("cancel-analyze-btn"));
+    });
+    await act(async () => {
+      resolvers.forEach((r) => r([new Blob(["x"], { type: "image/jpeg" })]));
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(screen.getByTestId("analyze-all-btn")).toBeInTheDocument();
+    expect(screen.queryByTestId("analyzing-state")).not.toBeInTheDocument();
+  });
+
+  it("times out a stalled Analyze All after 120s with a retryable error", async () => {
+    vi.useFakeTimers();
+    try {
+      mockCaptures([makeCapture()]);
+      mockFetch.mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            (init.signal as AbortSignal).addEventListener("abort", () =>
+              reject((init.signal as AbortSignal).reason)
+            );
+          })
+      );
+      await act(async () => {
+        render(<CaptureTriage />);
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("analyze-all-btn"));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(120000);
+      });
+
+      expect(screen.getByTestId("error-banner")).toHaveTextContent(/timed out/i);
+      expect(screen.getByTestId("analyze-all-btn")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops partial narrative on a retry event and keeps the status out of chat history", async () => {
+    mockCaptures([makeCapture()]);
+    mockFetch.mockResolvedValueOnce(
+      makeSSEResponse([
+        { type: "text_delta", text: "PARTIAL " },
+        { type: "retry", message: "Retrying…" },
+        { type: "text_delta", text: "Clean narrative" },
+        { type: "session_items", items: [makeFoodAnalysis()] },
+        { type: "done" },
+      ])
+    );
+    await act(async () => {
+      render(<CaptureTriage />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("analyze-all-btn"));
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("approve-save-btn")).toBeInTheDocument();
+    });
+
+    const log = screen.getByTestId("conversation-log");
+    expect(log).toHaveTextContent("Clean narrative");
+    expect(log).not.toHaveTextContent("PARTIAL");
+    expect(log).not.toHaveTextContent("Retrying");
+  });
+});

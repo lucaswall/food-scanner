@@ -2,6 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { conditionalResponse, errorResponse, successResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getSavedAnalysis, deleteSavedAnalysis } from "@/lib/saved-analyses";
+import { parseStrictId } from "@/lib/food-history-params";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -15,9 +16,9 @@ export async function GET(request: Request, context: RouteContext) {
   if (validationError) return validationError;
 
   const { id: idParam } = await context.params;
-  const id = Number(idParam);
+  const id = parseStrictId(idParam);
 
-  if (!Number.isInteger(id) || id <= 0) {
+  if (id === null) {
     return errorResponse("VALIDATION_ERROR", "Invalid saved analysis ID", 400);
   }
 
@@ -49,9 +50,9 @@ export async function DELETE(_request: Request, context: RouteContext) {
   if (validationError) return validationError;
 
   const { id: idParam } = await context.params;
-  const id = Number(idParam);
+  const id = parseStrictId(idParam);
 
-  if (!Number.isInteger(id) || id <= 0) {
+  if (id === null) {
     return errorResponse("VALIDATION_ERROR", "Invalid saved analysis ID", 400);
   }
 

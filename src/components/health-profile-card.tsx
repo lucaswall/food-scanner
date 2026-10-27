@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import Link from "next/link";
 import { apiFetcher, ApiError, HEALTH_BACKED_SWR_CONFIG } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getTodayDate } from "@/lib/date-utils";
 import type { HealthProfileData } from "@/types";
 
 const NOT_SET = "Not set in Google Health";
@@ -48,11 +49,13 @@ function weightAgeDays(loggedDate: string | null | undefined): number | null {
 }
 
 export function HealthProfileCard() {
+  const clientDate = getTodayDate();
   const { data, error, isLoading, mutate } = useSWR<HealthProfileData>(
-    "/api/health-profile",
+    `/api/health-profile?clientDate=${clientDate}`,
     apiFetcher,
     HEALTH_BACKED_SWR_CONFIG,
   );
+  const { mutate: globalMutate } = useSWRConfig();
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
 
@@ -60,11 +63,15 @@ export function HealthProfileCard() {
     setRefreshing(true);
     setRefreshError(null);
     try {
-      const res = await fetch("/api/health-profile?refresh=1", {
+      const res = await fetch(`/api/health-profile?refresh=1&clientDate=${clientDate}`, {
         signal: AbortSignal.timeout(10000),
       });
       if (!res.ok) throw new Error("refresh_failed");
       await mutate();
+      // The refresh recomputes weight/height/sex, so the targets on this screen are stale too
+      await globalMutate(
+        (key) => typeof key === "string" && key.startsWith("/api/nutrition-goals"),
+      );
     } catch {
       setRefreshError("Could not refresh from Google Health. Try again.");
     } finally {

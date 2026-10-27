@@ -38,6 +38,13 @@ const mockGetLocalDateTime = vi.mocked(getLocalDateTime);
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
+const mockAssign = vi.fn();
+
+function expectReconnectNavigation() {
+  expect(mockAssign).toHaveBeenCalledTimes(1);
+  expect(String(mockAssign.mock.calls[0][0])).toBe("http://localhost/api/auth/google-health");
+}
+
 const MOCK_DATETIME = { date: "2026-04-10", time: "12:00", zoneOffset: "+00:00" };
 
 const mockAnalysis: FoodAnalysis = {
@@ -86,9 +93,10 @@ describe("useLogFood", () => {
     mockFetch.mockReset();
     mockGetLocalDateTime.mockReturnValue(MOCK_DATETIME);
 
+    mockAssign.mockReset();
     Object.defineProperty(window, "location", {
       writable: true,
-      value: { href: "" },
+      value: { href: "", origin: "http://localhost", assign: mockAssign },
     });
   });
 
@@ -114,15 +122,17 @@ describe("useLogFood", () => {
         expect.objectContaining({
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...mockAnalysis,
-            mealTypeId: 3,
-            date: "2026-04-10",
-            time: "12:00",
-            zoneOffset: "+00:00",
-          }),
+          body: expect.any(String),
         })
       );
+      expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({
+        ...mockAnalysis,
+        mealTypeId: 3,
+        date: "2026-04-10",
+        time: "12:00",
+        zoneOffset: "+00:00",
+        clientToken: expect.any(String),
+      });
       expect(mockSafeResponseJson).toHaveBeenCalledWith(mockResponse);
       expect(result.current.logResponse).toEqual(mockLogResponse);
       expect(result.current.logResponse?.healthLogId).toBe("test-health-log-id");
@@ -158,6 +168,7 @@ describe("useLogFood", () => {
         time: "12:00",
         zoneOffset: "+00:00",
         expectedCalories: 350,
+        clientToken: expect.any(String),
       });
     });
 
@@ -285,7 +296,7 @@ describe("useLogFood", () => {
           zoneOffset: "+00:00",
           sessionId: undefined,
         });
-        expect(window.location.href).toBe("/api/auth/google-health");
+        expectReconnectNavigation();
         expect(mockVibrateError).not.toHaveBeenCalled();
       });
     });
@@ -424,6 +435,7 @@ describe("useLogFood", () => {
         date: "2026-04-10",
         time: "12:00",
         zoneOffset: "+00:00",
+        clientToken: expect.any(String),
       });
     });
 
@@ -446,6 +458,7 @@ describe("useLogFood", () => {
         date: "2026-04-09",
         time: "20:30",
         zoneOffset: "+00:00",
+        clientToken: expect.any(String),
       });
     });
 
@@ -523,7 +536,7 @@ describe("useLogFood", () => {
         zoneOffset: "+00:00",
         sessionId: undefined,
       });
-      expect(window.location.href).toBe("/api/auth/google-health");
+      expectReconnectNavigation();
     });
 
     it("sets logResponse on success", async () => {
@@ -584,6 +597,86 @@ describe("useLogFood", () => {
 
       expect(mockSavePendingSubmission).toHaveBeenCalledWith(
         expect.objectContaining({ sessionId: "session-abc" })
+      );
+    });
+  });
+
+  describe("idempotency and resume", () => {
+    it("reuses the same clientToken and date/time when retrying the same request after a timeout", async () => {
+      mockFetch.mockRejectedValueOnce(new DOMException("timed out", "TimeoutError"));
+      mockFetch.mockResolvedValueOnce(makeSuccessResponse());
+      mockSafeResponseJson.mockResolvedValueOnce({ success: true, data: mockLogResponse });
+
+      const { result } = renderHook(() => useLogFood({ analysis: mockAnalysis, mealTypeId: 3 }));
+
+      await act(async () => {
+        await result.current.logFood();
+      });
+      // "now" moves on between attempts - the retry must still send the first attempt's snapshot
+      mockGetLocalDateTime.mockReturnValue({ date: "2026-04-10", time: "12:01", zoneOffset: "+00:00" });
+      await act(async () => {
+        await result.current.logFood();
+      });
+
+      const first = JSON.parse(mockFetch.mock.calls[0][1].body);
+      const second = JSON.parse(mockFetch.mock.calls[1][1].body);
+      expect(typeof first.clientToken).toBe("string");
+      expect(second.clientToken).toBe(first.clientToken);
+      expect(second.time).toBe("12:00");
+    });
+
+    it("uses a fresh clientToken after a successful log", async () => {
+      mockFetch.mockResolvedValue(makeSuccessResponse());
+      mockSafeResponseJson.mockResolvedValue({ success: true, data: mockLogResponse });
+
+      const { result } = renderHook(() => useLogFood({ analysis: mockAnalysis, mealTypeId: 3 }));
+
+      await act(async () => {
+        await result.current.logFood();
+      });
+      await act(async () => {
+        await result.current.logFood();
+      });
+
+      const first = JSON.parse(mockFetch.mock.calls[0][1].body);
+      const second = JSON.parse(mockFetch.mock.calls[1][1].body);
+      expect(second.clientToken).not.toBe(first.clientToken);
+    });
+
+    it("keeps the clientToken after a 409 in-progress response", async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 409 });
+      mockSafeResponseJson.mockResolvedValue({ success: false, error: { code: "CONFLICT", message: "in progress" } });
+
+      const { result } = renderHook(() => useLogFood({ analysis: mockAnalysis, mealTypeId: 3 }));
+
+      await act(async () => {
+        await result.current.logFood();
+      });
+      await act(async () => {
+        await result.current.logFood();
+      });
+
+      const first = JSON.parse(mockFetch.mock.calls[0][1].body);
+      const second = JSON.parse(mockFetch.mock.calls[1][1].body);
+      expect(second.clientToken).toBe(first.clientToken);
+    });
+
+    it("saves reuseCustomFoodId in the pending submission when an interrupted log was a reuse", async () => {
+      mockFetch.mockResolvedValueOnce(makeErrorResponse());
+      mockSafeResponseJson.mockResolvedValueOnce({
+        success: false,
+        error: { code: "HEALTH_TOKEN_INVALID", message: "expired" },
+      });
+
+      const analysisWithSource: FoodAnalysis = { ...mockAnalysis, sourceCustomFoodId: 999 };
+      const { result } = renderHook(() => useLogFood({ analysis: analysisWithSource, mealTypeId: 3 }));
+
+      await act(async () => {
+        await result.current.logFood();
+      });
+
+      expect(mockSavePendingSubmission).toHaveBeenCalledWith(
+        expect.objectContaining({ reuseCustomFoodId: 999, analysis: analysisWithSource })
       );
     });
   });

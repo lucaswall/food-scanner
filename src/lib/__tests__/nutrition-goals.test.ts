@@ -1,166 +1,45 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock the database
-const mockInsert = vi.fn();
-const mockSelect = vi.fn();
-const mockFrom = vi.fn();
-const mockOnConflictDoUpdate = vi.fn();
-const mockValues = vi.fn();
 const mockWhere = vi.fn();
 const mockOrderBy = vi.fn();
-const mockAnd = vi.fn();
-const mockBetween = vi.fn();
-const mockEq = vi.fn();
-const mockAsc = vi.fn();
 
 vi.mock("@/db/index", () => ({
   getDb: () => ({
-    insert: mockInsert,
-    select: mockSelect,
+    select: () => ({
+      from: () => ({
+        where: (...args: unknown[]) => {
+          mockWhere(...args);
+          return { orderBy: (...a: unknown[]) => mockOrderBy(...a) };
+        },
+      }),
+    }),
   }),
 }));
 
 vi.mock("drizzle-orm", () => ({
-  and: mockAnd,
-  between: mockBetween,
-  eq: mockEq,
-  asc: mockAsc,
+  and: (...args: unknown[]) => ({ op: "and", args }),
+  between: (...args: unknown[]) => ({ op: "between", args }),
+  eq: (...args: unknown[]) => ({ op: "eq", args }),
+  asc: (...args: unknown[]) => ({ op: "asc", args }),
+  or: (...args: unknown[]) => ({ op: "or", args }),
+  gt: (...args: unknown[]) => ({ op: "gt", args }),
+  isNotNull: (col: unknown) => ({ op: "isNotNull", col }),
 }));
 
-function setupMocks() {
-  vi.clearAllMocks();
-  mockInsert.mockReset();
-  mockSelect.mockReset();
-  mockFrom.mockReset();
-  mockOnConflictDoUpdate.mockReset();
-  mockValues.mockReset();
-  mockWhere.mockReset();
-  mockOrderBy.mockReset();
-  mockAnd.mockReset();
-  mockBetween.mockReset();
-  mockEq.mockReset();
-  mockAsc.mockReset();
-
-  // Setup default mock chain for insert
-  mockValues.mockReturnValue({ onConflictDoUpdate: mockOnConflictDoUpdate });
-  mockInsert.mockReturnValue({ values: mockValues });
-
-  // Setup default mock chain for select
-  mockOrderBy.mockResolvedValue([]);
-  mockWhere.mockReturnValue({ orderBy: mockOrderBy });
-  mockFrom.mockReturnValue({ where: mockWhere });
-  mockSelect.mockReturnValue({ from: mockFrom });
-}
-
-describe("upsertCalorieGoal", () => {
+describe("getDailyGoalsByDateRange", () => {
   beforeEach(() => {
-    setupMocks();
+    vi.clearAllMocks();
   });
 
-  afterEach(() => {
-    vi.resetModules();
-  });
-
-  it("calls insert with onConflictDoUpdate for new goal", async () => {
-    mockOnConflictDoUpdate.mockResolvedValueOnce([{ id: 1 }]);
-
-    const { upsertCalorieGoal } = await import("@/lib/nutrition-goals");
-    await upsertCalorieGoal("user-123", "2026-02-10", 2000);
-
-    expect(mockInsert).toHaveBeenCalled();
-    expect(mockValues).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userId: "user-123",
-        date: "2026-02-10",
-        calorieGoal: 2000,
-      })
-    );
-    expect(mockOnConflictDoUpdate).toHaveBeenCalled();
-  });
-
-  it("updates existing goal on conflict", async () => {
-    mockOnConflictDoUpdate.mockResolvedValueOnce([{ id: 1 }]);
-
-    const { upsertCalorieGoal } = await import("@/lib/nutrition-goals");
-    await upsertCalorieGoal("user-123", "2026-02-10", 2200);
-
-    expect(mockOnConflictDoUpdate).toHaveBeenCalledWith({
-      target: expect.anything(),
-      set: expect.objectContaining({
-        calorieGoal: 2200,
-      }),
-    });
-  });
-});
-
-describe("getCalorieGoalsByDateRange", () => {
-  beforeEach(() => {
-    setupMocks();
-  });
-
-  afterEach(() => {
-    vi.resetModules();
-  });
-
-  it("returns goals within date range ordered by date", async () => {
-    mockOrderBy.mockResolvedValueOnce([
-      {
-        date: "2026-02-08",
-        calorieGoal: 1800,
-      },
-      {
-        date: "2026-02-09",
-        calorieGoal: 2000,
-      },
-      {
-        date: "2026-02-10",
-        calorieGoal: 2200,
-      },
-    ]);
-
-    const { getCalorieGoalsByDateRange } = await import("@/lib/nutrition-goals");
-    const result = await getCalorieGoalsByDateRange("user-123", "2026-02-08", "2026-02-10");
-
-    expect(result).toEqual([
-      {
-        date: "2026-02-08",
-        calorieGoal: 1800,
-      },
-      {
-        date: "2026-02-09",
-        calorieGoal: 2000,
-      },
-      {
-        date: "2026-02-10",
-        calorieGoal: 2200,
-      },
-    ]);
-    expect(mockSelect).toHaveBeenCalled();
-    expect(mockFrom).toHaveBeenCalled();
-    expect(mockWhere).toHaveBeenCalled();
-    expect(mockOrderBy).toHaveBeenCalled();
-  });
-
-  it("returns empty array when no goals in range", async () => {
-    mockOrderBy.mockResolvedValueOnce([]);
-
-    const { getCalorieGoalsByDateRange } = await import("@/lib/nutrition-goals");
-    const result = await getCalorieGoalsByDateRange("user-123", "2026-02-08", "2026-02-10");
-
-    expect(result).toEqual([]);
-  });
-
-  it("queries with correct userId and date range", async () => {
-    mockAnd.mockReturnValue("mocked-and-condition");
-    mockEq.mockReturnValue("mocked-eq-condition");
-    mockBetween.mockReturnValue("mocked-between-condition");
-    mockOrderBy.mockResolvedValueOnce([]);
-
-    const { getCalorieGoalsByDateRange } = await import("@/lib/nutrition-goals");
-    await getCalorieGoalsByDateRange("user-123", "2026-02-08", "2026-02-10");
-
-    expect(mockEq).toHaveBeenCalled();
-    expect(mockBetween).toHaveBeenCalled();
-    expect(mockAnd).toHaveBeenCalled();
+  it("excludes invalidated rows but keeps legacy calorie-only rows", async () => {
+    const rows = [{ date: "2026-02-10", calorieGoal: 2000, proteinGoal: 150, carbsGoal: 200, fatGoal: 60 }];
+    mockOrderBy.mockResolvedValue(rows);
+    const { getDailyGoalsByDateRange } = await import("@/lib/nutrition-goals");
+    const result = await getDailyGoalsByDateRange("user-1", "2026-02-08", "2026-02-10");
+    expect(result).toEqual(rows);
+    const where = mockWhere.mock.calls[0][0] as { args: Array<{ op: string; args?: Array<{ op: string; args?: unknown[] }> }> };
+    const orClause = where.args.find((a) => a.op === "or");
+    expect(orClause?.args?.map((a) => a.op)).toEqual(["isNotNull", "gt"]);
+    expect(orClause?.args?.[1].args?.[1]).toBe(0);
   });
 });

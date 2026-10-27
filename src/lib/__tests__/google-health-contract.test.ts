@@ -49,13 +49,15 @@ vi.mock("@sentry/nextjs", () => ({
 
 vi.mock("@/lib/health-tokens", () => ({
   getHealthTokens: vi.fn(),
-  upsertHealthTokens: vi.fn(),
+  updateHealthTokensIfUnchanged: vi.fn(),
+  deleteHealthTokensIfUnchanged: vi.fn(),
 }));
 
 // No active cooldown: the breaker is a no-op so the real body is built + captured.
 vi.mock("@/lib/google-health-rate-limit", () => ({
   assertRateLimitAllowed: vi.fn(),
   recordRateLimitHeaders: vi.fn(),
+  clearRateLimitCooldown: vi.fn(),
   recordResourceExhaustedCooldown: vi.fn(),
   getRateLimitSnapshot: vi.fn().mockReturnValue(null),
 }));

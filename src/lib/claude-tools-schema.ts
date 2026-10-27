@@ -11,6 +11,8 @@ import type Anthropic from "@anthropic-ai/sdk";
 export const WEB_SEARCH_TOOL = {
   type: "web_search_20260209",
   name: "web_search",
+  /** Bounds server-side search fan-out (and its per-request billing) within a single turn. */
+  max_uses: 5,
 } as const;
 
 /** Tool schema for reporting a food analysis (single entry, create or edit). */

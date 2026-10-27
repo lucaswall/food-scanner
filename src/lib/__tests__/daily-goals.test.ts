@@ -154,7 +154,6 @@ const CACHED_ROW = {
 // ─── Module import (after mocks set up) ─────────────────────────────────────
 const {
   getOrComputeDailyGoals,
-  getDailyGoalsByDate,
   mapComputeResultToNutritionGoals,
   invalidateUserDailyGoalsForDate,
   invalidateUserDailyGoalsForSettingsChange,
@@ -999,35 +998,116 @@ describe("mapComputeResultToNutritionGoals", () => {
     });
     expect(result.weightStale).toBe(true);
   });
+
+  it("propagates stale: true from last-known-good results", () => {
+    const result = mapComputeResultToNutritionGoals({
+      status: "ok",
+      goals: { calorieGoal: 2000, proteinGoal: 150, carbsGoal: 200, fatGoal: 60 },
+      stale: true,
+    });
+    expect(result.stale).toBe(true);
+  });
+
+  it("omits stale when not set", () => {
+    const result = mapComputeResultToNutritionGoals({
+      status: "ok",
+      goals: { calorieGoal: 2000, proteinGoal: 150, carbsGoal: 200, fatGoal: 60 },
+    });
+    expect("stale" in result).toBe(false);
+  });
 });
 
-// ─── getDailyGoalsByDate ──────────────────────────────────────────────────────
+// ─── User-local "today" (todayDate param) ────────────────────────────────────
 
-describe("getDailyGoalsByDate", () => {
+describe("getOrComputeDailyGoals — caller-supplied todayDate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockDb.select.mockReset();
+    mockDb.insert.mockReset();
+    mockDb.update.mockReset();
+    mockDb.delete.mockReset();
   });
 
-  it("returns null when no row exists", async () => {
+  it("does not treat the client's today as a stable past row when the server date has rolled over", async () => {
+    // Server pinned today = 2026-05-08; client (behind UTC) is still on 2026-05-07.
+    // Row for 05-07 has OLD settings; the user's settings have since changed.
+    mockSelectOnce([{ ...USER_SETTINGS, activityLevel: "very_active" }]);
+    mockSelectOnce([CACHED_ROW]); // activityLevel "moderate" -> drifted
+    mockGetCachedHealthProfile.mockResolvedValueOnce(HEALTH_PROFILE_MALE);
+    mockGetCachedHealthWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
+    mockUpsertOnce([{ ...USER_SETTINGS, activityLevel: "very_active" }]);
+
+    const result = await getOrComputeDailyGoals("user-1", "2026-05-07", undefined, "2026-05-07");
+
+    expect(result.status).toBe("ok");
+    expect(mockGetCachedHealthProfile).toHaveBeenCalledOnce();
+    expect(mockDb.insert).toHaveBeenCalledOnce();
+  });
+});
+
+// ─── Single-flight generation guard ──────────────────────────────────────────
+
+describe("getOrComputeDailyGoals — single-flight generation guard", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReset();
+    mockDb.insert.mockReset();
+    mockDb.update.mockReset();
+    mockDb.delete.mockReset();
+  });
+
+  it("does not persist goals when an invalidation fires mid-compute, and a later call is not collapsed onto the stale compute", async () => {
+    mockSelectOnce([USER_SETTINGS]);
     mockSelectOnce([]);
-    const result = await getDailyGoalsByDate("user-1", "2026-05-08");
-    expect(result).toBeNull();
+    let releaseProfile!: (v: unknown) => void;
+    mockGetCachedHealthProfile.mockReturnValueOnce(
+      new Promise((resolve) => { releaseProfile = resolve; }),
+    );
+    mockGetCachedHealthWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
+    mockSelectOnce([USER_SETTINGS]); // recheck still matches users.*
+
+    const stale = getOrComputeDailyGoals("user-gen", "2026-05-08");
+
+    // Invalidation arrives while the compute awaits Google Health.
+    mockDeleteOnce();
+    await invalidateUserDailyGoalsForSettingsChange("user-gen", "2026-05-08");
+
+    // A request after the invalidation must start its own compute.
+    mockSelectOnce([USER_SETTINGS]);
+    mockSelectOnce([CACHED_ROW]);
+    const fresh = getOrComputeDailyGoals("user-gen", "2026-05-08");
+    expect(fresh).not.toBe(stale);
+
+    releaseProfile(HEALTH_PROFILE_MALE);
+    await stale;
+    await fresh;
+
+    // The stale compute must not have written.
+    expect(mockDb.insert).not.toHaveBeenCalled();
   });
 
-  it("returns row when it exists", async () => {
-    mockSelectOnce([{
-      date: "2026-05-08",
-      calorieGoal: 2161,
-      proteinGoal: 176,
-      carbsGoal: 220,
-      fatGoal: 64,
-      weightKg: "80",
-      rmr: 1749,
-      tdee: 2711,
-    }]);
-    const result = await getDailyGoalsByDate("user-1", "2026-05-08");
-    expect(result).not.toBeNull();
-    expect(result?.calorieGoal).toBe(2161);
+  it("finally() only evicts its own in-flight entry", async () => {
+    // Every select returns a users-shaped row with no engine macros (order-independent).
+    const row = { ...USER_SETTINGS, proteinGoal: null };
+    mockDb.select.mockReturnValue({ from: () => ({ where: () => Promise.resolve([row]) }) });
+    let releaseProfile!: (v: unknown) => void;
+    mockGetCachedHealthProfile.mockReturnValueOnce(
+      new Promise((resolve) => { releaseProfile = resolve; }),
+    );
+    mockGetCachedHealthWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
+
+    const first = getOrComputeDailyGoals("user-evict", "2026-05-08");
+    mockDeleteOnce();
+    await invalidateUserDailyGoalsForSettingsChange("user-evict", "2026-05-08");
+
+    // Second compute (registered after the invalidation) stays pending forever.
+    mockGetCachedHealthProfile.mockReturnValueOnce(new Promise(() => {}));
+    const second = getOrComputeDailyGoals("user-evict", "2026-05-08");
+
+    releaseProfile(HEALTH_PROFILE_MALE);
+    await first;
+
+    // `first` settled; its finally must NOT have evicted `second`'s entry.
+    expect(getOrComputeDailyGoals("user-evict", "2026-05-08")).toBe(second);
   });
 });

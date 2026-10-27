@@ -51,6 +51,20 @@ describe("env", () => {
       expect(() => validateRequiredEnvVars()).not.toThrow();
     });
 
+    it("throws when SESSION_SECRET is shorter than 32 characters", async () => {
+      process.env.SESSION_SECRET = "too-short-secret";
+      process.env.GOOGLE_CLIENT_ID = "google-id";
+      process.env.GOOGLE_CLIENT_SECRET = "google-secret";
+      process.env.ANTHROPIC_API_KEY = "anthropic-key";
+      process.env.APP_URL = "https://food.example.com";
+      process.env.ALLOWED_EMAILS = "test@example.com";
+      process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
+      process.env.HEALTH_TOKEN_ENCRYPTION_KEY = "dGVzdC1oZWFsdGgtdG9rZW4ta2V5LTMyLWJ5dGVzLWxvbmc=";
+
+      const { validateRequiredEnvVars } = await import("@/lib/env");
+      expect(() => validateRequiredEnvVars()).toThrow(/SESSION_SECRET must be at least 32/);
+    });
+
     it("throws when HEALTH_TOKEN_ENCRYPTION_KEY is missing (boot-time guard for the Health integration)", async () => {
       process.env.SESSION_SECRET = "test-secret-that-is-at-least-32-chars-long";
       process.env.GOOGLE_CLIENT_ID = "google-id";

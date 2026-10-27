@@ -159,32 +159,6 @@ describe("getUserById", () => {
   });
 });
 
-describe("getWeightGoalType", () => {
-  it("returns the stored weightGoalType", async () => {
-    const { getWeightGoalType } = await import("@/lib/users");
-    mockWhere.mockResolvedValue([{ weightGoalType: "LOSE" }]);
-
-    const result = await getWeightGoalType(fakeUser.id);
-    expect(result).toBe("LOSE");
-  });
-
-  it("returns null when unset", async () => {
-    const { getWeightGoalType } = await import("@/lib/users");
-    mockWhere.mockResolvedValue([{ weightGoalType: null }]);
-
-    const result = await getWeightGoalType(fakeUser.id);
-    expect(result).toBeNull();
-  });
-
-  it("returns null when no row exists", async () => {
-    const { getWeightGoalType } = await import("@/lib/users");
-    mockWhere.mockResolvedValue([]);
-
-    const result = await getWeightGoalType(fakeUser.id);
-    expect(result).toBeNull();
-  });
-});
-
 describe("setWeightGoalType", () => {
   it("writes a valid value scoped by userId", async () => {
     const { setWeightGoalType } = await import("@/lib/users");

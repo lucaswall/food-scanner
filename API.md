@@ -228,7 +228,7 @@ weight — **not** a passthrough of an upstream goal.
 
 **Data source:** macro engine + Google Health weight read (30 req/min)
 
-**Query parameters:** `date`, or `from`/`to` for range mode. Omit for today.
+**Query parameters:** `date`, or `from`/`to` for range mode. Optional `clientDate` (`YYYY-MM-DD`, the caller's local today) is the default for single-date mode and decides which dates are treated as settled past days; without it the server's date is used. Range mode omits invalidated rows (reported as `not_computed` gaps). `stale: true` on a result means last-known-good goals were served after a transient Google Health error.
 
 **Response schema:** `NutritionGoals` — see `src/types/index.ts` for the authoritative shape
 (`calories`, `proteinG`, `carbsG`, `fatG`, `status`, and when blocked a `reason` + `hint`).
@@ -298,7 +298,7 @@ Batch upsert glucose readings. Uses composite unique constraint on `(userId, mea
 | `mealType` | string | No | `breakfast`, `lunch`, `dinner`, `snack`, `unknown` |
 | `specimenSource` | string | No | `capillary_blood`, `interstitial_fluid`, `plasma`, `serum`, `tears`, `whole_blood`, `unknown` |
 
-**Batch limit:** 1000 readings per request.
+**Batch limit:** 1000 readings per request. `measuredAt` must be a real ISO 8601 instant between 2000-01-01 and 24h in the future (otherwise 400). Readings sharing the same instant within one batch are collapsed (last wins). Value bounds: glucose `valueMgDl` <= 2000, blood pressure `systolic`/`diastolic` <= 300 (integers), hydration `volumeMl` <= 10000 (integer).
 
 **Response:** `{ "upserted": <count> }`
 
@@ -316,7 +316,7 @@ Returns glucose readings for a date or date range.
 |---|---|---|---|
 | `date` | One of `date` or `from`/`to` | `YYYY-MM-DD` | Single date query |
 | `from` | With `to` | `YYYY-MM-DD` | Range start (inclusive) |
-| `to` | With `from` | `YYYY-MM-DD` | Range end (inclusive) |
+| `to` | With `from` | `YYYY-MM-DD` | Range end (inclusive); range limited to 31 days (400 otherwise, also 400 if the range holds more than 20000 readings) |
 
 **Response schema:**
 
@@ -368,7 +368,7 @@ Batch upsert blood pressure readings. Uses composite unique constraint on `(user
 | `bodyPosition` | string | No | `standing_up`, `sitting_down`, `lying_down`, `reclining`, `unknown` |
 | `measurementLocation` | string | No | `left_upper_arm`, `right_upper_arm`, `left_wrist`, `right_wrist`, `unknown` |
 
-**Batch limit:** 1000 readings per request.
+**Batch limit:** 1000 readings per request. `measuredAt` must be a real ISO 8601 instant between 2000-01-01 and 24h in the future (otherwise 400). Readings sharing the same instant within one batch are collapsed (last wins). Value bounds: glucose `valueMgDl` <= 2000, blood pressure `systolic`/`diastolic` <= 300 (integers), hydration `volumeMl` <= 10000 (integer).
 
 **Response:** `{ "upserted": <count> }`
 
@@ -386,7 +386,7 @@ Returns blood pressure readings for a date or date range.
 |---|---|---|---|
 | `date` | One of `date` or `from`/`to` | `YYYY-MM-DD` | Single date query |
 | `from` | With `to` | `YYYY-MM-DD` | Range start (inclusive) |
-| `to` | With `from` | `YYYY-MM-DD` | Range end (inclusive) |
+| `to` | With `from` | `YYYY-MM-DD` | Range end (inclusive); range limited to 31 days (400 otherwise, also 400 if the range holds more than 20000 readings) |
 
 **Response schema:**
 
@@ -432,7 +432,7 @@ Batch upsert hydration readings. Uses composite unique constraint on `(userId, m
 | `volumeMl` | integer | Yes | Positive integer (milliliters) |
 | `zoneOffset` | string | No | `±HH:MM` format |
 
-**Batch limit:** 1000 readings per request.
+**Batch limit:** 1000 readings per request. `measuredAt` must be a real ISO 8601 instant between 2000-01-01 and 24h in the future (otherwise 400). Readings sharing the same instant within one batch are collapsed (last wins). Value bounds: glucose `valueMgDl` <= 2000, blood pressure `systolic`/`diastolic` <= 300 (integers), hydration `volumeMl` <= 10000 (integer).
 
 **Response:** `{ "upserted": <count> }`
 
@@ -450,7 +450,7 @@ Returns hydration readings for a date or date range.
 |---|---|---|---|
 | `date` | One of `date` or `from`/`to` | `YYYY-MM-DD` | Single date query |
 | `from` | With `to` | `YYYY-MM-DD` | Range start (inclusive) |
-| `to` | With `from` | `YYYY-MM-DD` | Range end (inclusive) |
+| `to` | With `from` | `YYYY-MM-DD` | Range end (inclusive); range limited to 31 days (400 otherwise, also 400 if the range holds more than 20000 readings) |
 
 **Response schema:**
 
@@ -477,7 +477,7 @@ Results are ordered by `measuredAt` ascending.
 | GET | `/api/v1/common-foods` | 60/min | PostgreSQL | `tab`, `limit`, `cursor` |
 | GET | `/api/v1/search-foods` | 60/min | PostgreSQL | `q`, `limit` |
 | GET | `/api/v1/earliest-entry` | 60/min | PostgreSQL | None |
-| GET | `/api/v1/fasting` | 60/min | PostgreSQL | `date` or `from`/`to` |
+| GET | `/api/v1/fasting` | 60/min | PostgreSQL | `date` or `from`/`to` (range max 366 days) |
 | GET | `/api/v1/nutrition-goals` | 30/min | Macro engine + Google Health | `date` or `from`/`to` |
 | GET | `/api/v1/activity-summary` | 30/min | Google Health | `date` |
 | POST | `/api/v1/glucose-readings` | 60/min | PostgreSQL | Body: `readings[]` |

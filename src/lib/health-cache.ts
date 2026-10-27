@@ -59,11 +59,27 @@ interface CacheEntry<T> {
   expiresAt: number;
   /** Stale-retention boundary: `getStale()` serves the value before this; cleanup removes after. */
   staleUntil: number;
+  /** When the value was fetched from Google Health. */
+  storedAt: number;
 }
 
 class TtlCache<T> {
   private readonly store = new Map<string, CacheEntry<T>>();
   private callCount = 0;
+
+  /** Epoch ms at which the entry's value was fetched (present even when no longer fresh). */
+  getStoredAt(key: string): number | undefined {
+    return this.store.get(key)?.storedAt;
+  }
+
+  /**
+   * Marks the entry no longer fresh (the next `get()` misses and triggers a refetch)
+   * but keeps the value so `getStale()` can still serve it if that refetch fails.
+   */
+  expireFresh(key: string): void {
+    const entry = this.store.get(key);
+    if (entry) entry.expiresAt = 0;
+  }
 
   /**
    * Returns the cached value if present and still FRESH (within its TTL).
@@ -113,7 +129,7 @@ class TtlCache<T> {
     if (this.store.size >= MAX_CACHE_SIZE) {
       this.evictOldest();
     }
-    this.store.set(key, { value, expiresAt: now + ttlMs, staleUntil: now + Math.max(ttlMs, staleMs) });
+    this.store.set(key, { value, expiresAt: now + ttlMs, staleUntil: now + Math.max(ttlMs, staleMs), storedAt: now });
   }
 
   delete(key: string): void {
@@ -291,13 +307,9 @@ export async function getCachedHealthActivitySummary(
   targetDate: string,
   log?: Logger,
   criticality: HealthCallCriticality = "optional",
-  zoneOffset?: string | null,
 ): Promise<ActivitySummary> {
   const l = log ?? logger;
-  // zoneOffset selects which civil-day window the rollup covers, so it must be
-  // part of the cache key — otherwise a UTC-keyed value would be served for a
-  // zoned request (and vice versa) near date boundaries.
-  const key = `${userId}:${targetDate}:${zoneOffset ?? ""}`;
+  const key = `${userId}:${targetDate}`;
 
   const cached = activityCache.get(key);
   if (cached !== undefined) {
@@ -314,9 +326,6 @@ export async function getCachedHealthActivitySummary(
   promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
-      // zoneOffset is part of the cache key above (selects the civil-day window), but the
-      // API call itself takes only the already-resolved civil date — CivilDateTime forbids
-      // an offset field (P0-4).
       const activity = await getHealthActivitySummary(accessToken, targetDate, l, userId, criticality);
       if (getUserGeneration(userId) === generationAtStart) {
         activityCache.set(key, activity, TTL_5MIN, STALE_ACTIVITY);
@@ -349,23 +358,22 @@ export async function getCachedHealthActivitySummary(
 // ─── Cache invalidation ─────────────────────────────────────────────────────
 
 /**
- * Clears all profile, weight, and activity cache entries for the given user,
- * plus any in-flight dedup entries across all criticality tiers.
- * Called by the settings "Refresh from Google Health" button.
- *
- * There is no weight-goal cache: the goal is a local setting
- * (users.weightGoalType), not a Google Health read.
+ * Forces the next profile/weight/activity read to refetch from Google Health WITHOUT
+ * discarding the last-known values: fresh entries are expired but kept for the
+ * serve-stale-on-error fallback, so a failed refresh does not wipe them. In-flight
+ * dedup entries are dropped and the generation is bumped so pre-refresh fetches
+ * cannot write into the cache.
  */
-export function invalidateHealthProfileCache(userId: string): void {
+export function expireHealthProfileCache(userId: string): void {
   userCacheGeneration.set(userId, getUserGeneration(userId) + 1);
-  profileCache.delete(userId);
+  profileCache.expireFresh(userId);
 
   const userPrefix = `${userId}:`;
   for (const key of weightCache.keys()) {
-    if (key.startsWith(userPrefix)) weightCache.delete(key);
+    if (key.startsWith(userPrefix)) weightCache.expireFresh(key);
   }
   for (const key of activityCache.keys()) {
-    if (key.startsWith(userPrefix)) activityCache.delete(key);
+    if (key.startsWith(userPrefix)) activityCache.expireFresh(key);
   }
   for (const key of profileInFlight.keys()) {
     if (key.startsWith(userPrefix)) profileInFlight.delete(key);
@@ -376,4 +384,16 @@ export function invalidateHealthProfileCache(userId: string): void {
   for (const key of activityInFlight.keys()) {
     if (key.startsWith(userPrefix)) activityInFlight.delete(key);
   }
+}
+
+/**
+ * Epoch ms of the OLDEST Google Health fetch backing the profile + weight for `targetDate`
+ * (what the user is looking at is only as fresh as its oldest input). Null when either
+ * entry is absent.
+ */
+export function getHealthProfileSyncedAt(userId: string, targetDate: string): number | null {
+  const profileAt = profileCache.getStoredAt(userId);
+  const weightAt = weightCache.getStoredAt(`${userId}:${targetDate}`);
+  if (profileAt === undefined || weightAt === undefined) return null;
+  return Math.min(profileAt, weightAt);
 }

@@ -394,49 +394,49 @@ describe("AnalysisResult", () => {
   });
 
   describe("aria-live regions", () => {
-    it("loading state has aria-live='assertive'", () => {
-      const onRetry = vi.fn();
-      render(
+    it("keeps one persistent polite status region that announces the loading step", () => {
+      const { rerender } = render(
+        <AnalysisResult analysis={null} loading={false} error={null} onRetry={vi.fn()} />
+      );
+      const statusBefore = screen.getByRole("status");
+      expect(statusBefore).toHaveAttribute("aria-live", "polite");
+
+      rerender(
+        <AnalysisResult analysis={null} loading={true} error={null} onRetry={vi.fn()} loadingStep="Checking your food log..." />
+      );
+      const statusDuring = screen.getByRole("status");
+      // Same DOM node — the live region is not re-mounted between states
+      expect(statusDuring).toBe(statusBefore);
+      expect(statusDuring).toHaveTextContent("Checking your food log...");
+    });
+
+    it("streaming text is not announced (aria-live off) and nothing assertive is used", () => {
+      const { container } = render(
         <AnalysisResult
           analysis={null}
           loading={true}
           error={null}
-          onRetry={onRetry}
+          onRetry={vi.fn()}
+          streamingText="Looks like an empanada"
         />
       );
-
-      const loadingContainer = screen.getByTestId("loading-spinner").closest("[aria-live]");
-      expect(loadingContainer).toHaveAttribute("aria-live", "assertive");
+      const streaming = screen.getByText("Looks like an empanada").closest("[aria-live]");
+      expect(streaming).toHaveAttribute("aria-live", "off");
+      expect(container.querySelector('[aria-live="assertive"]')).toBeNull();
     });
 
-    it("error state has aria-live='polite'", () => {
-      const onRetry = vi.fn();
+    it("error state is rendered with role=alert", () => {
       render(
-        <AnalysisResult
-          analysis={null}
-          loading={false}
-          error="Test error"
-          onRetry={onRetry}
-        />
+        <AnalysisResult analysis={null} loading={false} error="Test error" onRetry={vi.fn()} />
       );
-
-      const errorContainer = screen.getByText("Test error").closest("[aria-live]");
-      expect(errorContainer).toHaveAttribute("aria-live", "polite");
+      expect(screen.getByRole("alert")).toHaveTextContent("Test error");
     });
 
-    it("result state has aria-live='polite'", () => {
-      const onRetry = vi.fn();
+    it("announces the final result through the persistent status region", () => {
       render(
-        <AnalysisResult
-          analysis={mockAnalysis}
-          loading={false}
-          error={null}
-          onRetry={onRetry}
-        />
+        <AnalysisResult analysis={mockAnalysis} loading={false} error={null} onRetry={vi.fn()} />
       );
-
-      const resultContainer = screen.getByText("Empanada de carne").closest("[aria-live]");
-      expect(resultContainer).toHaveAttribute("aria-live", "polite");
+      expect(screen.getByRole("status")).toHaveTextContent(/Empanada de carne/);
     });
   });
 

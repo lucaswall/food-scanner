@@ -166,7 +166,7 @@ describe("GET /api/nutrition-goals", () => {
 
     await GET(createRequest());
 
-    expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith("user-123", "2026-05-03", expect.any(Object));
+    expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith("user-123", "2026-05-03", expect.any(Object), undefined);
   });
 
   it("uses clientDate query param when provided", async () => {
@@ -175,7 +175,7 @@ describe("GET /api/nutrition-goals", () => {
 
     await GET(createRequest("http://localhost:3000/api/nutrition-goals?clientDate=2026-05-04"));
 
-    expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith("user-123", "2026-05-04", expect.any(Object));
+    expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith("user-123", "2026-05-04", expect.any(Object), "2026-05-04");
     expect(mockGetTodayDate).not.toHaveBeenCalled();
   });
 
@@ -186,7 +186,7 @@ describe("GET /api/nutrition-goals", () => {
 
     await GET(createRequest());
 
-    expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith("user-123", "2026-05-03", expect.any(Object));
+    expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith("user-123", "2026-05-03", expect.any(Object), undefined);
   });
 
   // ─── Status: blocked ─────────────────────────────────────────────────────
@@ -308,6 +308,29 @@ describe("GET /api/nutrition-goals", () => {
     const response = await GET(createRequest());
 
     expect(response.status).toBe(502);
+  });
+
+  it("returns 400 HEALTH_BAD_REQUEST when Google Health rejects the request", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("HEALTH_BAD_REQUEST"));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.error.code).toBe("HEALTH_BAD_REQUEST");
+  });
+
+  it("logs expected Google Health errors at warn, not error", async () => {
+    const { createRequestLogger } = await import("@/lib/logger");
+    const logger = (createRequestLogger as unknown as () => { warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> })();
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("HEALTH_RATE_LIMIT_LOW"));
+
+    await GET(createRequest());
+
+    expect(logger.warn).toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
   });
 
   it("returns 500 on generic/unknown error", async () => {

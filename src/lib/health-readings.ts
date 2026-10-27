@@ -2,12 +2,33 @@ import { getDb } from "@/db/index";
 import { glucoseReadings, bloodPressureReadings, hydrationReadings } from "@/db/schema";
 import { eq, and, between, asc, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
+import { MAX_READINGS_ROWS, READINGS_LIMIT_EXCEEDED_MESSAGE } from "@/lib/reading-validation";
 import type { GlucoseReading, GlucoseReadingInput, BloodPressureReading, BloodPressureReadingInput, HydrationReading, HydrationReadingInput } from "@/types";
+
+/**
+ * Collapses readings that share the same instant (last one wins). A single INSERT ... ON CONFLICT
+ * DO UPDATE cannot touch the same conflict target twice ("cannot affect row a second time").
+ */
+function dedupeByMeasuredAt<T extends { measuredAt: string }>(readings: T[]): T[] {
+  const byInstant = new Map<number, T>();
+  for (const r of readings) {
+    const key = new Date(r.measuredAt).getTime();
+    byInstant.delete(key); // re-insert so ordering follows the last occurrence
+    byInstant.set(key, r);
+  }
+  return [...byInstant.values()];
+}
+
+/** Throws when the range holds more rows than a single response may carry (never truncates silently). */
+function assertWithinRowLimit(rows: unknown[]): void {
+  if (rows.length > MAX_READINGS_ROWS) throw new Error(READINGS_LIMIT_EXCEEDED_MESSAGE);
+}
 
 export async function upsertGlucoseReadings(
   userId: string,
-  readings: GlucoseReadingInput[]
+  input: GlucoseReadingInput[]
 ): Promise<number> {
+  const readings = dedupeByMeasuredAt(input);
   if (readings.length === 0) return 0;
 
   await getDb()
@@ -40,8 +61,9 @@ export async function upsertGlucoseReadings(
 
 export async function upsertBloodPressureReadings(
   userId: string,
-  readings: BloodPressureReadingInput[]
+  input: BloodPressureReadingInput[]
 ): Promise<number> {
+  const readings = dedupeByMeasuredAt(input);
   if (readings.length === 0) return 0;
 
   await getDb()
@@ -90,7 +112,9 @@ export async function getGlucoseReadings(
         between(glucoseReadings.measuredAt, fromTs, toTs)
       )
     )
-    .orderBy(asc(glucoseReadings.measuredAt));
+    .orderBy(asc(glucoseReadings.measuredAt))
+    .limit(MAX_READINGS_ROWS + 1);
+  assertWithinRowLimit(rows);
 
   logger.debug({ action: "get_glucose_readings", userId, from, to, count: rows.length }, "glucose readings fetched");
 
@@ -107,8 +131,9 @@ export async function getGlucoseReadings(
 
 export async function upsertHydrationReadings(
   userId: string,
-  readings: HydrationReadingInput[]
+  input: HydrationReadingInput[]
 ): Promise<number> {
+  const readings = dedupeByMeasuredAt(input);
   if (readings.length === 0) return 0;
 
   await getDb()
@@ -151,7 +176,9 @@ export async function getBloodPressureReadings(
         between(bloodPressureReadings.measuredAt, fromTs, toTs)
       )
     )
-    .orderBy(asc(bloodPressureReadings.measuredAt));
+    .orderBy(asc(bloodPressureReadings.measuredAt))
+    .limit(MAX_READINGS_ROWS + 1);
+  assertWithinRowLimit(rows);
 
   logger.debug({ action: "get_blood_pressure_readings", userId, from, to, count: rows.length }, "blood pressure readings fetched");
 
@@ -184,7 +211,9 @@ export async function getHydrationReadings(
         between(hydrationReadings.measuredAt, fromTs, toTs)
       )
     )
-    .orderBy(asc(hydrationReadings.measuredAt));
+    .orderBy(asc(hydrationReadings.measuredAt))
+    .limit(MAX_READINGS_ROWS + 1);
+  assertWithinRowLimit(rows);
 
   logger.debug({ action: "get_hydration_readings", userId, from, to, count: rows.length }, "hydration readings fetched");
 

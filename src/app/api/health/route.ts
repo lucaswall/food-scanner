@@ -14,9 +14,11 @@ export async function GET() {
       ? `${packageJson.version}+${commitHash}`
       : packageJson.version;
 
-  return successResponse({
+  const response = successResponse({
     status: "ok",
     version,
     environment,
   });
+  response.headers.set("Cache-Control", "private, no-cache");
+  return response;
 }

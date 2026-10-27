@@ -108,7 +108,7 @@ describe("SessionItemsList", () => {
   it("shows confidence badge with correct color for low confidence", () => {
     render(<SessionItemsList items={[mockItems[2]]} />);
     const badge = screen.getByTestId("confidence-badge-0");
-    expect(badge).toHaveClass("bg-orange-400");
+    expect(badge).toHaveClass("bg-destructive");
   });
 
   it("does not render remove button when onRemoveItem is not provided", () => {

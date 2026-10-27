@@ -1453,6 +1453,40 @@ describe("FoodHistory", () => {
       });
     });
 
+    it("keeps the jump-to-date picker and offers Back to latest when the jump has no entries", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: [] } }),
+        })
+        .mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+        });
+
+      renderFoodHistory();
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByLabelText(/jump to date/i), { target: { value: "2020-01-15" } });
+      fireEvent.click(screen.getByRole("button", { name: /^go$/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/no entries on or before/i)).toBeInTheDocument();
+      });
+      expect(screen.getByLabelText(/jump to date/i)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: /back to latest/i }));
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+    });
+
     it("paginated entries remain visible after successful delete", async () => {
       // Initial 20 entries so sentinel appears — keep all 20 intact to ensure page 1 is re-fetched after mutate
       const initialEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({

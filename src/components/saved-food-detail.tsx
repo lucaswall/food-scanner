@@ -23,7 +23,7 @@ import { LogDateHint } from "@/components/log-date-hint";
 import { FoodMatchCard } from "@/components/food-match-card";
 import { FoodLogConfirmation } from "@/components/food-log-confirmation";
 import { FoodChat } from "@/components/food-chat";
-import { apiFetcher, invalidateFoodCaches, invalidateSavedAnalysesCaches } from "@/lib/swr";
+import { apiFetcher, ApiError, invalidateFoodCaches, invalidateSavedAnalysesCaches } from "@/lib/swr";
 import { safeResponseJson } from "@/lib/safe-json";
 import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
 import { useLogFood } from "@/hooks/use-log-food";
@@ -35,7 +35,7 @@ interface SavedFoodDetailProps {
 }
 
 export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
-  const { data: savedAnalysis, isLoading } = useSWR<SavedAnalysisDetail>(
+  const { data: savedAnalysis, isLoading, error: loadError, mutate } = useSWR<SavedAnalysisDetail>(
     `/api/saved-analyses/${savedId}`,
     apiFetcher,
   );
@@ -51,7 +51,11 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
         body: JSON.stringify({ keywords, food_name, amount, unit_id, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg }),
         signal: AbortSignal.timeout(15000),
       });
-      const result = (await safeResponseJson(response)) as { success: boolean; data?: { matches: FoodMatch[] }; error?: { message: string } };
+      const result = (await safeResponseJson(response)) as { success: boolean; data?: { matches: FoodMatch[] }; error?: { code?: string; message?: string } };
+      if (!response.ok || !result.success) {
+        // Throw so SWR keeps the error state (and retries) instead of caching [] as a real result
+        throw new ApiError(result.error?.message ?? "Failed to find matches", result.error?.code ?? "UNKNOWN_ERROR");
+      }
       return result.data?.matches ?? [];
     },
   );
@@ -71,6 +75,25 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
           <Skeleton className="h-11 flex-1 rounded-md" />
         </div>
         <Skeleton className="h-14 w-full rounded-md" />
+      </div>
+    );
+  }
+
+  if (!savedAnalysis && loadError && !(loadError instanceof ApiError && loadError.code === "NOT_FOUND")) {
+    return (
+      <div data-testid="saved-load-error" role="alert" className="flex flex-col items-center justify-center py-12 space-y-4 text-center">
+        <p className="text-muted-foreground">Couldn&apos;t load this saved analysis. Please try again.</p>
+        <div className="flex gap-2">
+          <Button onClick={() => void mutate()} className="min-h-[44px]">
+            Retry
+          </Button>
+          <Button variant="outline" asChild className="min-h-[44px]">
+            <a href="/app">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </a>
+          </Button>
+        </div>
       </div>
     );
   }

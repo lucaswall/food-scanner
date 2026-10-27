@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   saveSessionPhotos,
   loadSessionPhotos,
@@ -30,6 +30,7 @@ function makeState(overrides: Partial<AnalysisSessionState> = {}): AnalysisSessi
 describe("analysis-session", () => {
   beforeEach(() => {
     sessionStorage.clear();
+    localStorage.clear();
     // Reset DB singleton and IndexedDB between tests
     _resetDBForTesting();
     indexedDB = new IDBFactory();
@@ -160,6 +161,82 @@ describe("analysis-session", () => {
 
       expect(getActiveSessionId()).toBe(id);
       expect(loadSessionState(id)).toEqual(state);
+    });
+  });
+
+  describe("orphaned photo sweep", () => {
+    it("deletes photos left behind by a closed tab (no active session id) once past the TTL", async () => {
+      // Tab closed: sessionStorage (and with it the session id) is gone, IndexedDB blobs remain
+      await saveSessionPhotos("orphan", [new Blob(["photo"])]);
+      const index = JSON.parse(localStorage.getItem("food-scanner-photo-sessions") ?? "{}");
+      expect(index.orphan).toBeTypeOf("number");
+      index.orphan = Date.now() - 25 * 60 * 60 * 1000;
+      localStorage.setItem("food-scanner-photo-sessions", JSON.stringify(index));
+
+      await cleanupExpiredSession();
+
+      expect(await loadSessionPhotos("orphan")).toEqual([]);
+      expect(JSON.parse(localStorage.getItem("food-scanner-photo-sessions") ?? "{}").orphan).toBeUndefined();
+    });
+
+    it("deletes photos that have no index entry (never registered)", async () => {
+      const { getDB } = await import("@/lib/analysis-session");
+      const db = await getDB();
+      await db.put("session-photos", [new Blob(["legacy"])], "legacy-key");
+
+      await cleanupExpiredSession();
+
+      expect(await loadSessionPhotos("legacy-key")).toEqual([]);
+    });
+
+    it("keeps fresh photos (another tab's live session) and the active session's photos", async () => {
+      const activeId = createSessionId();
+      await saveSessionPhotos(activeId, [new Blob(["mine"])]);
+      await saveSessionPhotos("other-tab", [new Blob(["theirs"])]);
+
+      await cleanupExpiredSession();
+
+      expect(await loadSessionPhotos(activeId)).toHaveLength(1);
+      expect(await loadSessionPhotos("other-tab")).toHaveLength(1);
+    });
+
+    it("refreshes the registered timestamp on every save", async () => {
+      await saveSessionPhotos("long-open", [new Blob(["a"])]);
+      const index = JSON.parse(localStorage.getItem("food-scanner-photo-sessions") ?? "{}");
+      index["long-open"] = Date.now() - 25 * 60 * 60 * 1000;
+      localStorage.setItem("food-scanner-photo-sessions", JSON.stringify(index));
+
+      await saveSessionPhotos("long-open", [new Blob(["a"]), new Blob(["b"])]);
+      const after = JSON.parse(localStorage.getItem("food-scanner-photo-sessions") ?? "{}");
+      expect(Date.now() - after["long-open"]).toBeLessThan(60 * 1000);
+    });
+
+    it("does not delete a photo registered after the sweep started", async () => {
+      const { getDB } = await import("@/lib/analysis-session");
+      const db = await getDB();
+      await db.put("session-photos", [new Blob(["late"])], "late");
+      const original = db.getAllKeys.bind(db);
+      const spy = vi.spyOn(db, "getAllKeys").mockImplementation(async (...args: Parameters<typeof original>) => {
+        const keys = await original(...args);
+        // A save in another tab/flow registers its session while the sweep is awaiting
+        localStorage.setItem("food-scanner-photo-sessions", JSON.stringify({ late: Date.now() }));
+        return keys;
+      });
+
+      try {
+        await cleanupExpiredSession();
+      } finally {
+        spy.mockRestore();
+      }
+
+      expect(await loadSessionPhotos("late")).toHaveLength(1);
+      expect(JSON.parse(localStorage.getItem("food-scanner-photo-sessions") ?? "{}").late).toBeTypeOf("number");
+    });
+
+    it("clearSession unregisters the session from the index", async () => {
+      await saveSessionPhotos("gone", [new Blob(["photo"])]);
+      await clearSession("gone");
+      expect(JSON.parse(localStorage.getItem("food-scanner-photo-sessions") ?? "{}").gone).toBeUndefined();
     });
   });
 

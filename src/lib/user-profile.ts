@@ -64,7 +64,7 @@ export async function buildUserProfile(
   // limited, timeout) does not discard the DB-only nutrition summary and
   // top-foods context, which may have succeeded.
   const [goalsSettled, nutritionSummary, topFoods] = await Promise.all([
-    getOrComputeDailyGoals(userId, currentDate, l).then(
+    getOrComputeDailyGoals(userId, currentDate, l, currentDate).then(
       (value) => ({ ok: true as const, value }),
       (err: unknown) => {
         l.warn(

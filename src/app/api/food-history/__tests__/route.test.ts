@@ -162,6 +162,21 @@ describe("GET /api/food-history", () => {
     }, expect.anything());
   });
 
+  it("ignores calendar-invalid endDate/lastDate and partly numeric lastId instead of reaching the DB", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogHistory.mockResolvedValue([]);
+
+    const request = createRequest("http://localhost:3000/api/food-history?endDate=2026-02-30&lastDate=2026-13-45&lastId=12abc");
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
+      endDate: undefined,
+      cursor: undefined,
+      limit: 20,
+    }, expect.anything());
+  });
+
   it("ignores endDate with partial date format", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockGetFoodLogHistory.mockResolvedValue([]);

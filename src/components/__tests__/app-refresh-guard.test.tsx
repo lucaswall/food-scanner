@@ -17,7 +17,7 @@ describe("AppRefreshGuard", () => {
     // Mock window.location to prevent actual navigation
     Object.defineProperty(window, "location", {
       writable: true,
-      value: { href: "" },
+      value: { href: "", origin: "http://localhost" },
     });
   });
 
@@ -204,7 +204,7 @@ describe("AppRefreshGuard", () => {
     });
 
     // Should reload
-    expect(window.location.href).toBe("/app");
+    expect(window.location.href).toBe("http://localhost/app");
   });
 
   it("handles missing localStorage data gracefully (treats as no reload needed)", () => {

@@ -32,6 +32,8 @@ export async function GET(request: Request) {
   }
 }
 
+const MAX_NAME_LENGTH = 100;
+
 interface PostRequestBody {
   name?: unknown;
 }
@@ -40,7 +42,9 @@ function isValidPostRequest(body: unknown): body is { name: string } {
   if (!body || typeof body !== "object") return false;
   const req = body as PostRequestBody;
 
-  if (typeof req.name !== "string" || req.name.trim().length === 0) return false;
+  if (typeof req.name !== "string") return false;
+  const trimmed = req.name.trim();
+  if (trimmed.length === 0 || trimmed.length > MAX_NAME_LENGTH) return false;
 
   return true;
 }
@@ -71,18 +75,20 @@ export async function POST(request: Request) {
     );
     return errorResponse(
       "VALIDATION_ERROR",
-      "name is required and must be a non-empty string",
+      `name is required and must be a non-empty string of at most ${MAX_NAME_LENGTH} characters`,
       400,
     );
   }
 
+  const name = body.name.trim();
+
   log.info(
-    { action: "create_api_key", userId: session!.userId, keyName: body.name },
+    { action: "create_api_key", userId: session!.userId, nameLength: name.length },
     "Creating API key",
   );
 
   try {
-    const result = await createApiKey(session!.userId, body.name, log);
+    const result = await createApiKey(session!.userId, name, log);
 
     return successResponse(result, 201);
   } catch (error) {

@@ -3,6 +3,8 @@ import { successResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { revokeApiKey } from "@/lib/api-keys";
 
+const MAX_INT4 = 2147483647;
+
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
@@ -15,9 +17,10 @@ export async function DELETE(_request: Request, context: RouteContext) {
   if (validationError) return validationError;
 
   const { id: idParam } = await context.params;
-  const id = Number(idParam);
+  // api_keys.id is a Postgres serial (int4): reject anything else before it reaches the DB
+  const id = /^\d+$/.test(idParam) ? Number(idParam) : NaN;
 
-  if (isNaN(id) || id <= 0) {
+  if (!Number.isSafeInteger(id) || id <= 0 || id > MAX_INT4) {
     return errorResponse("VALIDATION_ERROR", "Invalid API key ID", 400);
   }
 

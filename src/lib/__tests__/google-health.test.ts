@@ -33,25 +33,27 @@ vi.mock("@sentry/nextjs", () => ({
 // ─── health-tokens mock ───────────────────────────────────────────────────────
 
 const getHealthTokensMock = vi.fn();
-const upsertHealthTokensMock = vi.fn();
-const deleteHealthTokensMock = vi.fn();
+const updateHealthTokensMock = vi.fn();
+const deleteHealthTokensIfUnchangedMock = vi.fn();
 
 vi.mock("@/lib/health-tokens", () => ({
   getHealthTokens: (...args: unknown[]) => getHealthTokensMock(...args),
-  upsertHealthTokens: (...args: unknown[]) => upsertHealthTokensMock(...args),
-  deleteHealthTokens: (...args: unknown[]) => deleteHealthTokensMock(...args),
+  updateHealthTokensIfUnchanged: (...args: unknown[]) => updateHealthTokensMock(...args),
+  deleteHealthTokensIfUnchanged: (...args: unknown[]) => deleteHealthTokensIfUnchangedMock(...args),
 }));
 
 // ─── google-health-rate-limit mock ───────────────────────────────────────────
 
 const assertRateLimitAllowedMock = vi.fn();
 const recordRateLimitHeadersMock = vi.fn();
+const clearRateLimitCooldownMock = vi.fn();
 const getRateLimitSnapshotMock = vi.fn().mockReturnValue(null);
 const recordResourceExhaustedCooldownMock = vi.fn();
 
 vi.mock("@/lib/google-health-rate-limit", () => ({
   assertRateLimitAllowed: (...args: unknown[]) => assertRateLimitAllowedMock(...args),
   recordRateLimitHeaders: (...args: unknown[]) => recordRateLimitHeadersMock(...args),
+  clearRateLimitCooldown: (...args: unknown[]) => clearRateLimitCooldownMock(...args),
   getRateLimitSnapshot: (...args: unknown[]) => getRateLimitSnapshotMock(...args),
   recordResourceExhaustedCooldown: (...args: unknown[]) => recordResourceExhaustedCooldownMock(...args),
 }));
@@ -143,8 +145,8 @@ describe("google-health", () => {
     global.fetch = fetchMock as unknown as typeof fetch;
     // Restore default return value after clearAllMocks
     getRateLimitSnapshotMock.mockReturnValue(null);
-    upsertHealthTokensMock.mockResolvedValue(undefined);
-    deleteHealthTokensMock.mockResolvedValue(undefined);
+    updateHealthTokensMock.mockResolvedValue(true);
+    deleteHealthTokensIfUnchangedMock.mockResolvedValue(true);
     const mod = await import("@/lib/google-health");
     fetchWithRetry = mod.fetchWithRetry;
     refreshGoogleHealthToken = mod.refreshGoogleHealthToken;
@@ -220,7 +222,61 @@ describe("google-health", () => {
         "user-a",
         expect.any(Response),
         fakeLog,
+        null,
       );
+    });
+
+    it("passes the body RetryInfo delay to the cooldown recorder on 429 and clears the cooldown on 2xx", async () => {
+      vi.useFakeTimers();
+      fetchMock
+        .mockResolvedValueOnce(makeJsonResponse({
+          error: { details: [{ "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: "2s" }] },
+        }, 429))
+        .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+      const promise = fetchWithRetry("https://example.com", {}, 0, Date.now(), fakeLog, "user-a", "optional");
+      await vi.advanceTimersByTimeAsync(3000);
+      await promise;
+
+      expect(recordRateLimitHeadersMock).toHaveBeenNthCalledWith(1, "user-a", expect.any(Response), fakeLog, 2000);
+      expect(clearRateLimitCooldownMock).toHaveBeenCalledWith("user-a");
+    });
+
+    it("on 401 with a userId forces ONE token refresh and retries with the new bearer token", async () => {
+      getHealthTokensMock.mockResolvedValue({ ...makeFreshRow(), accessToken: "stale-token" });
+      fetchMock
+        .mockResolvedValueOnce(new Response(null, { status: 401 })) // data call rejected
+        .mockResolvedValueOnce(makeJsonResponse({ access_token: "brand-new", expires_in: 3600 })) // refresh
+        .mockResolvedValueOnce(new Response(null, { status: 200 })); // retried data call
+
+      const res = await fetchWithRetry(
+        "https://example.com/data",
+        { headers: { Authorization: "Bearer stale-token" } },
+        0, Date.now(), fakeLog, "user-a", "optional",
+      );
+
+      expect(res.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock.mock.calls[1][0]).toBe("https://oauth2.googleapis.com/token");
+      const retryInit = fetchMock.mock.calls[2][1] as RequestInit;
+      expect(new Headers(retryInit.headers).get("Authorization")).toBe("Bearer brand-new");
+    });
+
+    it("does not retry a second 401 after the forced refresh (single retry)", async () => {
+      getHealthTokensMock.mockResolvedValue({ ...makeFreshRow(), accessToken: "stale-token" });
+      fetchMock
+        .mockResolvedValueOnce(new Response(null, { status: 401 }))
+        .mockResolvedValueOnce(makeJsonResponse({ access_token: "brand-new", expires_in: 3600 }))
+        .mockResolvedValueOnce(new Response(null, { status: 401 }));
+
+      await expect(
+        fetchWithRetry(
+          "https://example.com/data",
+          { headers: { Authorization: "Bearer stale-token" } },
+          0, Date.now(), fakeLog, "user-a", "optional",
+        ),
+      ).rejects.toThrow("HEALTH_TOKEN_INVALID");
+      expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
     it("only calls assertRateLimitAllowed on the first attempt (retryCount === 0)", async () => {
@@ -410,18 +466,37 @@ describe("google-health", () => {
       expect(url).toBe("https://oauth2.googleapis.com/token");
     });
 
-    it("throws HEALTH_TOKEN_INVALID on 400", async () => {
-      fetchMock.mockResolvedValue(new Response(null, { status: 400 }));
+    it("throws HEALTH_TOKEN_INVALID on 400 invalid_grant", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ error: "invalid_grant" }, 400));
       await expect(
         refreshGoogleHealthToken("old-refresh", fakeLog),
       ).rejects.toThrow("HEALTH_TOKEN_INVALID");
     });
 
-    it("throws HEALTH_TOKEN_INVALID on 401", async () => {
-      fetchMock.mockResolvedValue(new Response(null, { status: 401 }));
+    it("throws HEALTH_TOKEN_INVALID on 401 invalid_grant", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ error: "invalid_grant" }, 401));
       await expect(
         refreshGoogleHealthToken("old-refresh", fakeLog),
       ).rejects.toThrow("HEALTH_TOKEN_INVALID");
+    });
+
+    it("401 invalid_client is a server config fault: HEALTH_REFRESH_TRANSIENT, logged at error", async () => {
+      errorMock.mockClear();
+      fetchMock.mockResolvedValue(makeJsonResponse({ error: "invalid_client" }, 401));
+      await expect(
+        refreshGoogleHealthToken("old-refresh", fakeLog),
+      ).rejects.toThrow("HEALTH_REFRESH_TRANSIENT");
+      expect(errorMock).toHaveBeenCalledWith(
+        expect.objectContaining({ action: "google_health_token_refresh_config_error", status: 401, oauthError: "invalid_client" }),
+        expect.any(String),
+      );
+    });
+
+    it("400 invalid_request and an empty 400 body are NOT treated as a revoked token", async () => {
+      fetchMock.mockResolvedValueOnce(makeJsonResponse({ error: "invalid_request" }, 400));
+      await expect(refreshGoogleHealthToken("r", fakeLog)).rejects.toThrow("HEALTH_REFRESH_TRANSIENT");
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 400 }));
+      await expect(refreshGoogleHealthToken("r", fakeLog)).rejects.toThrow("HEALTH_REFRESH_TRANSIENT");
     });
 
     it("throws HEALTH_REFRESH_TRANSIENT on 5xx", async () => {
@@ -871,6 +946,24 @@ describe("google-health", () => {
       ).resolves.toBeUndefined();
     });
 
+    it("user mode: NOT_FOUND after a 5xx retry means the first attempt committed — resolves, no drift error", async () => {
+      vi.useFakeTimers();
+      fetchMock
+        .mockResolvedValueOnce(new Response(null, { status: 503 }))
+        .mockResolvedValueOnce(makeJsonResponse({ done: true, error: { code: 5, message: "not found" } }));
+      errorMock.mockClear();
+
+      const promise = deleteNutritionLogs("token", ["dp-1"], fakeLog, "user-1", "user");
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(promise).resolves.toBeUndefined();
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(errorMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: "health_delete_nutrition_logs_not_found" }),
+        expect.any(String),
+      );
+    });
+
     it("throws HEALTH_LOG_NOT_FOUND on Operation error.code=5 for a user-initiated delete", async () => {
       fetchMock.mockResolvedValue(
         makeJsonResponse({ name: "operations/del", done: true, error: { code: 5, message: "not found" } }),
@@ -943,18 +1036,16 @@ describe("google-health", () => {
       const [url] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(url).toBe("https://oauth2.googleapis.com/token");
 
-      // Stored with preserved refresh token (Google does not rotate)
-      expect(upsertHealthTokensMock).toHaveBeenCalledWith(
+      // Conditional write keyed on the row the refresh started from; refresh token untouched
+      expect(updateHealthTokensMock).toHaveBeenCalledWith(
         "user-a",
-        expect.objectContaining({
-          refreshToken: "my-refresh-token",
-          accessToken: "refreshed-token",
-        }),
+        expect.any(Date),
+        expect.objectContaining({ accessToken: "refreshed-token" }),
         fakeLog,
       );
     });
 
-    it("preserves the existing refresh token after a successful refresh", async () => {
+    it("never rewrites the refresh token after a successful refresh (Google does not rotate it)", async () => {
       getHealthTokensMock.mockResolvedValue(makeNearExpiredRow());
       fetchMock.mockResolvedValue(makeJsonResponse({
         access_token: "new-access",
@@ -964,8 +1055,8 @@ describe("google-health", () => {
 
       await ensureFreshToken("user-a", fakeLog);
 
-      const upsertArg = upsertHealthTokensMock.mock.calls[0][1] as Record<string, unknown>;
-      expect(upsertArg.refreshToken).toBe("my-refresh-token");
+      const writeArg = updateHealthTokensMock.mock.calls[0][2] as Record<string, unknown>;
+      expect(writeArg).not.toHaveProperty("refreshToken");
     });
 
     // P1-5: a revoked/expired refresh token (400/401 → HEALTH_TOKEN_INVALID from
@@ -973,15 +1064,15 @@ describe("google-health", () => {
     // next checkHealthConnection flips to needs_reconnect.
     it("deletes the dead token row and rethrows when refresh returns HEALTH_TOKEN_INVALID (revoked)", async () => {
       getHealthTokensMock.mockResolvedValue(makeNearExpiredRow());
-      // 401 from the token endpoint → refreshGoogleHealthToken throws HEALTH_TOKEN_INVALID
-      fetchMock.mockResolvedValue(new Response(null, { status: 401 }));
+      // invalid_grant from the token endpoint → refreshGoogleHealthToken throws HEALTH_TOKEN_INVALID
+      fetchMock.mockResolvedValue(makeJsonResponse({ error: "invalid_grant" }, 400));
 
       await expect(ensureFreshToken("user-a", fakeLog)).rejects.toThrow("HEALTH_TOKEN_INVALID");
 
-      expect(deleteHealthTokensMock).toHaveBeenCalledTimes(1);
-      expect(deleteHealthTokensMock).toHaveBeenCalledWith("user-a", fakeLog);
+      expect(deleteHealthTokensIfUnchangedMock).toHaveBeenCalledTimes(1);
+      expect(deleteHealthTokensIfUnchangedMock).toHaveBeenCalledWith("user-a", expect.any(Date), fakeLog);
       // No token was stored after a revoked refresh
-      expect(upsertHealthTokensMock).not.toHaveBeenCalled();
+      expect(updateHealthTokensMock).not.toHaveBeenCalled();
     });
 
     it("does NOT delete the token row on a transient refresh failure (HEALTH_REFRESH_TRANSIENT)", async () => {
@@ -991,7 +1082,68 @@ describe("google-health", () => {
 
       await expect(ensureFreshToken("user-a", fakeLog)).rejects.toThrow("HEALTH_REFRESH_TRANSIENT");
 
-      expect(deleteHealthTokensMock).not.toHaveBeenCalled();
+      expect(deleteHealthTokensIfUnchangedMock).not.toHaveBeenCalled();
+    });
+
+    it("does NOT delete the token row on invalid_client (server misconfiguration, token still valid)", async () => {
+      getHealthTokensMock.mockResolvedValue(makeNearExpiredRow());
+      fetchMock.mockResolvedValue(makeJsonResponse({ error: "invalid_client" }, 401));
+
+      await expect(ensureFreshToken("user-a", fakeLog)).rejects.toThrow("HEALTH_REFRESH_TRANSIENT");
+
+      expect(deleteHealthTokensIfUnchangedMock).not.toHaveBeenCalled();
+    });
+
+    it("a revoked-token failure does not delete a row superseded by a concurrent reconnect; returns the new token", async () => {
+      getHealthTokensMock
+        .mockResolvedValueOnce(makeNearExpiredRow())
+        .mockResolvedValueOnce({ ...makeFreshRow(), accessToken: "reconnected-token" });
+      fetchMock.mockResolvedValue(makeJsonResponse({ error: "invalid_grant" }, 400));
+      deleteHealthTokensIfUnchangedMock.mockResolvedValue(false); // updatedAt changed
+
+      await expect(ensureFreshToken("user-a", fakeLog)).resolves.toBe("reconnected-token");
+    });
+
+    it("a successful refresh superseded by a reconnect is discarded; returns the reconnected token", async () => {
+      getHealthTokensMock
+        .mockResolvedValueOnce(makeNearExpiredRow())
+        .mockResolvedValueOnce({ ...makeFreshRow(), accessToken: "reconnected-token" });
+      fetchMock.mockResolvedValue(makeJsonResponse({ access_token: "stale-refresh-result", expires_in: 3600 }));
+      updateHealthTokensMock.mockResolvedValue(false);
+
+      await expect(ensureFreshToken("user-a", fakeLog)).resolves.toBe("reconnected-token");
+    });
+
+    it("rejectedAccessToken forces a refresh even when the stored expiry looks fresh", async () => {
+      getHealthTokensMock.mockResolvedValue({ ...makeFreshRow(), accessToken: "revoked-token" });
+      fetchMock.mockResolvedValue(makeJsonResponse({ access_token: "new-token", expires_in: 3600 }));
+
+      const result = await ensureFreshToken("user-a", fakeLog, { rejectedAccessToken: "revoked-token" });
+
+      expect(result).toBe("new-token");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("a 401 caller joining an in-flight fast-path read still forces a refresh", async () => {
+      getHealthTokensMock.mockResolvedValue({ ...makeFreshRow(), accessToken: "revoked-token" });
+      fetchMock.mockResolvedValue(makeJsonResponse({ access_token: "new-token", expires_in: 3600 }));
+      updateHealthTokensMock.mockResolvedValue(true);
+
+      const plain = ensureFreshToken("user-a", fakeLog);
+      const forced = ensureFreshToken("user-a", fakeLog, { rejectedAccessToken: "revoked-token" });
+
+      await expect(plain).resolves.toBe("revoked-token");
+      await expect(forced).resolves.toBe("new-token");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejectedAccessToken is ignored when the stored token was already replaced", async () => {
+      getHealthTokensMock.mockResolvedValue({ ...makeFreshRow(), accessToken: "already-new" });
+
+      const result = await ensureFreshToken("user-a", fakeLog, { rejectedAccessToken: "old-rejected" });
+
+      expect(result).toBe("already-new");
+      expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it("does NOT delete on the no-token-row case (nothing to reconcile)", async () => {
@@ -999,17 +1151,17 @@ describe("google-health", () => {
 
       await expect(ensureFreshToken("user-a", fakeLog)).rejects.toThrow("HEALTH_TOKEN_INVALID");
 
-      expect(deleteHealthTokensMock).not.toHaveBeenCalled();
+      expect(deleteHealthTokensIfUnchangedMock).not.toHaveBeenCalled();
     });
 
     it("still rethrows HEALTH_TOKEN_INVALID even if the reconcile delete itself fails (best-effort)", async () => {
       getHealthTokensMock.mockResolvedValue(makeNearExpiredRow());
-      fetchMock.mockResolvedValue(new Response(null, { status: 400 }));
-      deleteHealthTokensMock.mockRejectedValue(new Error("DB connection lost"));
+      fetchMock.mockResolvedValue(makeJsonResponse({ error: "invalid_grant" }, 400));
+      deleteHealthTokensIfUnchangedMock.mockRejectedValue(new Error("DB connection lost"));
 
       // The original auth error must surface, not the delete error.
       await expect(ensureFreshToken("user-a", fakeLog)).rejects.toThrow("HEALTH_TOKEN_INVALID");
-      expect(deleteHealthTokensMock).toHaveBeenCalledTimes(1);
+      expect(deleteHealthTokensIfUnchangedMock).toHaveBeenCalledTimes(1);
     });
 
     it("throws HEALTH_TOKEN_SAVE_FAILED when upsert fails twice", async () => {
@@ -1018,11 +1170,11 @@ describe("google-health", () => {
         access_token: "new-token",
         expires_in: 3600,
       }));
-      upsertHealthTokensMock.mockRejectedValue(new Error("DB connection lost"));
+      updateHealthTokensMock.mockRejectedValue(new Error("DB connection lost"));
 
       await expect(ensureFreshToken("user-a", fakeLog)).rejects.toThrow("HEALTH_TOKEN_SAVE_FAILED");
       // Upsert should have been retried once
-      expect(upsertHealthTokensMock).toHaveBeenCalledTimes(2);
+      expect(updateHealthTokensMock).toHaveBeenCalledTimes(2);
     });
 
     // CONCURRENCY TEST: fire ~5 concurrent ensureFreshToken calls on a near-expired row
@@ -1221,6 +1373,8 @@ describe("google-health", () => {
     });
 
     it("throws HEALTH_TOKEN_INVALID on 401", async () => {
+      // The forced refresh finds no token row, so the 401 surfaces as HEALTH_TOKEN_INVALID.
+      getHealthTokensMock.mockResolvedValue(null);
       fetchMock.mockResolvedValue(new Response(null, { status: 401 }));
       await expect(
         getHealthProfile("token", fakeLog, "user-1"),
@@ -1277,6 +1431,38 @@ describe("google-health", () => {
       expect(result).toBeNull();
     });
 
+    it("dates an evening weigh-in by the user's civil day (civilTime), not the UTC date", async () => {
+      // 2026-05-31 21:30 at UTC-3 == 2026-06-01T00:30Z — the UTC date would fall outside the window.
+      fetchMock.mockResolvedValue(makeJsonResponse({
+        dataPoints: [
+          {
+            weight: {
+              weightGrams: 80000,
+              sampleTime: {
+                physicalTime: "2026-06-01T00:30:00Z",
+                utcOffset: "-10800s",
+                civilTime: { date: { year: 2026, month: 5, day: 31 }, time: { hours: 21, minutes: 30 } },
+              },
+            },
+          },
+        ],
+      }));
+
+      const result = await getHealthLatestWeightKg("token", "2026-05-31", fakeLog, "user-1");
+      expect(result).toEqual({ weightKg: 80, loggedDate: "2026-05-31" });
+    });
+
+    it("falls back to physicalTime + utcOffset when civilTime is absent", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({
+        dataPoints: [
+          { weight: { weightGrams: 81000, sampleTime: { physicalTime: "2026-06-01T00:30:00Z", utcOffset: "-10800s" } } },
+        ],
+      }));
+
+      const result = await getHealthLatestWeightKg("token", "2026-05-31", fakeLog, "user-1");
+      expect(result).toEqual({ weightKg: 81, loggedDate: "2026-05-31" });
+    });
+
     it("tolerates a bare RFC3339 string sampleTime (extractSampleDate fallback)", async () => {
       fetchMock.mockResolvedValue(makeJsonResponse({
         dataPoints: [
@@ -1312,6 +1498,8 @@ describe("google-health", () => {
     });
 
     it("throws HEALTH_TOKEN_INVALID on 401", async () => {
+      // The forced refresh finds no token row, so the 401 surfaces as HEALTH_TOKEN_INVALID.
+      getHealthTokensMock.mockResolvedValue(null);
       fetchMock.mockResolvedValue(new Response(null, { status: 401 }));
       await expect(
         getHealthLatestWeightKg("token", "2026-05-31", fakeLog, "user-1"),
@@ -1404,6 +1592,8 @@ describe("google-health", () => {
     });
 
     it("throws HEALTH_TOKEN_INVALID on 401", async () => {
+      // The forced refresh finds no token row, so the 401 surfaces as HEALTH_TOKEN_INVALID.
+      getHealthTokensMock.mockResolvedValue(null);
       fetchMock.mockResolvedValue(new Response(null, { status: 401 }));
       await expect(
         getHealthActivitySummary("token", "2026-05-31", fakeLog, "user-1"),

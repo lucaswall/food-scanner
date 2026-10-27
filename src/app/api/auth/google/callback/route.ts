@@ -1,10 +1,11 @@
-import { exchangeGoogleCode, getGoogleProfile, exchangeGoogleHealthCode, getGoogleHealthIdentity, GOOGLE_HEALTH_SCOPES } from "@/lib/auth";
+import { exchangeGoogleCode, getGoogleProfile, exchangeGoogleHealthCode, getGoogleHealthIdentity } from "@/lib/auth";
 import { errorResponse } from "@/lib/api-response";
 import { getRawSession } from "@/lib/session";
 import { buildUrl } from "@/lib/url";
 import { createRequestLogger } from "@/lib/logger";
 import { createSession, getSessionById } from "@/lib/session-db";
-import { getHealthTokens, upsertHealthTokens } from "@/lib/health-tokens";
+import { getHealthTokens, upsertHealthTokens, isHealthAccountLinkedToOtherUser } from "@/lib/health-tokens";
+import { getMissingHealthScopes } from "@/lib/health-connection";
 import { isEmailAllowed } from "@/lib/env";
 import { getOrCreateUser } from "@/lib/users";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -113,6 +114,25 @@ export async function GET(request: Request) {
       return errorResponse("VALIDATION_ERROR", "Failed to fetch Google Health identity", 400);
     }
 
+    // One Google Health account may back only one app user. The Health account does not have
+    // to match the login account (a user may legitimately use another one), but it must not
+    // already belong to a different app user.
+    try {
+      if (await isHealthAccountLinkedToOtherUser(dbSession.userId, healthUserId)) {
+        log.warn(
+          { action: "health_connect_account_in_use" },
+          "google health account is already linked to a different user",
+        );
+        return Response.redirect(buildUrl("/app/connect-health?error=account_in_use"), 302);
+      }
+    } catch (error) {
+      log.error(
+        { action: "health_connect_account_check_error", error: error instanceof Error ? error.message : String(error) },
+        "failed to check google health account ownership",
+      );
+      return errorResponse("INTERNAL_ERROR", "Failed to link Google Health account", 500);
+    }
+
     const expiresAt = healthTokens.expires_in
       ? new Date(Date.now() + healthTokens.expires_in * 1000)
       : new Date(Date.now() + 3600 * 1000);
@@ -137,17 +157,14 @@ export async function GET(request: Request) {
       return errorResponse("HEALTH_TOKEN_SAVE_FAILED", "Failed to save Google Health tokens", 500);
     }
 
-    // Verify the user actually granted the scope we need. Granular consent lets a user
-    // deselect individual scopes; without nutrition.writeonly the app cannot log food, so
-    // route to re-consent instead of falsely reporting "connected" and 403-ing on the first
-    // write (P1-3). RFC 6749 §3.3: an omitted scope means all requested scopes were granted.
-    const NUTRITION_WRITE_SCOPE = "https://www.googleapis.com/auth/googlehealth.nutrition.writeonly";
-    const grantedScopes = new Set((healthTokens.scope ?? "").split(/\s+/).filter(Boolean));
-    const allGranted = healthTokens.scope == null || healthTokens.scope === "";
-    if (!allGranted && !grantedScopes.has(NUTRITION_WRITE_SCOPE)) {
+    // Verify the user actually granted every scope we need (granular consent lets them deselect
+    // individual scopes). Uses the same rule as checkHealthConnection so a row that would
+    // report anything but `healthy` is routed to re-consent instead of "connected" (P1-3).
+    const missingScopes = getMissingHealthScopes(healthTokens.scope ?? null);
+    if (missingScopes.length > 0) {
       log.warn(
-        { action: "health_connect_missing_scope", missing: GOOGLE_HEALTH_SCOPES.filter((s) => !grantedScopes.has(s)) },
-        "google health connected without the required nutrition.writeonly scope — routing to re-consent",
+        { action: "health_connect_missing_scope", missing: missingScopes },
+        "google health connected without all required scopes — routing to re-consent",
       );
       return Response.redirect(buildUrl("/app/connect-health?error=missing_scope"), 302);
     }
@@ -190,15 +207,33 @@ export async function GET(request: Request) {
   }
 
   // Create or find user record, then create DB session
-  const user = await getOrCreateUser(profile.email, profile.name, log);
-  const sessionId = await createSession(user.id, log);
-  rawSession.sessionId = sessionId;
-  await rawSession.save();
+  let user: Awaited<ReturnType<typeof getOrCreateUser>>;
+  try {
+    user = await getOrCreateUser(profile.email, profile.name, log);
+    const sessionId = await createSession(user.id, log);
+    rawSession.sessionId = sessionId;
+    await rawSession.save();
+  } catch (error) {
+    log.error(
+      { action: "google_login_persist_error", error: error instanceof Error ? error.message : String(error) },
+      "failed to create user/session during google login",
+    );
+    return errorResponse("INTERNAL_ERROR", "Failed to complete sign-in", 500);
+  }
 
   log.info({ action: "google_login_success", email: maskEmail(profile.email) }, "google login successful");
 
   // Post-login redirect: /app if health tokens already connected, /app/connect-health if not
-  const userHealthTokens = await getHealthTokens(user.id, log);
+  // The session is already saved; a failed lookup falls back to the connect page rather than a 500.
+  let userHealthTokens: Awaited<ReturnType<typeof getHealthTokens>> = null;
+  try {
+    userHealthTokens = await getHealthTokens(user.id, log);
+  } catch (error) {
+    log.error(
+      { action: "google_login_health_tokens_error", error: error instanceof Error ? error.message : String(error) },
+      "failed to read health tokens after login — redirecting to connect-health",
+    );
+  }
   if (userHealthTokens) {
     return Response.redirect(buildUrl(returnTo ?? "/app"), 302);
   }

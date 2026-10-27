@@ -515,4 +515,49 @@ describe("PATCH /api/daily-goals-settings", () => {
     expect(body.error.code).toBe("VALIDATION_ERROR");
     expect(mockUpdateUserGoalSettings).not.toHaveBeenCalled();
   });
+
+  function patchRequest(body: unknown): Request {
+    return new Request("http://localhost/api/daily-goals-settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("invalidates from the client-supplied clientDate (user-local today)", async () => {
+    mockUpdateUserGoalSettings.mockResolvedValue({ activityLevel: "very_active" });
+
+    const response = await PATCH(patchRequest({ activityLevel: "very_active", clientDate: "2026-05-07" }));
+
+    expect(response.status).toBe(200);
+    expect(mockUpdateUserGoalSettings).toHaveBeenCalledWith("user-uuid-123", { activityLevel: "very_active" });
+    expect(mockInvalidateUserDailyGoalsForSettingsChange).toHaveBeenCalledWith("user-uuid-123", "2026-05-07");
+  });
+
+  it("returns 400 for an invalid clientDate", async () => {
+    const response = await PATCH(patchRequest({ activityLevel: "light", clientDate: "tomorrow" }));
+
+    expect(response.status).toBe(400);
+    expect(mockUpdateUserGoalSettings).not.toHaveBeenCalled();
+  });
+
+  it("returns 500 INTERNAL_ERROR when persisting fails", async () => {
+    mockUpdateUserGoalSettings.mockRejectedValue(new Error("db down"));
+
+    const response = await PATCH(patchRequest({ activityLevel: "light" }));
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+  });
+
+  it("returns 500 INTERNAL_ERROR when GET read fails", async () => {
+    mockGetUserGoalSettings.mockRejectedValue(new Error("db down"));
+
+    const response = await GET();
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+  });
 });

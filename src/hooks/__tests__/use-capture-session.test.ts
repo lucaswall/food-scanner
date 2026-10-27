@@ -126,6 +126,35 @@ describe("useCaptureSession", () => {
     expect(mockSaveCaptureMetadata).toHaveBeenCalled();
   });
 
+  it("addCapture after clearSession starts a fresh session instead of silently dropping the capture", async () => {
+    mockGetActiveCaptureSessionId.mockReturnValue("session-1");
+    mockLoadCaptureMetadata.mockReturnValue({
+      id: "session-1",
+      captures: [{ id: "c1", imageCount: 1, note: null, capturedAt: new Date().toISOString(), order: 0 }],
+      createdAt: new Date().toISOString(),
+    });
+
+    const { result } = renderHook(() => useCaptureSession());
+    await act(async () => {});
+    await act(async () => {
+      result.current.actions.clearSession();
+    });
+    expect(result.current.state.sessionId).toBeNull();
+
+    // clearSession removed the persisted id; a new session must be created on demand
+    mockGetActiveCaptureSessionId.mockReturnValue(null);
+    mockLoadCaptureMetadata.mockReturnValue(null);
+    mockCreateCaptureSessionId.mockReturnValue("session-2");
+
+    await act(async () => {
+      await result.current.actions.addCapture([], "after clear");
+    });
+
+    expect(result.current.state.sessionId).toBe("session-2");
+    expect(result.current.state.captures).toHaveLength(1);
+    expect(result.current.state.captures[0].note).toBe("after clear");
+  });
+
   it("addCapture compresses images before storing", async () => {
     const { result } = renderHook(() => useCaptureSession());
     await act(async () => {});

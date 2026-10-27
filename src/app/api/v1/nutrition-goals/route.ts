@@ -9,6 +9,7 @@ import { getDailyGoalsByDateRange } from "@/lib/nutrition-goals";
 import { getUserGoalSettings } from "@/lib/users";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getTodayDate, isValidDateFormat } from "@/lib/date-utils";
+import { isExpectedHealthError, mapHealthError } from "@/lib/health-error-response";
 import type { NutritionGoals } from "@/types";
 
 const RATE_LIMIT_MAX = 30;
@@ -27,43 +28,6 @@ type RangeEntry = Pick<
   NutritionGoals,
   "calories" | "proteinG" | "carbsG" | "fatG" | "status"
 > & { date: string; reason?: RangeReason };
-
-function mapHealthError(error: unknown): Response | null {
-  if (!(error instanceof Error)) return null;
-  if (error.message === "HEALTH_TOKEN_INVALID") {
-    return errorResponse("HEALTH_TOKEN_INVALID", "Google Health token is invalid or expired", 401);
-  }
-  if (error.message === "HEALTH_SCOPE_MISSING") {
-    return errorResponse(
-      "HEALTH_SCOPE_MISSING",
-      "Google Health permissions need updating. Please reconnect Google Health in Settings.",
-      403,
-    );
-  }
-  if (error.message === "HEALTH_RATE_LIMIT") {
-    return errorResponse("HEALTH_RATE_LIMIT", "Google Health API rate limited. Please try again later.", 429);
-  }
-  if (error.message === "HEALTH_RATE_LIMIT_LOW") {
-    return errorResponse(
-      "HEALTH_RATE_LIMIT_LOW",
-      "Google Health rate-limit headroom is low. Please try again in a few minutes.",
-      503,
-    );
-  }
-  if (error.message === "HEALTH_TIMEOUT") {
-    return errorResponse("HEALTH_TIMEOUT", "Request to Google Health timed out. Please try again.", 504);
-  }
-  if (error.message === "HEALTH_REFRESH_TRANSIENT") {
-    return errorResponse("HEALTH_REFRESH_TRANSIENT", "Temporary Google Health error. Please try again.", 502);
-  }
-  if (error.message === "HEALTH_TOKEN_SAVE_FAILED") {
-    return errorResponse("HEALTH_TOKEN_SAVE_FAILED", "Failed to save Google Health tokens. Please try again.", 500);
-  }
-  if (error.message === "HEALTH_API_ERROR") {
-    return errorResponse("HEALTH_API_ERROR", "Google Health API error", 502);
-  }
-  return null;
-}
 
 export async function GET(request: Request) {
   const log = createRequestLogger("GET", "/api/v1/nutrition-goals");
@@ -86,11 +50,15 @@ export async function GET(request: Request) {
   const dateParam = searchParams.get("date");
   const fromParam = searchParams.get("from");
   const toParam = searchParams.get("to");
+  // Caller's local "today" (same convention as /api/v1/fasting `clientDate`). Used as the
+  // default for single-date mode and to decide which dates are stable past rows.
+  const clientDateParam = searchParams.get("clientDate");
 
   for (const [name, value] of [
     ["date", dateParam],
     ["from", fromParam],
     ["to", toParam],
+    ["clientDate", clientDateParam],
   ] as const) {
     if (value !== null && !isValidDateFormat(value)) {
       return errorResponse("VALIDATION_ERROR", `Invalid ${name} format. Use YYYY-MM-DD`, 400);
@@ -162,20 +130,15 @@ export async function GET(request: Request) {
           });
           continue;
         }
-        // FOO-1068: `proteinGoal !== null` is the "engine wrote macros"
-        // sentinel — distinguishes real engine output (legacy or new, any
-        // sign of calorieGoal) from invalidated rows (FOO-992 nulls macros).
-        // The new engine permits non-positive calorieGoal for extreme rates,
-        // so the prior `> 0` filter was wrong for valid rows.
-        const computed = row.proteinGoal !== null;
+        // getDailyGoalsByDateRange only returns engine-written rows (invalidated
+        // rows are excluded), so every row here is a real goal.
         entries.push({
           date,
-          calories: computed ? row.calorieGoal : null,
+          calories: row.calorieGoal,
           proteinG: row.proteinGoal,
           carbsG: row.carbsGoal,
           fatG: row.fatGoal,
-          status: computed ? "ok" : "blocked",
-          ...(computed ? {} : { reason: gapReason }),
+          status: "ok",
         });
       }
 
@@ -188,8 +151,13 @@ export async function GET(request: Request) {
     }
 
     // Single-date mode — engine-computed.
-    const date = dateParam ?? getTodayDate();
-    const result = await getOrComputeDailyGoals(authResult.userId, date, log);
+    const date = dateParam ?? clientDateParam ?? getTodayDate();
+    const result = await getOrComputeDailyGoals(
+      authResult.userId,
+      date,
+      log,
+      clientDateParam ?? undefined,
+    );
 
     // FOO-1031 (PR review): getOrComputeDailyGoals catches HEALTH_SCOPE_MISSING
     // and returns a resolved blocked/scope_mismatch result rather than throwing.
@@ -212,12 +180,15 @@ export async function GET(request: Request) {
 
     return conditionalResponse(request, { date, ...goals });
   } catch (error) {
-    log.error(
-      { action: "v1_nutrition_goals_error", error: error instanceof Error ? error.message : String(error) },
-      "v1 nutrition goals fetch failed",
-    );
-    const mapped = mapHealthError(error);
-    if (mapped) return mapped;
-    return errorResponse("INTERNAL_ERROR", "Failed to fetch nutrition goals", 500);
+    const logFields = {
+      action: "v1_nutrition_goals_error",
+      error: error instanceof Error ? error.message : String(error),
+    };
+    if (isExpectedHealthError(error)) {
+      log.warn(logFields, "v1 nutrition goals fetch failed (expected Google Health condition)");
+    } else {
+      log.error(logFields, "v1 nutrition goals fetch failed");
+    }
+    return mapHealthError(error);
   }
 }

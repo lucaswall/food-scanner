@@ -10,10 +10,13 @@ import { SessionItemsList } from "@/components/session-items-list";
 import { parseSSEEvents } from "@/lib/sse";
 import { invalidateSavedAnalysesCaches } from "@/lib/swr";
 import { safeResponseJson } from "@/lib/safe-json";
+import { getLocalDateTime } from "@/lib/meal-type";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import type { FoodAnalysis, ConversationMessage } from "@/types";
 
 type TriageState = "preview" | "analyzing" | "results" | "saving" | "done";
+
+const ANALYZE_TIMEOUT_MS = 120000;
 
 export function CaptureTriage() {
   const router = useRouter();
@@ -25,6 +28,8 @@ export function CaptureTriage() {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [narrative, setNarrative] = useState("");
   const narrativeRef = useRef("");
+  // Transient server status (e.g. "retrying") — never part of the narrative or chat history
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [isChatSending, setIsChatSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,12 +38,17 @@ export function CaptureTriage() {
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  // Saving clears the capture session on purpose (captures become empty), and the "done"
+  // banner must stay visible until its own timer navigates — so only redirect when the
+  // user lands here with nothing to triage.
+  const savingOrDone = triageState === "saving" || triageState === "done";
+
   // Redirect when no captures and not restoring
   useEffect(() => {
-    if (!isRestoring && captures.length === 0) {
+    if (!isRestoring && captures.length === 0 && !savingOrDone) {
       router.replace("/app");
     }
-  }, [isRestoring, captures.length, router]);
+  }, [isRestoring, captures.length, savingOrDone, router]);
 
   // Load thumbnails for preview
   useEffect(() => {
@@ -83,6 +93,7 @@ export function CaptureTriage() {
     response: Response,
     onSessionItems: (items: FoodAnalysis[]) => void,
     onTextDelta?: (text: string) => void,
+    onRetry?: (message: string) => void,
   ): Promise<{ ok: boolean; error?: string }> => {
     if (!response.body) return { ok: false, error: "No response body" };
 
@@ -102,6 +113,8 @@ export function CaptureTriage() {
         for (const event of events) {
           if (event.type === "text_delta") {
             onTextDelta?.(event.text);
+          } else if (event.type === "retry") {
+            onRetry?.(event.message);
           } else if (event.type === "session_items") {
             onSessionItems(event.items);
           } else if (event.type === "error") {
@@ -122,7 +135,12 @@ export function CaptureTriage() {
     setError(null);
     setTriageState("analyzing");
     setNarrative("");
+    setStatusMessage(null);
     narrativeRef.current = "";
+
+    // Created up front so Cancel works while captures are still being read from IndexedDB
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     const formData = new FormData();
     const captureMetadataArray: Array<{
@@ -164,6 +182,9 @@ export function CaptureTriage() {
       });
     }
 
+    // Cancelled (or unmounted) while loading blobs — handleCancelAnalyze already restored the preview
+    if (controller.signal.aborted) return;
+
     if (skippedCount > 0) {
       console.warn(`Skipped ${skippedCount} capture(s) with missing images`);
     }
@@ -175,10 +196,14 @@ export function CaptureTriage() {
     }
 
     formData.append("captureMetadata", JSON.stringify(captureMetadataArray));
-    formData.append("clientDate", new Date().toISOString().split("T")[0]);
+    // The user's local date — a UTC slice would triage evening captures against "tomorrow"
+    formData.append("clientDate", getLocalDateTime().date);
 
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
+    // Manual timeout — AbortSignal.any() not available on iOS 16, Chrome <116
+    const timeoutId = setTimeout(
+      () => controller.abort(new DOMException("signal timed out", "TimeoutError")),
+      ANALYZE_TIMEOUT_MS,
+    );
 
     try {
       const response = await fetch("/api/process-captures", {
@@ -203,10 +228,18 @@ export function CaptureTriage() {
           setSessionItems(items);
         },
         (text) => {
+          setStatusMessage(null);
           narrativeRef.current += text;
           setNarrative((prev) => prev + text);
+        },
+        (message) => {
+          // Stream is being replayed from the start: drop the partial narrative
+          narrativeRef.current = "";
+          setNarrative("");
+          setStatusMessage(message);
         }
       );
+      setStatusMessage(null);
 
       if (!result.ok) {
         setError(result.error || "Failed to analyze captures");
@@ -218,11 +251,28 @@ export function CaptureTriage() {
       setMessages([{ role: "assistant", content: narrativeRef.current, sessionItems: finalItems }]);
       setTriageState("results");
     } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") return;
-      setError("Failed to analyze captures. Please try again.");
+      // User cancel / unmount — handleCancelAnalyze already restored the preview state
+      if ((err as { name?: unknown } | null)?.name === "AbortError") return;
+      if (err instanceof DOMException && err.name === "TimeoutError") {
+        setError("Analysis timed out. Please try again.");
+      } else {
+        setError("Failed to analyze captures. Please try again.");
+      }
+      setStatusMessage(null);
       setTriageState("preview");
+    } finally {
+      clearTimeout(timeoutId);
     }
   }, [captures, actions, consumeSSEStream]);
+
+  const handleCancelAnalyze = useCallback(() => {
+    abortControllerRef.current?.abort();
+    setStatusMessage(null);
+    setError(null);
+    setNarrative("");
+    narrativeRef.current = "";
+    setTriageState("preview");
+  }, []);
 
   const handleChatSend = useCallback(async () => {
     const text = chatInput.trim();
@@ -259,6 +309,7 @@ export function CaptureTriage() {
       let assistantText = "";
       let hadSessionItems = false;
       setNarrative("");
+      setStatusMessage(null);
       narrativeRef.current = "";
 
       const result = await consumeSSEStream(
@@ -275,11 +326,21 @@ export function CaptureTriage() {
           });
         },
         (text) => {
+          setStatusMessage(null);
           assistantText += text;
           narrativeRef.current += text;
           setNarrative((prev) => prev + text);
+        },
+        (message) => {
+          // Stream is being replayed from the start: the partial text must not end up in
+          // the chat history that is sent back to the server.
+          assistantText = "";
+          narrativeRef.current = "";
+          setNarrative("");
+          setStatusMessage(message);
         }
       );
+      setStatusMessage(null);
 
       // If Claude responded with text only (no tool call), append assistant message
       if (!hadSessionItems && assistantText && result.ok) {
@@ -300,7 +361,7 @@ export function CaptureTriage() {
         setError(result.error || "Failed to process message");
       }
     } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") return;
+      if ((err as { name?: unknown } | null)?.name === "AbortError") return;
       setError("Failed to send message. Please try again.");
     } finally {
       setIsChatSending(false);
@@ -374,7 +435,7 @@ export function CaptureTriage() {
     );
   }
 
-  if (captures.length === 0) {
+  if (captures.length === 0 && !savingOrDone) {
     return null;
   }
 
@@ -452,11 +513,24 @@ export function CaptureTriage() {
         >
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
           <p className="text-sm font-medium">Analyzing your captures…</p>
+          {statusMessage && (
+            <p data-testid="status-message" role="status" className="text-xs text-muted-foreground">
+              {statusMessage}
+            </p>
+          )}
           {narrative && (
             <div className="text-muted-foreground text-center max-w-xs">
               <ChatMarkdown content={narrative} />
             </div>
           )}
+          <Button
+            data-testid="cancel-analyze-btn"
+            variant="ghost"
+            onClick={handleCancelAnalyze}
+            className="min-h-[44px]"
+          >
+            Cancel
+          </Button>
         </div>
       )}
 
@@ -490,10 +564,15 @@ export function CaptureTriage() {
             <div data-testid="refine-loading" className="flex items-start gap-2 mr-8">
               <Loader2 className="w-4 h-4 animate-spin text-muted-foreground shrink-0 mt-0.5" />
               <div className="text-muted-foreground">
+                {statusMessage && (
+                  <p data-testid="status-message" role="status" className="text-xs">
+                    {statusMessage}
+                  </p>
+                )}
                 {narrative ? (
                   <ChatMarkdown content={narrative} />
                 ) : (
-                  <p className="text-sm">Thinking&#8230;</p>
+                  !statusMessage && <p className="text-sm">Thinking&#8230;</p>
                 )}
               </div>
             </div>

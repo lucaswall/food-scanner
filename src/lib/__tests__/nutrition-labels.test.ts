@@ -72,9 +72,9 @@ const {
   insertLabel,
   updateLabel,
   deleteLabel,
-  getLabelById,
   getAllLabels,
   findDuplicateLabel,
+  escapeLikePattern,
 } = await import("@/lib/nutrition-labels");
 
 const USER_A = "user-a-uuid";
@@ -202,27 +202,6 @@ describe("deleteLabel", () => {
   });
 });
 
-describe("getLabelById", () => {
-  it("returns the label when found for the correct user", async () => {
-    // getLabelById chains: select -> from -> where -> limit -> [0]
-    mockWhere.mockReturnValueOnce({ limit: mockLimit });
-    mockLimit.mockResolvedValueOnce([SAMPLE_LABEL]);
-
-    const result = await getLabelById(USER_A, 1);
-    expect(result).not.toBeNull();
-    expect(result!.id).toBe(1);
-    expect(result!.userId).toBe(USER_A);
-  });
-
-  it("returns null when not found or wrong userId", async () => {
-    mockWhere.mockReturnValueOnce({ limit: mockLimit });
-    mockLimit.mockResolvedValueOnce([]);
-
-    const result = await getLabelById(USER_B, 1);
-    expect(result).toBeNull();
-  });
-});
-
 describe("getAllLabels", () => {
   it("returns all labels for user sorted by updatedAt DESC", async () => {
     mockWhere.mockReturnValueOnce({ orderBy: mockOrderBy });
@@ -281,6 +260,39 @@ describe("findDuplicateLabel", () => {
   });
 });
 
+function collectParams(node: unknown, out: unknown[] = [], depth = 0): unknown[] {
+  if (typeof node === "string") { out.push(node); return out; }
+  if (depth > 8 || node === null || typeof node !== "object") return out;
+  const n = node as { queryChunks?: unknown[]; value?: unknown; constructor?: { name?: string } };
+  if (n.constructor?.name === "Param") out.push(n.value);
+  if (Array.isArray(n.queryChunks)) n.queryChunks.forEach((c) => collectParams(c, out, depth + 1));
+  return out;
+}
+
+describe("LIKE wildcard escaping", () => {
+  it("escapeLikePattern escapes %, _ and backslash", () => {
+    expect(escapeLikePattern("Leche 3% grasa")).toBe("Leche 3\\% grasa");
+    expect(escapeLikePattern("a_b")).toBe("a\\_b");
+    expect(escapeLikePattern("a\\b")).toBe("a\\\\b");
+  });
+
+  it("findDuplicateLabel passes escaped patterns to ilike", async () => {
+    mockWhere.mockReturnValueOnce({ orderBy: mockOrderBy });
+    mockOrderBy.mockResolvedValueOnce([]);
+    await findDuplicateLabel(USER_A, "Brand_X", "Leche 3% grasa");
+    const params = collectParams(mockWhere.mock.calls[0][0]);
+    expect(params).toContain("Brand\\_X");
+    expect(params).toContain("Leche 3\\% grasa");
+  });
+
+  it("searchLabels escapes wildcards in terms", async () => {
+    mockLimit.mockResolvedValueOnce([]);
+    await searchLabels(USER_A, ["50%"]);
+    const params = collectParams(mockWhere.mock.calls[0][0]);
+    expect(params).toContain("%50\\%%");
+  });
+});
+
 describe("Ownership isolation", () => {
   it("updateLabel: user B cannot update user A's label", async () => {
     mockUpdateReturning.mockResolvedValue([]);
@@ -291,12 +303,5 @@ describe("Ownership isolation", () => {
     mockDeleteReturning.mockResolvedValue([]);
     const result = await deleteLabel(USER_B, 1);
     expect(result).toBe(false);
-  });
-
-  it("getLabelById: user B cannot read user A's label", async () => {
-    mockWhere.mockReturnValueOnce({ limit: mockLimit });
-    mockLimit.mockResolvedValueOnce([]);
-    const result = await getLabelById(USER_B, 1);
-    expect(result).toBeNull();
   });
 });

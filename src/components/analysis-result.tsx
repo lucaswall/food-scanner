@@ -10,6 +10,7 @@ import { NutritionFactsCard } from "@/components/nutrition-facts-card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import { ChevronDown } from "lucide-react";
+import { formatGrams, formatWhole } from "@/lib/nutrient-format";
 
 interface AnalysisResultProps {
   analysis: FoodAnalysis | null;
@@ -32,12 +33,60 @@ export function AnalysisResult({
 }: AnalysisResultProps) {
   const [detailOpen, setDetailOpen] = useState(false);
   const [narrativeOpen, setNarrativeOpen] = useState(false);
-  if (loading) {
-    const hasText = !!streamingText;
-    return (
+
+  // One persistent polite live region announces the loading step and the final outcome.
+  // It is never re-mounted between states, the streaming text inside it is aria-live="off",
+  // and the result card / error live outside it, so swapping states does not create new
+  // live regions and streaming deltas are not read out.
+  const result = !loading && !error ? analysis : null;
+
+  return (
+    <>
+      <div role="status" aria-live="polite">
+        {loading && (
+          <AnalysisLoading loadingStep={loadingStep} streamingText={streamingText} />
+        )}
+        {result && (
+          <span className="sr-only">
+            {`Analysis complete for ${result.food_name}`}
+          </span>
+        )}
+      </div>
+      {!loading && error && (
+        <div
+          className="flex flex-col items-center justify-center py-8 space-y-4"
+          role="alert"
+        >
+          <p className="text-sm text-destructive">{error}</p>
+          <Button onClick={onRetry}>
+            Retry
+          </Button>
+        </div>
+      )}
+      {result && (
+        <AnalysisCard
+          analysis={result}
+          narrative={narrative}
+          detailOpen={detailOpen}
+          setDetailOpen={setDetailOpen}
+          narrativeOpen={narrativeOpen}
+          setNarrativeOpen={setNarrativeOpen}
+        />
+      )}
+    </>
+  );
+}
+
+interface AnalysisLoadingProps {
+  loadingStep?: string;
+  streamingText?: string;
+}
+
+function AnalysisLoading({ loadingStep, streamingText }: AnalysisLoadingProps) {
+  const hasText = !!streamingText;
+  return (
       <div
         className={`flex flex-col ${hasText ? "py-4" : "items-center py-8"} space-y-3`}
-        aria-live="assertive"
         aria-busy="true"
       >
         {hasText ? (
@@ -52,7 +101,7 @@ export function AnalysisResult({
                 {loadingStep || "Analyzing..."}
               </p>
             </div>
-            <div className="w-full max-h-48 overflow-y-auto rounded-lg bg-muted/50 p-3">
+            <div className="w-full max-h-48 overflow-y-auto rounded-lg bg-muted/50 p-3" aria-live="off">
               <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words">{streamingText}</p>
             </div>
           </>
@@ -70,28 +119,27 @@ export function AnalysisResult({
         )}
       </div>
     );
-  }
+}
 
-  if (error) {
-    return (
-      <div
-        className="flex flex-col items-center justify-center py-8 space-y-4"
-        aria-live="polite"
-      >
-        <p className="text-sm text-destructive">{error}</p>
-        <Button onClick={onRetry}>
-          Retry
-        </Button>
-      </div>
-    );
-  }
+interface AnalysisCardProps {
+  analysis: FoodAnalysis;
+  narrative?: string | null;
+  detailOpen: boolean;
+  setDetailOpen: (open: boolean) => void;
+  narrativeOpen: boolean;
+  setNarrativeOpen: (open: boolean) => void;
+}
 
-  if (!analysis) {
-    return null;
-  }
-
+function AnalysisCard({
+  analysis,
+  narrative,
+  detailOpen,
+  setDetailOpen,
+  narrativeOpen,
+  setNarrativeOpen,
+}: AnalysisCardProps) {
   return (
-    <div className="space-y-4 p-4 border rounded-lg" aria-live="polite">
+    <div className="space-y-4 p-4 border rounded-lg">
       {/* Header with food name and confidence */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">{analysis.food_name}</h2>
@@ -196,7 +244,7 @@ function NutritionItem({ label, value, unit }: NutritionItemProps) {
     <div className="flex justify-between items-center">
       <span className="text-sm text-muted-foreground">{label}</span>
       <span className="text-sm font-medium">
-        {value} {unit}
+        {unit === "g" ? formatGrams(value) : formatWhole(value)} {unit}
       </span>
     </div>
   );

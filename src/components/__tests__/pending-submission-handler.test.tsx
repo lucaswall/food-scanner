@@ -39,7 +39,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockGetPending.mockReturnValue(null);
   Object.defineProperty(window, "location", {
-    value: { href: "" },
+    value: { href: "", origin: "http://localhost:3000" },
     writable: true,
     configurable: true,
   });
@@ -97,6 +97,35 @@ describe("PendingSubmissionHandler", () => {
     });
   });
 
+  it("claims the pending submission before fetching so a second mount cannot double-log", async () => {
+    const pending: PendingSubmission = {
+      analysis: null,
+      mealTypeId: 3,
+      foodName: "Empanada",
+      reuseCustomFoodId: 123,
+    };
+    let stored: PendingSubmission | null = pending;
+    mockGetPending.mockImplementation(() => stored);
+    mockClearPending.mockImplementation(() => {
+      stored = null;
+    });
+
+    let resolveFetch: (v: unknown) => void = () => {};
+    mockFetch.mockReturnValueOnce(new Promise((resolve) => { resolveFetch = resolve; }));
+
+    render(<PendingSubmissionHandler />);
+    // Claimed synchronously, while the request is still in flight
+    expect(mockClearPending).toHaveBeenCalledTimes(1);
+
+    // A second handler instance (e.g. another layout mount) finds nothing to resubmit
+    render(<PendingSubmissionHandler />);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFetch({ ok: true, json: () => Promise.resolve({ success: true, data: {} }) });
+    });
+  });
+
   it("clears pending and shows success message after successful resubmission", async () => {
     const pending: PendingSubmission = {
       analysis: null,
@@ -146,7 +175,7 @@ describe("PendingSubmissionHandler", () => {
 
     await waitFor(() => {
       expect(mockSavePending).toHaveBeenCalledWith(pending);
-      expect(window.location.href).toBe("/api/auth/google-health");
+      expect(window.location.href).toBe("http://localhost:3000/api/auth/google-health");
     });
   });
 

@@ -3,14 +3,14 @@ import { claudeUsage } from "@/db/schema";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import { sql } from "drizzle-orm";
-import { eq } from "drizzle-orm";
+import { and, eq, gte } from "drizzle-orm";
 
 /**
  * Pricing per 1M tokens for each Claude model.
  *
  * Anthropic pricing (as of 2026-01):
  * - Sonnet 4/4.5: $3/M input, $15/M output
- * - Haiku 4.5: $0.80/M input, $4/M output
+ * - Haiku 4.5: $1/M input, $5/M output
  * - Cache creation: 25% MORE than input price
  * - Cache read: 90% LESS than input price (10% of input)
  */
@@ -31,8 +31,8 @@ export const MODEL_PRICING: Record<
     outputPricePerMToken: 15,
   },
   "claude-haiku-4-5-20251001": {
-    inputPricePerMToken: 0.8,
-    outputPricePerMToken: 4,
+    inputPricePerMToken: 1,
+    outputPricePerMToken: 5,
   },
 };
 
@@ -41,7 +41,12 @@ interface UsageTokens {
   outputTokens: number;
   cacheCreationTokens?: number;
   cacheReadTokens?: number;
+  /** Server-side web search requests (billed per request, separately from tokens). */
+  webSearchRequests?: number;
 }
+
+/** Web search is billed at $10 per 1,000 requests. */
+export const WEB_SEARCH_PRICE_PER_REQUEST = 0.01;
 
 interface Pricing {
   inputPricePerMToken: number;
@@ -73,7 +78,9 @@ export function computeCost(usage: UsageTokens, pricing: Pricing): string {
     pricing.inputPricePerMToken *
     0.1;
 
-  const totalCost = inputCost + outputCost + cacheCreationCost + cacheReadCost;
+  const webSearchCost = (usage.webSearchRequests ?? 0) * WEB_SEARCH_PRICE_PER_REQUEST;
+
+  const totalCost = inputCost + outputCost + cacheCreationCost + cacheReadCost + webSearchCost;
 
   return totalCost.toFixed(6);
 }
@@ -155,6 +162,12 @@ export async function getMonthlyUsage(
 ): Promise<MonthlyClaudeUsage[]> {
   const db = getDb();
 
+  // Only read the months that will be returned (current month + the previous months-1),
+  // not the user's full history. Month boundaries are UTC, matching date_trunc on timestamptz
+  // in a UTC session.
+  const now = new Date();
+  const windowStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+
   const rows = await db
     .select({
       month: sql<string>`to_char(date_trunc('month', ${claudeUsage.createdAt}), 'YYYY-MM')`,
@@ -164,7 +177,7 @@ export async function getMonthlyUsage(
       totalCostUsd: sql<string>`sum(${claudeUsage.costUsd}::numeric)::text`,
     })
     .from(claudeUsage)
-    .where(eq(claudeUsage.userId, userId))
+    .where(and(eq(claudeUsage.userId, userId), gte(claudeUsage.createdAt, windowStart)))
     .groupBy(sql`date_trunc('month', ${claudeUsage.createdAt})`)
     .orderBy(sql`date_trunc('month', ${claudeUsage.createdAt}) desc`)
     .limit(months);

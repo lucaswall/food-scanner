@@ -5,6 +5,7 @@ import { getFoodLogEntry, deleteFoodLogEntry, getFoodLogEntryDetail } from "@/li
 import { ensureFreshToken, deleteNutritionLogs } from "@/lib/google-health";
 import { mapHealthError, isExpectedHealthError } from "@/lib/health-error-response";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { parseStrictId } from "@/lib/food-history-params";
 
 // Per-user rate limits for DELETE
 const RATE_LIMIT_MAX = 60;
@@ -21,8 +22,8 @@ export async function GET(
   if (validationError) return validationError;
 
   const { id: idParam } = await params;
-  const id = parseInt(idParam, 10);
-  if (Number.isNaN(id)) {
+  const id = parseStrictId(idParam);
+  if (id === null) {
     return errorResponse("VALIDATION_ERROR", "Invalid entry ID", 400);
   }
 
@@ -58,8 +59,8 @@ export async function DELETE(
   }
 
   const { id: idParam } = await params;
-  const id = parseInt(idParam, 10);
-  if (Number.isNaN(id)) {
+  const id = parseStrictId(idParam);
+  if (id === null) {
     return errorResponse("VALIDATION_ERROR", "Invalid entry ID", 400);
   }
 
@@ -101,7 +102,17 @@ export async function DELETE(
     }
 
     try {
-      await deleteFoodLogEntry(session!.userId, id, log);
+      // Compare-and-set on the healthLogId whose Health log was just deleted: if a concurrent
+      // edit repointed the row to a new log, deleting it would orphan that new log.
+      const deleted = await deleteFoodLogEntry(session!.userId, id, log, entry.healthLogId);
+      if (!deleted) {
+        const current = await getFoodLogEntry(session!.userId, id);
+        if (current) {
+          log.warn({ action: "delete_food_log_conflict", entryId: id }, "entry changed during delete — not deleting the row");
+          return errorResponse("CONFLICT", "Food log entry changed while deleting. Please try again.", 409);
+        }
+        // Row already gone (double delete from another tab) — idempotent success.
+      }
     } catch (dbErr) {
       log.error(
         { action: "delete_food_log_db_error", entryId: id, error: dbErr instanceof Error ? dbErr.message : String(dbErr) },

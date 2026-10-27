@@ -105,6 +105,21 @@ Should return `{ "success": true, "data": { "status": "ok" }, "timestamp": ... }
 
 ---
 
+## Integration Tests (real Postgres)
+
+`*.integration.test.ts` files run against a real database and are excluded from `npm test`.
+
+```bash
+# 1. Point at a dedicated throwaway Postgres — NEVER DATABASE_URL (dev/prod)
+export INTEGRATION_DATABASE_URL=postgres://postgres:postgres@localhost:5432/food_scanner_integration
+# 2. Apply the schema to it
+DATABASE_URL="$INTEGRATION_DATABASE_URL" npx drizzle-kit push
+# 3. Run the suite
+npm run test:integration
+```
+
+---
+
 ## E2E Testing
 
 End-to-end tests use Playwright to test the full application stack against a production build.
@@ -318,7 +333,7 @@ rewrite, and Next 16.3's rewrite proxy logs `MaxListenersExceededWarning` on eve
 
 ### script-src uses 'unsafe-inline' (accepted)
 
-A per-request nonce would be stronger, but it requires threading a nonce from `middleware.ts`
+A per-request nonce would be stronger, but it requires adding a `src/proxy.ts` that threads a nonce
 through the root layout onto every inline hydration script, and missing one breaks RSC
 hydration. Accepted as-is for this allowlisted single-user app; revisit if the app ever opens up.
 

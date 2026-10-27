@@ -634,7 +634,7 @@ describe("analyzeFood", () => {
   });
 
   // Task 2 (FOO-782): model_context_window_exceeded in initial analyzeFood call
-  it("throws CLAUDE_API_ERROR when initial response is model_context_window_exceeded (FOO-782)", async () => {
+  it("yields error event (no throw) when initial response is model_context_window_exceeded (FOO-782)", async () => {
     mockStream.mockReturnValueOnce(createMockStream(
       [{ type: "message_stop" }],
       {
@@ -646,17 +646,18 @@ describe("analyzeFood", () => {
     ));
 
     const { analyzeFood } = await import("@/lib/claude");
-    const { error } = await collectEventsExpectThrow(
+    const events = await collectEvents(
       analyzeFood([], "same as yesterday", "user-123", "2026-02-15")
     );
 
-    expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
-    const err = error as { message: string };
-    expect(err.message).toMatch(/too long|conversation/i);
+    const errorEvent = events.find((e) => e.type === "error") as { message: string; code?: string } | undefined;
+    expect(errorEvent?.message).toMatch(/too long|conversation/i);
+    expect(errorEvent?.code).toBe("CONTEXT_EXCEEDED");
+    expect(events.some((e) => e.type === "done")).toBe(false);
   });
 
   // Fix 4 (FOO-792): refusal stop_reason in initial analyzeFood call
-  it("throws CLAUDE_API_ERROR when initial response is refusal (FOO-792)", async () => {
+  it("yields error event (no throw) when initial response is refusal (FOO-792)", async () => {
     mockStream.mockReturnValueOnce(createMockStream(
       [{ type: "message_stop" }],
       {
@@ -668,13 +669,43 @@ describe("analyzeFood", () => {
     ));
 
     const { analyzeFood } = await import("@/lib/claude");
-    const { error } = await collectEventsExpectThrow(
+    const events = await collectEvents(
       analyzeFood([], "something inappropriate", "user-123", "2026-02-15")
     );
 
-    expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
-    const err = error as { message: string };
-    expect(err.message).toMatch(/flagged|safety|cannot/i);
+    const errorEvent = events.find((e) => e.type === "error") as { message: string; code?: string } | undefined;
+    expect(errorEvent?.message).toMatch(/flagged|safety|cannot/i);
+    expect(errorEvent?.code).toBe("AI_REFUSAL");
+  });
+
+  it("records usage before yielding AI_REFUSAL / CONTEXT_EXCEEDED errors (analyzeFood, conversationalRefine)", async () => {
+    const { analyzeFood, conversationalRefine } = await import("@/lib/claude");
+    for (const stop of ["refusal", "model_context_window_exceeded"]) {
+      for (const which of ["analyze", "refine"]) {
+        mockRecordUsage.mockClear();
+        mockStream.mockReturnValueOnce(createMockStream(
+          [{ type: "message_stop" }],
+          {
+            model: "claude-sonnet-4-6",
+            stop_reason: stop,
+            content: [],
+            usage: { input_tokens: 123, output_tokens: 7, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          }
+        ));
+        const gen = which === "analyze"
+          ? analyzeFood([], "x", "user-123", "2026-02-15")
+          : conversationalRefine([{ role: "user", content: "x" }], "user-123", "2026-02-15");
+        const events = await collectEvents(gen);
+        expect(events.some((e) => e.type === "error")).toBe(true);
+        expect(mockRecordUsage).toHaveBeenCalledTimes(1);
+        expect(mockRecordUsage).toHaveBeenCalledWith(
+          "user-123",
+          "claude-sonnet-4-6",
+          which === "analyze" ? "food-analysis" : "food-chat",
+          expect.objectContaining({ inputTokens: 123, outputTokens: 7 }),
+        );
+      }
+    }
   });
 
   // --- Keyword normalization ---
@@ -1954,7 +1985,7 @@ describe("runToolLoop", () => {
     expect(analysisEvent).toBeUndefined();
   });
 
-  it("handles refusal stop_reason gracefully", async () => {
+  it("refusal stop_reason yields a user-facing error event instead of a silent done", async () => {
     mockStream.mockReturnValueOnce(createMockStream(
       [
         { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
@@ -1979,10 +2010,32 @@ describe("runToolLoop", () => {
       )
     );
 
-    // Should complete with done, no analysis
-    expect(events[events.length - 1]).toEqual({ type: "done" });
-    const analysisEvent = events.find((e) => e.type === "analysis");
-    expect(analysisEvent).toBeUndefined();
+    const last = events[events.length - 1] as { type: string; message?: string; code?: string };
+    expect(last.type).toBe("error");
+    expect(last.message).toMatch(/flagged|safety/i);
+    expect(last.code).toBe("AI_REFUSAL");
+    expect(events.find((e) => e.type === "analysis")).toBeUndefined();
+  });
+
+  it("max_tokens with no text and no analysis yields an error event", async () => {
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "max_tokens",
+        content: [],
+        usage: { input_tokens: 100, output_tokens: 1024, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const events = await collectEvents(
+      runToolLoop([{ role: "user", content: "What's this food?" }], "user-123", "2026-02-15")
+    );
+
+    const last = events[events.length - 1] as { type: string; message?: string };
+    expect(last.type).toBe("error");
+    expect(last.message).toMatch(/maximum length/i);
   });
 
   // Task 2 (FOO-782): model_context_window_exceeded should yield a user-friendly error event
@@ -2424,6 +2477,27 @@ describe("conversationalRefine", () => {
     }
   });
 
+  it("records web search requests from server_tool_use usage", async () => {
+    mockStream.mockReturnValueOnce(createMockStream([{ type: "message_stop" }], {
+      model: "claude-sonnet-4-6",
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "OK" }],
+      usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, server_tool_use: { web_search_requests: 2 } },
+    }));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await collectEvents(
+      conversationalRefine([{ role: "user", content: "Test" }], "user-123", "2026-02-15")
+    );
+
+    expect(mockRecordUsage).toHaveBeenCalledWith(
+      "user-123",
+      "claude-sonnet-4-6",
+      "food-chat",
+      expect.objectContaining({ webSearchRequests: 2 })
+    );
+  });
+
   it("records usage", async () => {
     mockStream.mockReturnValueOnce(makeTextStream("OK", { input_tokens: 1800, output_tokens: 400 }));
 
@@ -2577,7 +2651,7 @@ describe("conversationalRefine", () => {
   });
 
   // Fix 3 (FOO-797): refusal stop_reason in conversationalRefine
-  it("throws CLAUDE_API_ERROR when response is refusal (FOO-797)", async () => {
+  it("yields error event (no throw) when response is refusal (FOO-797)", async () => {
     mockStream.mockReturnValueOnce(createMockStream(
       [{ type: "message_stop" }],
       {
@@ -2589,13 +2663,13 @@ describe("conversationalRefine", () => {
     ));
 
     const { conversationalRefine } = await import("@/lib/claude");
-    const { error } = await collectEventsExpectThrow(
+    const events = await collectEvents(
       conversationalRefine([{ role: "user", content: "something inappropriate" }], "user-123", "2026-02-15")
     );
 
-    expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
-    const err = error as { message: string };
-    expect(err.message).toMatch(/flagged|safety|cannot/i);
+    const errorEvent = events.find((e) => e.type === "error") as { message: string; code?: string } | undefined;
+    expect(errorEvent?.message).toMatch(/flagged|safety|cannot/i);
+    expect(errorEvent?.code).toBe("AI_REFUSAL");
   });
 
   it("forwards container ID from initial response to tool loop", async () => {
@@ -3594,11 +3668,36 @@ describe("createStreamWithRetry", () => {
     const events = await eventsPromise;
 
     const retryMsg = events.find(
-      (e) => e.type === "text_delta" && (e as { type: "text_delta"; text: string }).text.includes("momentarily busy")
+      (e) => e.type === "retry" && (e as { type: "retry"; message: string }).message.includes("momentarily busy")
     );
     expect(retryMsg).toBeDefined();
+    expect(events.some((e) => e.type === "text_delta" && (e as { text: string }).text.includes("momentarily busy"))).toBe(false);
     expect(events).toContainEqual({ type: "text_delta", text: "Success after retry" });
     expect(mockStream).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
+  it("retry back-off is abortable via the request signal", async () => {
+    vi.useFakeTimers();
+
+    const APIError = await getMockAPIErrorCtor();
+    mockStream.mockImplementation(() => { throw new APIError(529, "Overloaded"); });
+
+    const { createStreamWithRetry } = await import("@/lib/claude");
+    const log = makeTestLogger();
+    const controller = new AbortController();
+
+    const resultPromise = collectEventsExpectThrow(
+      createStreamWithRetry(minimalStreamParams, { signal: controller.signal }, log, 3)
+    );
+    await vi.advanceTimersByTimeAsync(500);
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    const { error } = await resultPromise;
+
+    expect((error as Error).name).toBe("AbortError");
+    expect(mockStream).toHaveBeenCalledTimes(1);
 
     vi.useRealTimers();
   });
@@ -3618,9 +3717,7 @@ describe("createStreamWithRetry", () => {
     await vi.advanceTimersByTimeAsync(17000); // 2s + 5s + 10s delays
     const { events, error } = await resultPromise;
 
-    const retryMsgs = events.filter(
-      (e) => e.type === "text_delta" && (e as { type: "text_delta"; text: string }).text.includes("momentarily busy")
-    );
+    const retryMsgs = events.filter((e) => e.type === "retry");
     expect(retryMsgs).toHaveLength(3);
     expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
     expect((error as Error).message).toContain("temporarily overloaded");
@@ -3740,9 +3837,10 @@ describe("analyzeFood overload retry", () => {
     const events = await eventsPromise;
 
     const retryMsg = events.find(
-      (e) => e.type === "text_delta" && (e as { type: "text_delta"; text: string }).text.includes("momentarily busy")
+      (e) => e.type === "retry" && (e as { type: "retry"; message: string }).message.includes("momentarily busy")
     );
     expect(retryMsg).toBeDefined();
+    expect(events.some((e) => e.type === "text_delta" && (e as { text: string }).text.includes("momentarily busy"))).toBe(false);
     expect(events).toContainEqual({ type: "analysis", analysis: validAnalysis });
     expect(mockStream).toHaveBeenCalledTimes(2);
 
@@ -3793,9 +3891,10 @@ describe("runToolLoop overload retry", () => {
     const events = await eventsPromise;
 
     const retryMsg = events.find(
-      (e) => e.type === "text_delta" && (e as { type: "text_delta"; text: string }).text.includes("momentarily busy")
+      (e) => e.type === "retry" && (e as { type: "retry"; message: string }).message.includes("momentarily busy")
     );
     expect(retryMsg).toBeDefined();
+    expect(events.some((e) => e.type === "text_delta" && (e as { text: string }).text.includes("momentarily busy"))).toBe(false);
     expect(events).toContainEqual({ type: "text_delta", text: "Here's your info." });
     expect(mockStream).toHaveBeenCalledTimes(2);
 
@@ -3850,9 +3949,10 @@ describe("conversationalRefine overload retry", () => {
     const events = await eventsPromise;
 
     const retryMsg = events.find(
-      (e) => e.type === "text_delta" && (e as { type: "text_delta"; text: string }).text.includes("momentarily busy")
+      (e) => e.type === "retry" && (e as { type: "retry"; message: string }).message.includes("momentarily busy")
     );
     expect(retryMsg).toBeDefined();
+    expect(events.some((e) => e.type === "text_delta" && (e as { text: string }).text.includes("momentarily busy"))).toBe(false);
     expect(events).toContainEqual({ type: "text_delta", text: "Sure, I updated it." });
     expect(mockStream).toHaveBeenCalledTimes(2);
 

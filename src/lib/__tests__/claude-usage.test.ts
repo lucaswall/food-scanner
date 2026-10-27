@@ -48,6 +48,8 @@ vi.mock("@/db/schema", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((col, val) => ({ col, val, _type: "eq" })),
+  gte: vi.fn((col, val) => ({ col, val, _type: "gte" })),
+  and: vi.fn((...args: unknown[]) => ({ args, _type: "and" })),
   sql: vi.fn((parts, ...values) => ({ parts, values, _type: "sql" })),
 }));
 
@@ -79,8 +81,8 @@ describe("MODEL_PRICING", () => {
     const pricing = MODEL_PRICING["claude-haiku-4-5-20251001"];
 
     expect(pricing).toBeDefined();
-    expect(pricing.inputPricePerMToken).toBe(0.8);
-    expect(pricing.outputPricePerMToken).toBe(4);
+    expect(pricing.inputPricePerMToken).toBe(1);
+    expect(pricing.outputPricePerMToken).toBe(5);
   });
 
   it("exports pricing for claude-sonnet-4-6", async () => {
@@ -90,6 +92,17 @@ describe("MODEL_PRICING", () => {
     expect(pricing).toBeDefined();
     expect(pricing.inputPricePerMToken).toBe(3);
     expect(pricing.outputPricePerMToken).toBe(15);
+  });
+});
+
+describe("computeCost web search", () => {
+  it("adds $0.01 per web search request", async () => {
+    const { computeCost } = await import("@/lib/claude-usage");
+    const cost = computeCost(
+      { inputTokens: 0, outputTokens: 0, webSearchRequests: 3 },
+      { inputPricePerMToken: 3, outputPricePerMToken: 15 },
+    );
+    expect(cost).toBe("0.030000");
   });
 });
 
@@ -297,6 +310,23 @@ describe("getMonthlyUsage", () => {
       totalOutputTokens: 2500,
       totalCostUsd: "0.052500",
     });
+  });
+
+  it("bounds the query to the requested number of months", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-27T12:00:00Z"));
+    try {
+      const { getMonthlyUsage } = await import("@/lib/claude-usage");
+      const { gte } = await import("drizzle-orm");
+      mockLimit.mockResolvedValue([]);
+
+      await getMonthlyUsage("user-uuid-123", 3);
+
+      const call = vi.mocked(gte).mock.calls.at(-1)!;
+      expect(call[1]).toEqual(new Date("2026-08-01T00:00:00Z"));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns empty array when no usage exists", async () => {

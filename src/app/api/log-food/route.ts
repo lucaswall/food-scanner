@@ -27,9 +27,12 @@ const VALID_MEAL_TYPE_IDS = [
  * Per-user clientToken idempotency cache (in-memory, single-instance).
  * Keyed by "userId:clientToken" → cached result.
  *
- * This path is active only when the caller provides a `clientToken` field in the
- * request body (currently used by the pending-submission retry flow). Without a
- * clientToken the dedup check is bypassed and the request proceeds normally.
+ * Active when the caller provides a `clientToken` field in the request body (the
+ * use-log-food hook sends one per log intent and reuses it when retrying after a timeout
+ * or network error). Without a clientToken the dedup check is bypassed.
+ * A request reserves its token as "in flight" before touching Google Health, so a retry
+ * that arrives while the first attempt is still running gets 409 instead of a second log.
+ * Failed attempts release the reservation so a retry can proceed.
  *
  * Single-instance note: Railway deploys a single container, so in-memory dedup
  * is sufficient — no distributed cache needed. TTL resets on deploy, which is
@@ -41,8 +44,10 @@ const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000;
 export const MAX_IDEMPOTENCY_SIZE = 100;
 const idempotencyCache = new Map<
   string,
-  { healthLogId?: string; foodLogId?: number; reusedFood: boolean; expiresAt: number }
+  { healthLogId?: string; foodLogId?: number; reusedFood: boolean; expiresAt: number; inFlight?: boolean }
 >();
+/** An in-flight reservation outlives the slowest legitimate request (token refresh + create) but self-expires. */
+const IN_FLIGHT_TTL_MS = 2 * 60 * 1000;
 
 /** Exported test helpers — allow unit tests to inspect and reset in-memory state. */
 export function _getIdempotencyCacheSize(): number {
@@ -207,11 +212,15 @@ export async function POST(request: Request) {
   const userId = session!.userId;
   const clientToken = body.clientToken;
 
-  // ── Idempotency check ─────────────────────────────────────────────────────
+  // ── Idempotency check + in-flight reservation ─────────────────────────────
   if (clientToken) {
     const cacheKey = getIdempotencyKey(userId, clientToken);
     const cached = idempotencyCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
+      if (cached.inFlight) {
+        log.warn({ action: "log_food_in_flight", clientToken }, "duplicate request while first attempt still running");
+        return errorResponse("CONFLICT", "This food is already being logged. Please wait a moment and check your history.", 409);
+      }
       log.info({ action: "log_food_idempotent", clientToken }, "returning cached idempotent response");
       const response: FoodLogResponse = {
         success: true,
@@ -221,7 +230,34 @@ export async function POST(request: Request) {
       };
       return successResponse(response);
     }
+    sweepIdempotencyCache();
+    idempotencyCache.set(cacheKey, { reusedFood: false, inFlight: true, expiresAt: Date.now() + IN_FLIGHT_TTL_MS });
   }
+
+  let result: Response;
+  try {
+    result = await processFoodLog(body, userId, log, isDryRun);
+  } catch (error) {
+    releaseInFlight(userId, clientToken);
+    throw error;
+  }
+  if (!result.ok) releaseInFlight(userId, clientToken);
+  return result;
+}
+
+function releaseInFlight(userId: string, clientToken: string | undefined): void {
+  if (!clientToken) return;
+  const cacheKey = getIdempotencyKey(userId, clientToken);
+  if (idempotencyCache.get(cacheKey)?.inFlight) idempotencyCache.delete(cacheKey);
+}
+
+async function processFoodLog(
+  body: FoodLogRequest,
+  userId: string,
+  log: ReturnType<typeof createRequestLogger>,
+  isDryRun: boolean,
+): Promise<Response> {
+  const clientToken = body.clientToken;
 
   try {
     const { date, time, zoneOffset } = body;

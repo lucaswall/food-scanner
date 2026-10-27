@@ -1259,6 +1259,46 @@ describe("PhotoCapture", () => {
       expect(screen.getAllByRole("img")).toHaveLength(1);
     });
 
+    it("keeps restored photos when a new photo is added and reports them together", async () => {
+      const onPhotosChange = vi.fn();
+      const restored = [
+        new Blob(["r1"], { type: "image/jpeg" }),
+        new Blob(["r2"], { type: "image/jpeg" }),
+      ];
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} restoredBlobs={restored} />);
+      expect(screen.getAllByRole("img")).toHaveLength(2);
+
+      const newFile = createMockFile("new.jpg", "image/jpeg", 1000);
+      fireEvent.change(screen.getByTestId("gallery-input"), { target: { files: [newFile] } });
+
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(3);
+      });
+      const [files, blobs] = onPhotosChange.mock.calls.at(-1)!;
+      expect(blobs).toHaveLength(3);
+      expect(blobs[0]).toBe(restored[0]);
+      expect(blobs[1]).toBe(restored[1]);
+      expect(blobs[2]).toBe(newFile);
+      expect(files).toHaveLength(3);
+      expect(screen.getByText("3/9 photos selected")).toBeInTheDocument();
+    });
+
+    it("removing one restored photo reports the remaining blobs", () => {
+      const onPhotosChange = vi.fn();
+      const restored = [
+        new Blob(["r1"], { type: "image/jpeg" }),
+        new Blob(["r2"], { type: "image/jpeg" }),
+      ];
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} restoredBlobs={restored} />);
+      fireEvent.click(screen.getByRole("button", { name: "Remove photo 1" }));
+
+      const [files, blobs] = onPhotosChange.mock.calls.at(-1)!;
+      expect(blobs).toEqual([restored[1]]);
+      expect(files).toHaveLength(1);
+    });
+
     it("remove buttons visible during and after HEIC processing", async () => {
       const onPhotosChange = vi.fn();
       let resolveConversion: (value: Blob) => void;

@@ -100,26 +100,3 @@ async function createResizedCanvas(file: File): Promise<HTMLCanvasElement> {
     reader.readAsDataURL(file);
   });
 }
-
-/**
- * Validate image file before processing.
- * Returns { valid: true } or { valid: false, error: string }
- */
-export function validateImage(file: File): { valid: boolean; error?: string } {
-  const validMimes = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"];
-
-  // Check MIME type first, then fallback to extension for HEIC (Android reports empty MIME)
-  const isValidMime = validMimes.includes(file.type.toLowerCase());
-  const isHeicByExtension = isHeicFile(file);
-
-  if (!isValidMime && !isHeicByExtension) {
-    return { valid: false, error: `Unsupported image type: ${file.type || "unknown"}` };
-  }
-
-  const maxSizeMb = 10;
-  if (file.size > maxSizeMb * 1024 * 1024) {
-    return { valid: false, error: `Image too large. Max ${maxSizeMb}MB.` };
-  }
-
-  return { valid: true };
-}

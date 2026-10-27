@@ -86,7 +86,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-import { isHeicFile, compressImage, validateImage, convertHeicToJpeg } from "../image";
+import { isHeicFile, compressImage, convertHeicToJpeg } from "../image";
 
 describe("Image utilities", () => {
   describe("isHeicFile", () => {
@@ -128,82 +128,6 @@ describe("Image utilities", () => {
     it("handles case-insensitive extension check", () => {
       const file = new File([""], "photo.HEIC", { type: "" });
       expect(isHeicFile(file)).toBe(true);
-    });
-  });
-
-  describe("validateImage", () => {
-    it("accepts JPEG images", () => {
-      const file = new File([""], "test.jpg", { type: "image/jpeg" });
-      expect(validateImage(file).valid).toBe(true);
-    });
-
-    it("accepts PNG images", () => {
-      const file = new File([""], "test.png", { type: "image/png" });
-      expect(validateImage(file).valid).toBe(true);
-    });
-
-    it("accepts WebP images", () => {
-      const file = new File([""], "test.webp", { type: "image/webp" });
-      expect(validateImage(file).valid).toBe(true);
-    });
-
-    it("accepts GIF images", () => {
-      const file = new File([""], "test.gif", { type: "image/gif" });
-      expect(validateImage(file).valid).toBe(true);
-    });
-
-    it("accepts HEIC images", () => {
-      const file = new File([""], "test.heic", { type: "image/heic" });
-      expect(validateImage(file).valid).toBe(true);
-    });
-
-    it("accepts HEIF images", () => {
-      const file = new File([""], "test.heif", { type: "image/heif" });
-      expect(validateImage(file).valid).toBe(true);
-    });
-
-    it("rejects unsupported image types", () => {
-      const file = new File([""], "test.bmp", { type: "image/bmp" });
-      const result = validateImage(file);
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain("Unsupported");
-    });
-
-    it("rejects images larger than 10MB", () => {
-      const largeData = new Uint8Array(11 * 1024 * 1024);
-      const file = new File([largeData], "test.jpg", { type: "image/jpeg" });
-      const result = validateImage(file);
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain("too large");
-    });
-
-    it("accepts images exactly at 10MB limit", () => {
-      const data = new Uint8Array(10 * 1024 * 1024);
-      const file = new File([data], "test.jpg", { type: "image/jpeg" });
-      expect(validateImage(file).valid).toBe(true);
-    });
-
-    it("handles case-insensitive MIME type check", () => {
-      const file = new File([""], "test.jpg", { type: "IMAGE/JPEG" });
-      expect(validateImage(file).valid).toBe(true);
-    });
-
-    it("accepts HEIC files with empty MIME type (Android fallback)", () => {
-      // Android devices often report empty MIME for HEIC files
-      const file = new File([""], "photo.heic", { type: "" });
-      expect(validateImage(file).valid).toBe(true);
-    });
-
-    it("accepts HEIF files with empty MIME type (Android fallback)", () => {
-      const file = new File([""], "photo.heif", { type: "" });
-      expect(validateImage(file).valid).toBe(true);
-    });
-
-    it("rejects unknown files with empty MIME type", () => {
-      const file = new File([""], "file.xyz", { type: "" });
-      const result = validateImage(file);
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain("unknown");
     });
   });
 

@@ -346,7 +346,7 @@ describe("Settings content (client component)", () => {
 
       const user = userEvent.setup();
       // Mock window.location
-      const locationAssign = { href: "" };
+      const locationAssign = { href: "", origin: "http://localhost" };
       Object.defineProperty(window, "location", {
         value: locationAssign,
         writable: true,
@@ -364,7 +364,7 @@ describe("Settings content (client component)", () => {
       await user.click(screen.getByRole("button", { name: /logout/i }));
 
       await waitFor(() => {
-        expect(locationAssign.href).toBe("/");
+        expect(locationAssign.href).toBe("http://localhost/");
       });
     });
 
@@ -384,7 +384,7 @@ describe("Settings content (client component)", () => {
       });
 
       const user = userEvent.setup();
-      const locationAssign = { href: "" };
+      const locationAssign = { href: "", origin: "http://localhost" };
       Object.defineProperty(window, "location", {
         value: locationAssign,
         writable: true,
@@ -402,7 +402,7 @@ describe("Settings content (client component)", () => {
       await user.click(screen.getByRole("button", { name: /logout/i }));
 
       await waitFor(() => {
-        expect(locationAssign.href).toBe("/");
+        expect(locationAssign.href).toBe("http://localhost/");
       });
     });
   });

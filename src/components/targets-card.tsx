@@ -133,6 +133,11 @@ export function TargetsCard({ date }: TargetsCardProps) {
 
   return (
     <div className="rounded-lg border p-3 space-y-2">
+      {goals.stale && (
+        <p className="text-xs text-muted-foreground" data-testid="targets-stale-notice">
+          Showing last saved targets — Google Health is temporarily unavailable.
+        </p>
+      )}
       {goals.weightStale && weightAgeDays != null && (
         <p className="text-xs text-amber-600 dark:text-amber-500">
           ⚠ Weight log is {weightAgeDays} days old — log a recent weight in Google Health.

@@ -21,7 +21,7 @@ import { eq, or } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import { getDb, closeDb } from "@/db/index";
 import {
-  insertCustomFood,
+  toCustomFoodInsertValues,
   insertFoodLogEntry,
   getCustomFoodById,
   getFoodLogEntry,
@@ -44,6 +44,17 @@ if (INTEGRATION_DATABASE_URL) {
 // Unique email handles for this suite — `.invalid` TLD is RFC-2606 reserved.
 const EMAIL_A = "userA@food-log-integration.invalid";
 const EMAIL_B = "userB@food-log-integration.invalid";
+
+async function seedCustomFood(
+  userId: string,
+  data: Parameters<typeof toCustomFoodInsertValues>[0],
+): Promise<{ id: number; createdAt: Date }> {
+  const rows = await getDb()
+    .insert(schema.customFoods)
+    .values({ userId, ...toCustomFoodInsertValues(data) })
+    .returning({ id: schema.customFoods.id, createdAt: schema.customFoods.createdAt });
+  return rows[0]!;
+}
 
 describe.skipIf(!INTEGRATION_DATABASE_URL)(
   "food-log: cross-user isolation (integration)",
@@ -97,7 +108,7 @@ describe.skipIf(!INTEGRATION_DATABASE_URL)(
       userBId = rowB!.id;
 
       // Custom food for user A
-      const foodA = await insertCustomFood(userAId, {
+      const foodA = await seedCustomFood(userAId, {
         foodName: "UserA Banana",
         amount: 100,
         unitId: "g",
@@ -124,7 +135,7 @@ describe.skipIf(!INTEGRATION_DATABASE_URL)(
       entryAId = entryA.id;
 
       // Custom food for user B
-      const foodB = await insertCustomFood(userBId, {
+      const foodB = await seedCustomFood(userBId, {
         foodName: "UserB Apple",
         amount: 182,
         unitId: "g",
@@ -266,7 +277,7 @@ describe.skipIf(!INTEGRATION_DATABASE_URL)(
       const db = getDb();
 
       // Insert a custom food for user A with a healthLogId
-      const food = await insertCustomFood(userAId, {
+      const food = await seedCustomFood(userAId, {
         foodName: "Health Log Round-trip Food",
         amount: 100,
         unitId: "g",

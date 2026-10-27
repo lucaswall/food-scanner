@@ -25,6 +25,12 @@ import {
 } from "@/lib/analysis-session";
 import type { AnalysisSessionState } from "@/lib/analysis-session";
 import { useAnalysisSession } from "@/hooks/use-analysis-session";
+import { getDefaultMealType } from "@/lib/meal-type";
+
+vi.mock("@/lib/meal-type", () => ({
+  getDefaultMealType: vi.fn(() => 3),
+}));
+const mockGetDefaultMealType = vi.mocked(getDefaultMealType);
 
 const mockGetActiveSessionId = vi.mocked(getActiveSessionId);
 const mockCreateSessionId = vi.mocked(createSessionId);
@@ -58,6 +64,7 @@ describe("useAnalysisSession", () => {
     mockCreateSessionId.mockReturnValue("new-session-id");
     mockClearSession.mockResolvedValue(undefined);
     mockIsSessionExpired.mockReturnValue(false);
+    mockGetDefaultMealType.mockReturnValue(3);
   });
 
   afterEach(() => {
@@ -388,6 +395,56 @@ describe("useAnalysisSession", () => {
       expect(result.current.state.description).toBe("");
       expect(result.current.state.photos).toEqual([]);
       expect(result.current.wasRestored).toBe(false);
+    });
+  });
+
+  describe("default meal type", () => {
+    it("is computed when the hook mounts and again on clearSession, not once at module load", async () => {
+      mockGetDefaultMealType.mockReturnValue(1);
+      const { result } = renderHook(() => useAnalysisSession());
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+      expect(result.current.state.mealTypeId).toBe(1);
+
+      // Time passes (long-lived PWA): the default meal type is now dinner
+      mockGetDefaultMealType.mockReturnValue(5);
+      await act(async () => {
+        result.current.actions.clearSession();
+      });
+      expect(result.current.state.mealTypeId).toBe(5);
+    });
+  });
+
+  describe("removing photos", () => {
+    it("overwrites persisted photos with an empty list so removed photos are not restored later", async () => {
+      const { result } = renderHook(() => useAnalysisSession());
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+      mockCreateSessionId.mockReturnValue("sess-rm");
+      await act(async () => {
+        result.current.actions.setPhotos([new File(["p"], "p.jpg", { type: "image/jpeg" })]);
+      });
+      mockSaveSessionPhotos.mockClear();
+
+      await act(async () => {
+        result.current.actions.setPhotos([], []);
+      });
+      expect(mockSaveSessionPhotos).toHaveBeenCalledWith("sess-rm", []);
+    });
+
+    it("persists remaining restored blobs when files is empty but blobs remain", async () => {
+      const { result } = renderHook(() => useAnalysisSession());
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+      mockCreateSessionId.mockReturnValue("sess-restored");
+      const blobs = [new Blob(["a"])];
+      await act(async () => {
+        result.current.actions.setPhotos([], blobs);
+      });
+      expect(mockSaveSessionPhotos).toHaveBeenCalledWith("sess-restored", blobs);
     });
   });
 

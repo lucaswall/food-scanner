@@ -958,11 +958,12 @@ describe("FoodAnalyzer", () => {
   });
 
   it("saves pending and redirects on HEALTH_TOKEN_INVALID", async () => {
+    const mockLocationAssign = vi.fn();
     // Override window.location for this test
     const originalLocation = window.location;
     Object.defineProperty(window, "location", {
       writable: true,
-      value: { ...originalLocation, href: "" },
+      value: { ...originalLocation, href: "", origin: "http://localhost", assign: mockLocationAssign },
     });
 
     const { savePendingSubmission } = await import("@/lib/pending-submission");
@@ -1000,7 +1001,7 @@ describe("FoodAnalyzer", () => {
 
     await waitFor(() => {
       expect(savePendingSubmission).toHaveBeenCalled();
-      expect(window.location.href).toBe("/api/auth/google-health");
+      expect(String(mockLocationAssign.mock.calls[0]?.[0])).toBe("http://localhost/api/auth/google-health");
     });
 
     // Restore
@@ -4973,5 +4974,129 @@ describe("FoodAnalyzer", () => {
         expect((saveCall![1] as RequestInit).signal).toBeDefined();
       });
     });
+  });
+});
+
+describe("FoodAnalyzer re-analysis, retry and photo handling", () => {
+  async function analyzeOnce() {
+    fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^analyze food$/i })).not.toBeDisabled();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^analyze food$/i }));
+    await waitFor(() => {
+      expect(screen.getByTestId("food-name")).toBeInTheDocument();
+    });
+  }
+
+  it("disables the sticky CTA and never logs the stale analysis while a re-analysis runs", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+      )
+      .mockResolvedValueOnce(emptyMatchesResponse());
+    const second = makeControllableSseResponse();
+    mockFetch.mockResolvedValueOnce(second.response);
+
+    render(<FoodAnalyzer />);
+    await analyzeOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: /re-analyze/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^analyzing\.\.\.$/i })).toBeDisabled();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^analyzing\.\.\.$/i }));
+    expect(mockFetch.mock.calls.some((c) => c[0] === "/api/log-food")).toBe(false);
+
+    await act(async () => {
+      second.send({ type: "analysis", analysis: { ...mockAnalysis, food_name: "Second" } });
+      second.send({ type: "done" });
+      second.close();
+    });
+  });
+
+  it("clears stale matches as soon as a re-analysis starts", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
+      });
+    const second = makeControllableSseResponse();
+    mockFetch.mockResolvedValueOnce(second.response);
+
+    render(<FoodAnalyzer />);
+    await analyzeOnce();
+    await waitFor(() => {
+      expect(screen.getByTestId("food-match-card")).toBeInTheDocument();
+    });
+
+    sessionSpies.setMatches.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: /re-analyze/i }));
+
+    expect(sessionSpies.setMatches).toHaveBeenCalledWith([]);
+
+    await act(async () => {
+      second.send({ type: "done" });
+      second.close();
+    });
+  });
+
+  it("discards partial text on a retry event and shows the message only as transient status", async () => {
+    const { response, send, close } = makeControllableSseResponse();
+    mockFetch.mockResolvedValueOnce(response).mockResolvedValueOnce(emptyMatchesResponse());
+
+    render(<FoodAnalyzer />);
+    fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^analyze food$/i })).not.toBeDisabled();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^analyze food$/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Loading...")).toBeInTheDocument();
+    });
+
+    act(() => {
+      send({ type: "text_delta", text: "partial answer " });
+    });
+    act(() => {
+      send({ type: "retry", message: "Connection hiccup, retrying..." });
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("loading-step")).toHaveTextContent("Connection hiccup, retrying...");
+    });
+    act(() => {
+      send({ type: "text_delta", text: "fresh answer that is long enough" });
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(/Connection hiccup/)).not.toBeInTheDocument();
+    });
+    act(() => {
+      send({ type: "analysis", analysis: mockAnalysis });
+      close();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("food-name")).toBeInTheDocument();
+    });
+    const narrative = screen.getByTestId("analysis-narrative");
+    expect(narrative).toHaveTextContent("fresh answer that is long enough");
+    expect(narrative).not.toHaveTextContent("partial answer");
+    expect(narrative).not.toHaveTextContent("retrying");
+  });
+
+  it("keeps the description and the session when the last photo is removed", async () => {
+    render(<FoodAnalyzer />);
+    fireEvent.change(screen.getByTestId("description-input"), { target: { value: "two eggs" } });
+    fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+    mockClearSession.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: /clear photos/i }));
+
+    expect(screen.getByTestId("description-input")).toHaveValue("two eggs");
+    expect(mockClearSession).not.toHaveBeenCalled();
   });
 });

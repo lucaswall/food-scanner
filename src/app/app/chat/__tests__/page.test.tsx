@@ -37,4 +37,13 @@ describe("ChatPage", () => {
     expect(client).toBeInTheDocument();
     expect(guard).toContainElement(client);
   });
+
+  it("provides the #main-content skip-link target around the guard", async () => {
+    const element = await ChatPage();
+    const { container } = render(element);
+
+    const main = container.querySelector("main#main-content");
+    expect(main).not.toBeNull();
+    expect(main).toContainElement(screen.getByTestId("health-connect-guard"));
+  });
 });

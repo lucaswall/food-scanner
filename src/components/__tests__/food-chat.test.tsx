@@ -1251,11 +1251,12 @@ describe("FoodChat", () => {
 
   // FOO-413: FoodChat missing HEALTH_TOKEN_INVALID handling
   it("saves pending and redirects on HEALTH_TOKEN_INVALID", async () => {
+    const mockLocationAssign = vi.fn();
     // Override window.location for this test
     const originalLocation = window.location;
     Object.defineProperty(window, "location", {
       writable: true,
-      value: { ...originalLocation, href: "" },
+      value: { ...originalLocation, href: "", origin: "http://localhost", assign: mockLocationAssign },
     });
 
     const { savePendingSubmission } = await import("@/lib/pending-submission");
@@ -1274,7 +1275,7 @@ describe("FoodChat", () => {
 
     await waitFor(() => {
       expect(savePendingSubmission).toHaveBeenCalled();
-      expect(window.location.href).toBe("/api/auth/google-health");
+      expect(String(mockLocationAssign.mock.calls[0]?.[0])).toBe("http://localhost/api/auth/google-health");
     });
 
     // Restore
@@ -2759,7 +2760,7 @@ describe("FoodChat edit mode", () => {
       // FOO-1173: the entryId must travel with the pending submission so the resumed save
       // updates this entry instead of logging a duplicate.
       expect(savePendingSubmission).toHaveBeenCalledWith(expect.objectContaining({ entryId: 42 }));
-      expect(window.location.href).toBe("/api/auth/google-health");
+      expect(window.location.href).toBe("http://localhost:3000/api/auth/google-health");
     });
 
     Object.defineProperty(window, "location", {
@@ -2918,7 +2919,7 @@ describe("FOO-750: editingEntryId in analyze mode", () => {
       expect(savePendingSubmission).toHaveBeenCalledWith(
         expect.objectContaining({ entryId: 99, date: "2026-02-14" })
       );
-      expect(window.location.href).toBe("/api/auth/google-health");
+      expect(window.location.href).toBe("http://localhost:3000/api/auth/google-health");
     });
 
     Object.defineProperty(window, "location", {
@@ -3375,5 +3376,181 @@ describe("FOO-743: Sentry.captureException in FoodChat", () => {
 
       expect(screen.getByRole("button", { name: /save for later/i })).toBeDisabled();
     });
+  });
+});
+
+describe("FoodChat audit fixes", () => {
+  it("retry event discards partial text and never puts the retry message in chat history", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeSSEFetchResponse([
+        { type: "text_delta", text: "PARTIAL TEXT" },
+        { type: "retry", message: "Connection hiccup, retrying..." },
+        { type: "text_delta", text: "Clean reply" },
+        { type: "done" },
+      ])
+    );
+
+    render(<FoodChat {...sseProps} />);
+    fireEvent.change(screen.getByPlaceholderText(/type a message/i), { target: { value: "hello" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Clean reply")).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/PARTIAL TEXT/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/retrying/i)).not.toBeInTheDocument();
+
+    // The next request must carry only real conversation content
+    mockFetch.mockResolvedValueOnce(
+      makeSSEFetchResponse([{ type: "text_delta", text: "ok" }, { type: "done" }])
+    );
+    fireEvent.change(screen.getByPlaceholderText(/type a message/i), { target: { value: "again" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+    const secondBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+    const serialized = JSON.stringify(secondBody.messages);
+    expect(serialized).not.toMatch(/PARTIAL TEXT/);
+    expect(serialized).not.toMatch(/retrying/i);
+    expect(serialized).toMatch(/Clean reply/);
+  });
+
+  it("shows the retry message as transient status while loading", async () => {
+    let push: (e: StreamEvent) => void = () => {};
+    const encoder = new TextEncoder();
+    const waiters: Array<(r: { done: boolean; value?: Uint8Array }) => void> = [];
+    const queue: Uint8Array[] = [];
+    push = (e) => {
+      const chunk = encoder.encode(`data: ${JSON.stringify(e)}\n\n`);
+      if (waiters.length) waiters.shift()!({ done: false, value: chunk });
+      else queue.push(chunk);
+    };
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      headers: new Headers({ "Content-Type": "text/event-stream" }),
+      body: {
+        getReader: () => ({
+          read: () =>
+            queue.length
+              ? Promise.resolve({ done: false, value: queue.shift()! })
+              : new Promise((resolve) => waiters.push(resolve)),
+          releaseLock: vi.fn(),
+          cancel: vi.fn().mockResolvedValue(undefined),
+        }),
+      },
+    });
+
+    render(<FoodChat {...sseProps} />);
+    fireEvent.change(screen.getByPlaceholderText(/type a message/i), { target: { value: "hi" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+    await act(async () => {
+      push({ type: "retry", message: "Retrying your request..." });
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("chat-retry-status")).toHaveTextContent("Retrying your request...");
+    });
+    await act(async () => {
+      push({ type: "done" });
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId("chat-retry-status")).not.toBeInTheDocument();
+    });
+  });
+
+  it("does not submit twice when Send is tapped twice while images are being encoded", async () => {
+    mockFetch.mockResolvedValue(
+      makeSSEFetchResponse([{ type: "text_delta", text: "ok" }, { type: "done" }])
+    );
+
+    render(<FoodChat {...defaultProps} />);
+    fireEvent.change(screen.getByPlaceholderText(/type a message/i), { target: { value: "twice" } });
+    const send = screen.getByRole("button", { name: /send/i });
+    await act(async () => {
+      fireEvent.click(send);
+      fireEvent.click(send);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("ok")).toBeInTheDocument();
+    });
+    expect(mockFetch.mock.calls.filter((c) => c[0] === "/api/chat-food")).toHaveLength(1);
+  });
+
+  it("edit-mode Save Changes honors 'Now' instead of silently keeping the entry time", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeSSEFetchResponse([
+        { type: "analysis", analysis: { ...mockAnalysis, calories: 160 } },
+        { type: "done" },
+      ])
+    );
+    render(<FoodChat {...editModeProps} />);
+    fireEvent.change(screen.getByPlaceholderText(/type a message/i), { target: { value: "half" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save changes/i })).not.toBeDisabled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /reset to now/i }));
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () => Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(mockFetch.mock.calls.some((c) => c[0] === "/api/edit-food")).toBe(true);
+    });
+    const body = JSON.parse(mockFetch.mock.calls.find((c) => c[0] === "/api/edit-food")![1].body);
+    expect(body.time).toMatch(/^\d{2}:\d{2}$/);
+    expect(body.time).not.toBe("20:00:00");
+  });
+
+  it("chat-initiated edit honors 'Now' in the saved time", async () => {
+    const analysisWithEditId: FoodAnalysis = { ...mockAnalysis, editingEntryId: 99, time: "08:15" };
+    mockFetch.mockResolvedValueOnce(
+      makeSSEFetchResponse([{ type: "analysis", analysis: analysisWithEditId }, { type: "done" }])
+    );
+    render(<FoodChat {...sseProps} />);
+    fireEvent.change(screen.getByPlaceholderText(/type a message/i), { target: { value: "edit" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save changes/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /reset to now/i }));
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () => Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(mockFetch.mock.calls.some((c) => c[0] === "/api/edit-food")).toBe(true);
+    });
+    const body = JSON.parse(mockFetch.mock.calls.find((c) => c[0] === "/api/edit-food")![1].body);
+    expect(body.time).not.toBe("08:15");
+  });
+
+  it("Remove photos button has a 44px touch target", async () => {
+    render(<FoodChat {...sseProps} />);
+    const galleryInput = screen.getByTestId("chat-gallery-input");
+    await act(async () => {
+      fireEvent.change(galleryInput, {
+        target: { files: [new File(["x"], "a.jpg", { type: "image/jpeg" })] },
+      });
+    });
+    const btn = await screen.findByRole("button", { name: /remove photos/i });
+    expect(btn).toHaveClass("min-h-[44px]");
+    expect(btn).toHaveClass("min-w-[44px]");
   });
 });

@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
+import { scrubSentryEvent } from "@/lib/sentry-scrub";
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
@@ -15,7 +16,12 @@ export async function register() {
       // Browser envelopes relayed by the /monitoring tunnel route aren't app traffic
       ignoreSpans: [/^POST \/monitoring$/],
       enableLogs: true,
+      sendDefaultPii: false,
+      // Never ship session cookies, Authorization/API-key headers or request bodies.
+      beforeSend: scrubSentryEvent,
+      beforeSendTransaction: scrubSentryEvent,
       integrations: [
+        Sentry.requestDataIntegration({ include: { cookies: false, data: false } }),
         Sentry.pinoIntegration({
           log: { levels: ["warn", "error", "fatal"] },
           error: { levels: ["error", "fatal"] },
@@ -28,6 +34,9 @@ export async function register() {
     Sentry.init({
       dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
       tracesSampleRate: 1.0,
+      sendDefaultPii: false,
+      beforeSend: scrubSentryEvent,
+      beforeSendTransaction: scrubSentryEvent,
     });
   }
 
@@ -68,31 +77,9 @@ export async function register() {
     logger.info({ action: "sessions_cleaned", count: cleaned }, "cleaned expired sessions");
   }
 
-  if (typeof globalThis.process?.on === "function") {
-    let shuttingDown = false;
-    const proc = globalThis.process;
-    const shutdown = async (signal: string) => {
-      if (shuttingDown) return;
-      shuttingDown = true;
-      logger.info({ action: "server_shutdown", signal }, "graceful shutdown initiated");
-      try {
-        await Sentry.flush(2000);
-        const { closeDb } = await import("@/db/index");
-        await closeDb();
-      } catch (error) {
-        logger.debug(
-          { action: "shutdown_cleanup_error", error: error instanceof Error ? error.message : String(error) },
-          "best-effort cleanup failed during shutdown",
-        );
-      }
-      setTimeout(() => {
-        logger.info({ action: "server_exit" }, "server exiting");
-        proc.exit(0);
-      }, 5000);
-    };
-    proc.on("SIGTERM", () => shutdown("SIGTERM"));
-    proc.on("SIGINT", () => shutdown("SIGINT"));
-  }
+  // No custom SIGTERM/SIGINT handlers: `next start` already stops accepting connections,
+  // drains in-flight requests and then exits (code 143). Ending the DB pool or forcing an
+  // exit here would race that drain and break requests still writing to the database.
 }
 
 export const onRequestError = Sentry.captureRequestError;

@@ -148,7 +148,7 @@ beforeEach(() => {
   mockDeleteNutritionLogs.mockResolvedValue(undefined);
   mockCreateNutritionLog.mockResolvedValue({ healthLogId: "health-log-new-99999" });
   mockUpdateFoodLogEntry.mockResolvedValue({ healthLogId: "health-log-new-99999", newCustomFoodId: 200 });
-  mockUpdateFoodLogEntryMetadata.mockResolvedValue(undefined);
+  mockUpdateFoodLogEntryMetadata.mockResolvedValue(true);
   mockUpdateCustomFoodMetadata.mockResolvedValue(undefined);
   vi.stubEnv("HEALTH_DRY_RUN", "");
 });
@@ -337,6 +337,35 @@ describe("POST /api/edit-food", () => {
     expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
   });
 
+  it("regular path: compare-and-set on the healthLogId that was read", async () => {
+    mockCreateNutritionLog.mockResolvedValue({ healthLogId: "health-log-new-xyz" });
+    await POST(createMockRequest(validBody));
+    expect(mockUpdateFoodLogEntry).toHaveBeenCalledWith(
+      "user-uuid-123",
+      42,
+      expect.objectContaining({ expectedHealthLogId: "health-log-old-12345" }),
+      expect.anything(),
+    );
+  });
+
+  it("regular path: ENTRY_CONFLICT from the DB write → deletes the NEW log, returns 409, keeps the old log", async () => {
+    mockCreateNutritionLog.mockResolvedValue({ healthLogId: "new-log-conflict" });
+    mockUpdateFoodLogEntry.mockRejectedValue(new Error("ENTRY_CONFLICT"));
+
+    const response = await POST(createMockRequest(validBody));
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.error.code).toBe("CONFLICT");
+    expect(mockDeleteNutritionLogs).toHaveBeenCalledTimes(1);
+    expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
+      "access-token-abc",
+      ["new-log-conflict"],
+      expect.any(Object),
+      "user-uuid-123",
+      "cleanup",
+    );
+  });
+
   it("regular path: DB failure + new-log cleanup also fails → PARTIAL_ERROR", async () => {
     mockCreateNutritionLog.mockResolvedValue({ healthLogId: "new-log-orphan" });
     mockUpdateFoodLogEntry.mockRejectedValue(new Error("DB error"));
@@ -460,6 +489,34 @@ describe("POST /api/edit-food", () => {
       );
       // Single create — no re-create of the original (it was never touched).
       expect(mockCreateNutritionLog).toHaveBeenCalledTimes(1);
+    });
+
+    it("fast path: compare-and-set on the healthLogId that was read", async () => {
+      await POST(createMockRequest(unchangedBody));
+      expect(mockUpdateFoodLogEntryMetadata).toHaveBeenCalledWith(
+        "user-uuid-123",
+        expect.any(Number),
+        expect.objectContaining({ expectedHealthLogId: "health-log-old-12345" }),
+        expect.any(Object),
+      );
+    });
+
+    it("fast path: 0 rows updated (entry changed/deleted concurrently) → deletes NEW log, returns 409, never deletes the old one", async () => {
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "fast-path-new-orphan" });
+      mockUpdateFoodLogEntryMetadata.mockResolvedValue(false);
+
+      const response = await POST(createMockRequest(unchangedBody));
+      expect(response.status).toBe(409);
+      const body = await response.json();
+      expect(body.error.code).toBe("CONFLICT");
+      expect(mockDeleteNutritionLogs).toHaveBeenCalledTimes(1);
+      expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
+        "access-token-abc",
+        ["fast-path-new-orphan"],
+        expect.any(Object),
+        "user-uuid-123",
+        "cleanup",
+      );
     });
 
     it("fast path: DB failure + new-log cleanup also fails → PARTIAL_ERROR", async () => {

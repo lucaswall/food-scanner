@@ -13,6 +13,7 @@ const { mockMutate } = vi.hoisted(() => ({
 
 vi.mock("swr", () => ({
   mutate: mockMutate,
+  SWRConfig: { defaultValue: { cache: new Map() } },
 }));
 
 beforeEach(() => {

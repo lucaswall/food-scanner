@@ -246,12 +246,6 @@ const mockAnalysis: FoodAnalysis = {
   keywords: ["empanada", "carne", "beef"],
 };
 
-const mockLogResponse: FoodLogResponse = {
-  success: true,
-  healthLogId: "test-health-log-id",
-  reusedFood: false,
-};
-
 const emptyMatchesResponse = () => ({
   ok: true,
   json: () => Promise.resolve({ success: true, data: { matches: [] } }),
@@ -281,6 +275,8 @@ function makeSseAnalyzeResponse(events: StreamEvent[]) {
   };
 }
 
+const mockLocationAssign = vi.fn();
+
 beforeEach(() => {
   mockFetch.mockReset();
   vi.clearAllMocks();
@@ -289,7 +285,7 @@ beforeEach(() => {
   // Prevent actual navigation
   Object.defineProperty(window, "location", {
     writable: true,
-    value: { href: "", assign: vi.fn(), replace: vi.fn() },
+    value: { href: "", origin: "http://localhost", assign: mockLocationAssign, replace: vi.fn() },
   });
 });
 
@@ -364,7 +360,7 @@ describe("FoodAnalyzer reconnect flow", () => {
       fireEvent.click(screen.getByRole("button", { name: /log to google health/i }));
 
       await waitFor(() => {
-        expect(window.location.href).toBe("/api/auth/google-health");
+        expect(String(mockLocationAssign.mock.calls[0]?.[0])).toBe("http://localhost/api/auth/google-health");
       });
     });
 
@@ -406,158 +402,23 @@ describe("FoodAnalyzer reconnect flow", () => {
     });
   });
 
-  describe("auto-resubmit on mount", () => {
-    it("auto-submits pending submission on mount and shows success", async () => {
+  describe("pending submission ownership", () => {
+    it("does not resubmit a pending submission itself (the layout-level PendingSubmissionHandler owns that)", async () => {
       mockGetPending.mockReturnValue({
         analysis: mockAnalysis,
         mealTypeId: 3,
         foodName: "Empanada de carne",
-      });
-
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockLogResponse }),
-      });
-
-      render(<FoodAnalyzer />);
-
-      // Should show resubmitting state
-      await waitFor(() => {
-        expect(screen.getByText(/resubmitting/i)).toBeInTheDocument();
-      });
-
-      // Should call log-food with pending data
-      await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledWith(
-          "/api/log-food",
-          expect.objectContaining({
-            method: "POST",
-          })
-        );
-      });
-
-      // Should show success confirmation
-      await waitFor(() => {
-        expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
-      });
-
-      // Should clear pending
-      expect(mockClearPending).toHaveBeenCalled();
-    });
-
-    it("shows error and clears pending when resubmit fails", async () => {
-      mockGetPending.mockReturnValue({
-        analysis: mockAnalysis,
-        mealTypeId: 3,
-        foodName: "Empanada de carne",
-      });
-
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        json: () =>
-          Promise.resolve({
-            success: false,
-            error: { code: "HEALTH_API_ERROR", message: "Health API is down" },
-          }),
-      });
-
-      render(<FoodAnalyzer />);
-
-      // Should show error after failed resubmit
-      await waitFor(() => {
-        expect(screen.getByText(/health api is down/i)).toBeInTheDocument();
-      });
-
-      // Should clear pending
-      expect(mockClearPending).toHaveBeenCalled();
-    });
-
-    it("auto-submits reuse pending submission with reuseCustomFoodId", async () => {
-      mockGetPending.mockReturnValue({
-        analysis: null,
-        mealTypeId: 5,
-        foodName: "Empanada de carne",
-        reuseCustomFoodId: 42,
-      });
-
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            success: true,
-            data: { ...mockLogResponse, reusedFood: true },
-          }),
+        date: "2026-02-07",
+        time: "14:30:00",
       });
 
       render(<FoodAnalyzer />);
 
       await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledWith(
-          "/api/log-food",
-          expect.objectContaining({
-            method: "POST",
-            body: expect.stringContaining('"reuseCustomFoodId":42'),
-          })
-        );
+        expect(screen.queryByTestId("restoring-skeleton")).not.toBeInTheDocument();
       });
-
-      await waitFor(() => {
-        expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
-      });
-
-      expect(mockClearPending).toHaveBeenCalled();
-    });
-
-    it("resubmit uses saved date/time from pending data", async () => {
-      mockGetPending.mockReturnValue({
-        analysis: mockAnalysis,
-        mealTypeId: 3,
-        foodName: "Empanada de carne",
-        date: "2026-02-06",
-        time: "12:00:00",
-      });
-
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockLogResponse }),
-      });
-
-      render(<FoodAnalyzer />);
-
-      await waitFor(() => {
-        const logCall = mockFetch.mock.calls.find(
-          (call: unknown[]) => call[0] === "/api/log-food"
-        );
-        expect(logCall).toBeDefined();
-        const body = JSON.parse(logCall![1].body);
-        expect(body.date).toBe("2026-02-06");
-        expect(body.time).toBe("12:00:00");
-      });
-    });
-
-    it("resubmit falls back to getLocalDateTime when pending has no date/time", async () => {
-      mockGetPending.mockReturnValue({
-        analysis: mockAnalysis,
-        mealTypeId: 3,
-        foodName: "Empanada de carne",
-      });
-
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockLogResponse }),
-      });
-
-      render(<FoodAnalyzer />);
-
-      await waitFor(() => {
-        const logCall = mockFetch.mock.calls.find(
-          (call: unknown[]) => call[0] === "/api/log-food"
-        );
-        expect(logCall).toBeDefined();
-        const body = JSON.parse(logCall![1].body);
-        expect(body.date).toBe("2026-02-07");
-        expect(body.time).toBe("14:30:00");
-      });
+      expect(mockFetch.mock.calls.some((c) => c[0] === "/api/log-food")).toBe(false);
+      expect(screen.queryByText(/resubmitting/i)).not.toBeInTheDocument();
     });
 
     it("savePendingSubmission includes date and time from HEALTH_TOKEN_INVALID flow", async () => {

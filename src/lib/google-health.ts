@@ -1,9 +1,14 @@
 import * as Sentry from "@sentry/nextjs";
 import { logger, startTimer } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
-import { getHealthTokens, upsertHealthTokens, deleteHealthTokens } from "@/lib/health-tokens";
+import {
+  getHealthTokens,
+  updateHealthTokensIfUnchanged,
+  deleteHealthTokensIfUnchanged,
+} from "@/lib/health-tokens";
 import {
   assertRateLimitAllowed,
+  clearRateLimitCooldown,
   recordRateLimitHeaders,
   recordResourceExhaustedCooldown,
   type HealthCallCriticality,
@@ -120,11 +125,22 @@ function parseRetryDelayMs(body: unknown): number | null {
 }
 
 /**
+ * Mutable state shared across the recursive retry attempts of ONE logical request.
+ * Lets callers learn whether a 5xx retry happened (the first attempt may have committed),
+ * and ensures a 401 triggers at most one forced token refresh.
+ */
+export interface FetchRetryContext {
+  serverRetried?: boolean;
+  authRetried?: boolean;
+}
+
+/**
  * Fetch with retry logic tailored for Google Health / Google Cloud APIs.
  *
  * - Checks the DEADLINE_MS budget at the start of each attempt.
  * - Runs the rate-limit circuit breaker on the first attempt only.
- * - Maps 401 → HEALTH_TOKEN_INVALID, 403 → HEALTH_SCOPE_MISSING.
+ * - 401 with a userId → force one token refresh + a single retry; otherwise HEALTH_TOKEN_INVALID.
+ * - Maps 403 → HEALTH_SCOPE_MISSING.
  * - Allows at most 1 retry on 429 (sleeping per Retry-After if present).
  * - Exponential back-off on 5xx (up to MAX_RETRIES).
  * - Each individual request is guarded by REQUEST_TIMEOUT_MS via AbortController.
@@ -138,6 +154,7 @@ export async function fetchWithRetry(
   userId?: string,
   criticality: HealthCallCriticality = "optional",
   idempotent = true,
+  ctx: FetchRetryContext = {},
 ): Promise<Response> {
   // Extract the caller's AbortSignal (if any) for use in retry sleeps.
   // Note: each fetch attempt uses its own internal timeout controller, so options.signal
@@ -179,7 +196,20 @@ export async function fetchWithRetry(
 
     // Always record rate-limit headers so even error responses (including 429)
     // update the per-user cooldown snapshot.
-    recordRateLimitHeaders(userId, response, l);
+    // For 429 the RetryInfo back-off hint lives in the body — parse it once here and reuse
+    // it for both the cooldown and the retry sleep below.
+    let rateLimitBody: unknown;
+    if (response.status === 429) {
+      rateLimitBody = await parseErrorBody(response);
+    }
+    recordRateLimitHeaders(
+      userId,
+      response,
+      l,
+      response.status === 429 ? parseRetryDelayMs(rateLimitBody) : null,
+    );
+    // A successful call proves the quota window has reopened — drop any stale cooldown.
+    if (response.ok) clearRateLimitCooldown(userId);
 
     if (userId) {
       Sentry.addBreadcrumb({
@@ -200,6 +230,20 @@ export async function fetchWithRetry(
         { action: "health_401_unauthorized", url, errorBody: sanitizeErrorBody(await parseErrorBody(response)) },
         "401 from Google Health — token invalid/expired",
       );
+      // The access token can be revoked/invalidated server-side while the stored expiry still
+      // looks fresh. Force ONE refresh (skipping the expiry fast path) and retry once.
+      if (userId && !ctx.authRetried) {
+        const headers = new Headers(options.headers);
+        const rejected = headers.get("Authorization")?.replace(/^Bearer\s+/i, "");
+        if (rejected) {
+          ctx.authRetried = true;
+          const fresh = await ensureFreshToken(userId, l, { rejectedAccessToken: rejected });
+          headers.set("Authorization", `Bearer ${fresh}`);
+          return fetchWithRetry(
+            url, { ...options, headers }, retryCount, startTime, l, userId, criticality, idempotent, ctx,
+          );
+        }
+      }
       throw new Error("HEALTH_TOKEN_INVALID");
     }
 
@@ -241,7 +285,7 @@ export async function fetchWithRetry(
       // per-minute window — give up and let the recorded cooldown gate further calls (P1-4).
       const retryAfterMs =
         parseRetryAfter(response.headers.get("Retry-After")) ??
-        parseRetryDelayMs(await parseErrorBody(response));
+        parseRetryDelayMs(rateLimitBody);
 
       if (retryAfterMs === null) {
         l.warn(
@@ -264,7 +308,7 @@ export async function fetchWithRetry(
         "rate limited, sleeping per back-off hint",
       );
       await abortableSleep(retryAfterMs, callerSignal);
-      return fetchWithRetry(url, options, retryCount + 1, startTime, l, userId, criticality, idempotent);
+      return fetchWithRetry(url, options, retryCount + 1, startTime, l, userId, criticality, idempotent, ctx);
     }
 
     if (response.status >= 500) {
@@ -286,7 +330,8 @@ export async function fetchWithRetry(
         "server error, retrying",
       );
       await abortableSleep(delay, callerSignal);
-      return fetchWithRetry(url, options, retryCount + 1, startTime, l, userId, criticality, idempotent);
+      ctx.serverRetried = true;
+      return fetchWithRetry(url, options, retryCount + 1, startTime, l, userId, criticality, idempotent, ctx);
     }
 
     return response;
@@ -303,8 +348,10 @@ export async function fetchWithRetry(
  * refresh token remains valid and must be preserved by the caller.
  *
  * Throws:
- *   - HEALTH_TOKEN_INVALID on 400/401 (token revoked or expired)
- *   - HEALTH_REFRESH_TRANSIENT on other non-2xx responses
+ *   - HEALTH_TOKEN_INVALID ONLY on an OAuth `invalid_grant` (refresh token revoked/expired)
+ *   - HEALTH_REFRESH_TRANSIENT on every other non-2xx response, including 400/401 with another
+ *     OAuth error (invalid_client / unauthorized_client / invalid_request are server
+ *     misconfiguration — the user's refresh token is still valid and must be kept)
  */
 export async function refreshGoogleHealthToken(
   refreshToken: string,
@@ -343,19 +390,32 @@ export async function refreshGoogleHealthToken(
     });
 
     if (!response.ok) {
-      // 400/401 = expired/revoked refresh token (e.g. invalid_grant). This is expected and
-      // handled — ensureFreshToken deletes the token row and the UI prompts a reconnect — so
-      // log at warn to keep it out of Sentry issues (FOOD-SCANNER-1B). Anything else = transient.
+      // invalid_grant = expired/revoked refresh token. This is expected and handled —
+      // ensureFreshToken deletes the token row and the UI prompts a reconnect — so log at warn
+      // to keep it out of Sentry issues (FOOD-SCANNER-1B). Any other 400/401 (invalid_client,
+      // unauthorized_client, invalid_request...) is a server-side fault: keep the token.
       if (response.status === 400 || response.status === 401) {
-        l.warn(
+        const oauthError = await readOAuthErrorCode(response);
+        if (oauthError === "invalid_grant") {
+          l.warn(
+            {
+              action: "google_health_token_refresh_rejected",
+              status: response.status,
+              oauthError,
+            },
+            "Google Health token refresh rejected — refresh token expired or revoked",
+          );
+          throw new Error("HEALTH_TOKEN_INVALID");
+        }
+        l.error(
           {
-            action: "google_health_token_refresh_rejected",
+            action: "google_health_token_refresh_config_error",
             status: response.status,
-            oauthError: await readOAuthErrorCode(response),
+            oauthError,
           },
-          "Google Health token refresh rejected — refresh token expired or revoked",
+          "Google Health token refresh rejected for a non-invalid_grant reason — check OAuth client config; keeping stored tokens",
         );
-        throw new Error("HEALTH_TOKEN_INVALID");
+        throw new Error("HEALTH_REFRESH_TRANSIENT");
       }
       l.error(
         {
@@ -427,14 +487,23 @@ async function readOAuthErrorCode(response: Response): Promise<string | null> {
   return null;
 }
 
-export async function ensureFreshToken(userId: string, log?: Logger): Promise<string> {
+export async function ensureFreshToken(
+  userId: string,
+  log?: Logger,
+  opts: { rejectedAccessToken?: string } = {},
+): Promise<string> {
   const l = log ?? logger;
 
   // Check in-flight FIRST (before any await) — dedup window brackets the entire refresh
   // including the initial token read so concurrent callers always join a single promise.
   const existing = refreshInFlight.get(userId);
   if (existing) {
-    return existing;
+    if (!opts.rejectedAccessToken) return existing;
+    // A 401 caller must not accept the very token it was rejected with (the in-flight call
+    // may be a fast-path read that returned it). Fall through to a forced refresh then.
+    const joined = await existing;
+    if (joined !== opts.rejectedAccessToken) return joined;
+    if (refreshInFlight.has(userId)) return ensureFreshToken(userId, log, opts);
   }
 
   // Register the promise synchronously BEFORE any await so concurrent callers arriving in
@@ -447,8 +516,13 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
         throw new Error("HEALTH_TOKEN_INVALID");
       }
 
-      // Token is fresh — return immediately.
-      if (tokenRow.expiresAt.getTime() >= Date.now() + TOKEN_EXPIRY_SKEW_MS) {
+      // Token is fresh — return immediately. Unless the caller just got a 401 for exactly this
+      // access token: then the stored expiry is a lie and we must refresh regardless. If the
+      // stored token differs from the rejected one, someone already replaced it — use it.
+      if (
+        tokenRow.expiresAt.getTime() >= Date.now() + TOKEN_EXPIRY_SKEW_MS &&
+        tokenRow.accessToken !== opts.rejectedAccessToken
+      ) {
         return tokenRow.accessToken;
       }
 
@@ -467,11 +541,25 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
         // untouched (the token may still be valid on the next attempt).
         if (refreshError instanceof Error && refreshError.message === "HEALTH_TOKEN_INVALID") {
           try {
-            await deleteHealthTokens(userId, l);
-            l.warn(
-              { action: "health_token_revoked_reconciled", userId },
-              "refresh token revoked/expired — deleted dead token row to force reconnect",
-            );
+            // Conditional on the row we read: a concurrent reconnect writes a newer row
+            // (new updatedAt) that this stale failure must NOT delete.
+            const deleted = await deleteHealthTokensIfUnchanged(userId, tokenRow.updatedAt, l);
+            if (deleted) {
+              l.warn(
+                { action: "health_token_revoked_reconciled", userId },
+                "refresh token revoked/expired — deleted dead token row to force reconnect",
+              );
+            } else {
+              // Superseded by a reconnect — the user's newer credentials win.
+              const current = await getHealthTokens(userId, l);
+              if (current) {
+                l.info(
+                  { action: "health_token_revoked_superseded", userId },
+                  "stale refresh failure ignored — token row was replaced by a reconnect",
+                );
+                return current.accessToken;
+              }
+            }
           } catch (deleteError) {
             l.error(
               {
@@ -487,15 +575,16 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
       }
 
       const tokenData = {
-        healthUserId: tokenRow.healthUserId,
         accessToken: tokens.access_token,
-        refreshToken: tokenRow.refreshToken,
         expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
-        scope: tokenRow.scope,
       };
 
+      // Conditional write: only persist if the row is still the one this refresh started
+      // from, so a concurrent reconnect's newer row is never clobbered. Google does not
+      // rotate the refresh token, so only the access token + expiry change.
+      let applied: boolean;
       try {
-        await upsertHealthTokens(userId, tokenData, l);
+        applied = await updateHealthTokensIfUnchanged(userId, tokenRow.updatedAt, tokenData, l);
       } catch (upsertError) {
         l.warn(
           {
@@ -505,10 +594,10 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
                 ? upsertError.message
                 : String(upsertError),
           },
-          "health token upsert failed, retrying once",
+          "health token update failed, retrying once",
         );
         try {
-          await upsertHealthTokens(userId, tokenData, l);
+          applied = await updateHealthTokensIfUnchanged(userId, tokenRow.updatedAt, tokenData, l);
         } catch (retryError) {
           l.error(
             {
@@ -518,10 +607,21 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
                   ? retryError.message
                   : String(retryError),
             },
-            "health token upsert retry failed",
+            "health token update retry failed",
           );
           throw new Error("HEALTH_TOKEN_SAVE_FAILED");
         }
+      }
+
+      if (!applied) {
+        // Row replaced (reconnect) or removed since we read it — discard our result.
+        const current = await getHealthTokens(userId, l);
+        if (!current) throw new Error("HEALTH_TOKEN_INVALID");
+        l.info(
+          { action: "health_token_refresh_superseded", userId },
+          "refresh result discarded — token row was replaced during refresh",
+        );
+        return current.accessToken;
       }
 
       return tokens.access_token;
@@ -921,6 +1021,7 @@ export async function deleteNutritionLogs(
 
   // v4 batchDelete takes full resource names, not bare ids.
   const names = ids.map((id) => dataPointName(NUTRITION_LOG_DATA_TYPE, id));
+  const retryCtx: FetchRetryContext = {};
   const response = await fetchWithRetry(
     `${dataPointsUrl(NUTRITION_LOG_DATA_TYPE)}:batchDelete`,
     {
@@ -931,14 +1032,16 @@ export async function deleteNutritionLogs(
       },
       body: JSON.stringify({ names }),
     },
-    0, Date.now(), l, userId, "critical",
+    0, Date.now(), l, userId, "critical", true, retryCtx,
   );
 
   // NOT_FOUND handling shared by the HTTP-404 gateway fallback and the Operation
   // error.code===5 path: idempotent for cleanup/compensation; a hard error for a
   // user-initiated delete (the DB id has no live Health entry — surface the drift).
   const handleNotFound = (): void => {
-    if (mode === "user") {
+    // After a 5xx retry, the first attempt may have committed the delete before its response
+    // failed — NOT_FOUND on the retry then means our own delete succeeded, not data drift.
+    if (mode === "user" && !retryCtx.serverRetried) {
       l.error(
         { action: "health_delete_nutrition_logs_not_found", ids, mode },
         "user-initiated delete: nutrition logs not found on Google Health (data drift)",
@@ -1044,14 +1147,39 @@ function civilDateTime(dateStr: string): Record<string, unknown> {
   return { date: { year, month, day } };
 }
 
+/** Zero-pad helper for civil date parts. */
+const pad2 = (n: number): string => String(n).padStart(2, "0");
+
 /**
- * Extract a YYYY-MM-DD date from a v4 `ObservationSampleTime`, whose `physicalTime` is
- * an RFC3339 instant (per the v4 discovery schema). Tolerates a bare RFC3339 string.
+ * Extract the user's CIVIL YYYY-MM-DD date from a v4 `ObservationSampleTime`.
+ *
+ * Preference order: `civilTime.date` (already the user's local date — the same field the
+ * server-side filter uses), then `physicalTime` shifted by `utcOffset` (a Duration string
+ * like "-10800s"), then the bare UTC date of `physicalTime` as a last resort. Using the raw
+ * UTC date would push an evening weigh-in in a negative-offset zone onto the next day.
  */
 function extractSampleDate(sampleTime: unknown): string | null {
   if (sampleTime && typeof sampleTime === "object") {
-    const pt = (sampleTime as Record<string, unknown>).physicalTime;
-    if (typeof pt === "string") return pt.slice(0, 10);
+    const st = sampleTime as Record<string, unknown>;
+    const civil = st.civilTime;
+    if (civil && typeof civil === "object") {
+      const date = (civil as Record<string, unknown>).date;
+      if (date && typeof date === "object") {
+        const { year, month, day } = date as Record<string, unknown>;
+        if (typeof year === "number" && typeof month === "number" && typeof day === "number") {
+          return `${String(year).padStart(4, "0")}-${pad2(month)}-${pad2(day)}`;
+        }
+      }
+    }
+    const pt = st.physicalTime;
+    if (typeof pt === "string") {
+      const ms = Date.parse(pt);
+      const offsetMatch = typeof st.utcOffset === "string" ? /^(-?\d+(?:\.\d+)?)s$/.exec(st.utcOffset.trim()) : null;
+      if (offsetMatch && !Number.isNaN(ms)) {
+        return new Date(ms + Number(offsetMatch[1]) * 1000).toISOString().slice(0, 10);
+      }
+      return pt.slice(0, 10);
+    }
   }
   if (typeof sampleTime === "string") return sampleTime.slice(0, 10);
   return null;
@@ -1253,13 +1381,14 @@ export async function getHealthLatestWeightKg(
   const points = Array.isArray(data.dataPoints) ? (data.dataPoints as Array<Record<string, unknown>>) : [];
 
   // Parse weight samples (weightGrams → kg), keep those within [startDate, targetDate].
-  const valid: Array<{ weightKg: number; date: string }> = [];
+  const valid: Array<{ weightKg: number; date: string; ts: string }> = [];
   for (const p of points) {
     const w = p.weight as Record<string, unknown> | undefined;
     if (!w || typeof w.weightGrams !== "number") continue;
     const d = extractSampleDate(w.sampleTime);
     if (!d || d < startDate || d > targetDate) continue;
-    valid.push({ weightKg: w.weightGrams / 1000, date: d });
+    const pt = (w.sampleTime as Record<string, unknown> | undefined)?.physicalTime;
+    valid.push({ weightKg: w.weightGrams / 1000, date: d, ts: typeof pt === "string" ? pt : "" });
   }
 
   if (valid.length === 0) {
@@ -1273,7 +1402,8 @@ export async function getHealthLatestWeightKg(
   }
 
   // Sort by date descending → take the most recent
-  valid.sort((a, b) => b.date.localeCompare(a.date));
+  // Same civil day → the later instant wins.
+  valid.sort((a, b) => b.date.localeCompare(a.date) || b.ts.localeCompare(a.ts));
   const latest = valid[0];
 
   l.debug({ action: "health_get_weight_success", loggedDate: latest.date, weightKg: latest.weightKg, durationMs: elapsed() }, "weight fetched");

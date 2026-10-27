@@ -1,0 +1,1 @@
+CREATE INDEX "claude_usage_user_created_idx" ON "claude_usage" USING btree ("user_id","created_at");

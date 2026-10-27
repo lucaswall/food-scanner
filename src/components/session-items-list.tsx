@@ -3,6 +3,7 @@
 import { X } from "lucide-react";
 import type { FoodAnalysis } from "@/types";
 import { MEAL_TYPE_LABELS } from "@/types";
+import { confidenceColors } from "@/lib/confidence";
 
 interface SessionItemsListProps {
   items: FoodAnalysis[];
@@ -17,12 +18,6 @@ function formatTime(time: string): string {
   const displayHour = hour % 12 === 0 ? 12 : hour % 12;
   return `${displayHour}:${minute} ${period}`;
 }
-
-const confidenceBadgeColor: Record<FoodAnalysis["confidence"], string> = {
-  high: "bg-success",
-  medium: "bg-warning",
-  low: "bg-orange-400",
-};
 
 export function SessionItemsList({ items, onRemoveItem }: SessionItemsListProps) {
   if (items.length === 0) {
@@ -65,7 +60,7 @@ export function SessionItemsList({ items, onRemoveItem }: SessionItemsListProps)
             <div className="flex items-center gap-1.5">
               <div
                 data-testid={`confidence-badge-${index}`}
-                className={`w-2.5 h-2.5 rounded-full ${confidenceBadgeColor[item.confidence]}`}
+                className={`w-2.5 h-2.5 rounded-full ${confidenceColors[item.confidence]}`}
               />
               <span className="text-xs text-muted-foreground capitalize">
                 {item.confidence}

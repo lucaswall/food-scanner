@@ -493,13 +493,61 @@ function withinTolerance(
   return absDiff / base <= pctThreshold;
 }
 
+/** Returns a trimmed non-empty string or null. */
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+/** True for finite, non-negative numbers (rejects NaN, Infinity, negatives, non-numbers). */
+function isNonNegativeNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+/** Coerce model-supplied numeric input; returns NaN for anything not clearly numeric. */
+function toNumber(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && value.trim() !== "") return Number(value);
+  return NaN;
+}
+
+const REQUIRED_NUMERIC_FIELDS = ["serving_size_g", "calories", "protein_g", "carbs_g", "fat_g", "fiber_g", "sodium_mg"] as const;
+const OPTIONAL_NUMERIC_FIELDS = ["saturated_fat_g", "trans_fat_g", "sugars_g"] as const;
+
+function validateExtraNutrients(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) return "extra_nutrients must be an object of numbers or null";
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (!isNonNegativeNumber(v)) return `extra_nutrients.${k} must be a finite non-negative number`;
+  }
+  return null;
+}
+
 async function executeSaveNutritionLabel(
   params: Record<string, unknown>,
   userId: string,
   log?: Logger,
 ): Promise<string> {
-  const brand = String(params.brand);
-  const productName = String(params.product_name);
+  const brandRaw = nonEmptyString(params.brand);
+  const productNameRaw = nonEmptyString(params.product_name);
+  const servingLabelRaw = nonEmptyString(params.serving_size_label);
+  if (!brandRaw) return "Error: brand must be a non-empty string. Fix the call and try again.";
+  if (!productNameRaw) return "Error: product_name must be a non-empty string. Fix the call and try again.";
+  if (!servingLabelRaw) return "Error: serving_size_label must be a non-empty string. Fix the call and try again.";
+  for (const field of REQUIRED_NUMERIC_FIELDS) {
+    if (!isNonNegativeNumber(toNumber(params[field]))) {
+      return `Error: ${field} must be a finite non-negative number. Fix the call and try again.`;
+    }
+  }
+  for (const field of OPTIONAL_NUMERIC_FIELDS) {
+    if (params[field] != null && !isNonNegativeNumber(toNumber(params[field]))) {
+      return `Error: ${field} must be a finite non-negative number or null. Fix the call and try again.`;
+    }
+  }
+  const extraError = validateExtraNutrients(params.extra_nutrients);
+  if (extraError) return `Error: ${extraError}. Fix the call and try again.`;
+
+  const brand = brandRaw;
+  const productName = productNameRaw;
   const variant = (params.variant as string | null) ?? null;
   const servingSizeG = Number(params.serving_size_g);
 
@@ -508,8 +556,8 @@ async function executeSaveNutritionLabel(
     productName,
     variant,
     servingSizeG,
-    servingSizeLabel: String(params.serving_size_label),
-    calories: Number(params.calories),
+    servingSizeLabel: servingLabelRaw,
+    calories: Math.round(Number(params.calories)),
     proteinG: Number(params.protein_g),
     carbsG: Number(params.carbs_g),
     fatG: Number(params.fat_g),
@@ -589,12 +637,30 @@ async function executeManageNutritionLabel(
   if (action === "update") {
     const updateFields = (params.update_fields as Record<string, unknown>) ?? {};
     const data: Record<string, unknown> = {};
+    for (const field of [...REQUIRED_NUMERIC_FIELDS, ...OPTIONAL_NUMERIC_FIELDS]) {
+      const v = updateFields[field];
+      if (v === undefined) continue;
+      const isOptional = (OPTIONAL_NUMERIC_FIELDS as readonly string[]).includes(field);
+      if (v === null && isOptional) continue;
+      if (!isNonNegativeNumber(toNumber(v))) {
+        return `Error: ${field} must be a finite non-negative number${isOptional ? " or null" : ""}. Fix the call and try again.`;
+      }
+    }
+    for (const field of ["brand", "product_name", "serving_size_label"] as const) {
+      if (updateFields[field] !== undefined && !nonEmptyString(updateFields[field])) {
+        return `Error: ${field} must be a non-empty string. Fix the call and try again.`;
+      }
+    }
+    if (updateFields.extra_nutrients !== undefined) {
+      const extraError = validateExtraNutrients(updateFields.extra_nutrients);
+      if (extraError) return `Error: ${extraError}. Fix the call and try again.`;
+    }
     if (updateFields.brand !== undefined) data.brand = String(updateFields.brand);
     if (updateFields.product_name !== undefined) data.productName = String(updateFields.product_name);
     if (updateFields.variant !== undefined) data.variant = updateFields.variant;
     if (updateFields.serving_size_g !== undefined) data.servingSizeG = Number(updateFields.serving_size_g);
     if (updateFields.serving_size_label !== undefined) data.servingSizeLabel = String(updateFields.serving_size_label);
-    if (updateFields.calories !== undefined) data.calories = Number(updateFields.calories);
+    if (updateFields.calories !== undefined) data.calories = Math.round(Number(updateFields.calories));
     if (updateFields.protein_g !== undefined) data.proteinG = Number(updateFields.protein_g);
     if (updateFields.carbs_g !== undefined) data.carbsG = Number(updateFields.carbs_g);
     if (updateFields.fat_g !== undefined) data.fatG = Number(updateFields.fat_g);

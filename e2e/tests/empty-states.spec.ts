@@ -26,16 +26,17 @@ test.describe('Empty and Error States', () => {
     expect(body.data.meals).toHaveLength(0);
   });
 
-  test('earliest entry API returns today for seeded data', async ({ request }) => {
+  test('earliest entry API returns the oldest seeded date', async ({ request }) => {
     // Use local date (not UTC) to match how the app and seed fixture work
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const tenDaysAgo = new Date();
+    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
+    const oldestSeeded = `${tenDaysAgo.getFullYear()}-${String(tenDaysAgo.getMonth() + 1).padStart(2, "0")}-${String(tenDaysAgo.getDate()).padStart(2, "0")}`;
     const response = await request.get('/api/earliest-entry');
     expect(response.status()).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    // Seeded entries are all for today, so earliest date should be today
-    expect(body.data.date).toBe(today);
+    // seedTestData adds one entry 10 days back (fixtures/db.ts) besides today's entries
+    expect(body.data.date).toBe(oldestSeeded);
   });
 
   test('dashboard empty state: past date with no entries shows empty UI', async ({ page }) => {

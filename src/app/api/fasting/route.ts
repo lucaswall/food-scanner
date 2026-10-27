@@ -2,7 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { errorResponse, conditionalResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getFastingWindow, getFastingWindows } from "@/lib/fasting";
-import { isToday, addDays, isValidDateFormat } from "@/lib/date-utils";
+import { isToday, addDays, isValidDateFormat, exceedsMaxDateRange, MAX_DATE_RANGE_DAYS } from "@/lib/date-utils";
 import type { FastingResponse } from "@/types";
 
 export async function GET(request: Request) {
@@ -103,6 +103,14 @@ export async function GET(request: Request) {
     return errorResponse(
       "VALIDATION_ERROR",
       "from date must be before or equal to to date",
+      400
+    );
+  }
+
+  if (exceedsMaxDateRange(from, to)) {
+    return errorResponse(
+      "VALIDATION_ERROR",
+      `Date range must not exceed ${MAX_DATE_RANGE_DAYS} days`,
       400
     );
   }

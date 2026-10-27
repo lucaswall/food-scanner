@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { healthTokens } from "@/db/schema";
 import { encryptToken, decryptToken, TokenDecryptionError } from "@/lib/token-encryption";
@@ -102,4 +102,71 @@ export async function deleteHealthTokens(userId: string, log?: Logger): Promise<
   const db = getDb();
   await db.delete(healthTokens).where(eq(healthTokens.userId, userId));
   l.debug({ action: "delete_health_tokens" }, "health tokens deleted");
+}
+
+/**
+ * updatedAt equality at millisecond precision. A JS Date only carries milliseconds while
+ * timestamptz stores microseconds, so a plain `=` would never match a row stamped by
+ * Postgres (e.g. `defaultNow()`), making every refresh look superseded.
+ */
+function updatedAtMatches(expected: Date) {
+  return sql`date_trunc('milliseconds', ${healthTokens.updatedAt}) = ${expected.toISOString()}::timestamptz`;
+}
+
+/**
+ * Refresh-path write: updates the access token + expiry ONLY if the row is still the one the
+ * refresh started from (same updatedAt). A concurrent reconnect bumps updatedAt, so a stale
+ * refresh can never clobber the newer row. Returns false when superseded (or row gone).
+ */
+export async function updateHealthTokensIfUnchanged(
+  userId: string,
+  expectedUpdatedAt: Date,
+  data: { accessToken: string; expiresAt: Date },
+  log?: Logger,
+): Promise<boolean> {
+  const l = log ?? logger;
+  const db = getDb();
+  const updated = await db
+    .update(healthTokens)
+    .set({
+      accessToken: encryptToken(data.accessToken),
+      expiresAt: data.expiresAt,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(healthTokens.userId, userId), updatedAtMatches(expectedUpdatedAt)))
+    .returning({ id: healthTokens.id });
+  const applied = updated.length > 0;
+  l.debug({ action: "update_health_tokens_if_unchanged", applied }, "conditional health token update");
+  return applied;
+}
+
+/** Deletes the token row only if it is still the one the caller read (same updatedAt). */
+export async function deleteHealthTokensIfUnchanged(
+  userId: string,
+  expectedUpdatedAt: Date,
+  log?: Logger,
+): Promise<boolean> {
+  const l = log ?? logger;
+  const db = getDb();
+  const deleted = await db
+    .delete(healthTokens)
+    .where(and(eq(healthTokens.userId, userId), updatedAtMatches(expectedUpdatedAt)))
+    .returning({ id: healthTokens.id });
+  const applied = deleted.length > 0;
+  l.debug({ action: "delete_health_tokens_if_unchanged", applied }, "conditional health token delete");
+  return applied;
+}
+
+/** True when the Google Health account is already linked to a DIFFERENT app user. */
+export async function isHealthAccountLinkedToOtherUser(
+  userId: string,
+  healthUserId: string,
+): Promise<boolean> {
+  const db = getDb();
+  const rows = await db
+    .select({ id: healthTokens.id })
+    .from(healthTokens)
+    .where(and(eq(healthTokens.healthUserId, healthUserId), ne(healthTokens.userId, userId)))
+    .limit(1);
+  return rows.length > 0;
 }

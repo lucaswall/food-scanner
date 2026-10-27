@@ -2,6 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { ensureFreshToken, createNutritionLog, deleteNutritionLogs } from "@/lib/google-health";
+import { isEntryConflictError } from "@/lib/entry-conflict";
 import { getFoodLogEntryDetail, updateFoodLogEntry, updateFoodLogEntryMetadata, updateCustomFoodMetadata } from "@/lib/food-log";
 import { isValidDateFormat, isValidTimeFormat } from "@/lib/date-utils";
 import { isValidFoodAnalysisFields } from "@/lib/food-validation";
@@ -190,8 +191,10 @@ export async function POST(request: Request) {
     }
 
     // DB-flip: point the entry at the new log. This is the source-of-truth commit.
+    // Compare-and-set on the healthLogId we read: a concurrent edit/delete makes it match 0 rows.
+    let fastPathUpdated: boolean;
     try {
-      await updateFoodLogEntryMetadata(userId, entryId, { mealTypeId, date, time, healthLogId: fastPathHealthLogId, zoneOffset }, log);
+      fastPathUpdated = await updateFoodLogEntryMetadata(userId, entryId, { mealTypeId, date, time, healthLogId: fastPathHealthLogId, zoneOffset, expectedHealthLogId: entry.healthLogId }, log);
     } catch (dbErr) {
       log.error({ action: "edit_food_fast_path_db_error", error: dbErr instanceof Error ? dbErr.message : String(dbErr) }, "fast path DB update failed after create — cleaning up new log (old log + DB row intact)");
 
@@ -211,6 +214,23 @@ export async function POST(request: Request) {
       }
 
       return errorResponse("INTERNAL_ERROR", "Failed to save food edit", 500);
+    }
+
+    if (!fastPathUpdated) {
+      // Entry was edited or deleted concurrently: the new log is an orphan — remove it.
+      log.warn({ action: "edit_food_fast_path_conflict", entryId }, "entry changed or deleted during edit — cleaning up new log");
+      if (!isDryRun && accessToken && fastPathHealthLogId !== null && fastPathHealthLogId !== entry.healthLogId) {
+        try {
+          await deleteNutritionLogs(accessToken, [fastPathHealthLogId], log, userId, "cleanup");
+        } catch (cleanupErr) {
+          log.error(
+            { action: "edit_food_fast_path_conflict_cleanup_failed", newHealthLogId: fastPathHealthLogId, error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr) },
+            "CRITICAL: new health log orphaned — entry changed concurrently and orphan cleanup failed; manual cleanup may be needed"
+          );
+          return errorResponse("PARTIAL_ERROR", "Food created in Google Health but the entry changed and cleanup failed. Manual cleanup may be needed.", 500);
+        }
+      }
+      return errorResponse("CONFLICT", "Food log entry was changed or deleted while saving. Reload and try again.", 409);
     }
 
     // ── Committed past here: the DB points at the new log. The tail is best-effort;
@@ -328,10 +348,12 @@ export async function POST(request: Request) {
         time,
         zoneOffset,
         ...(newHealthLogId !== undefined ? { healthLogId: newHealthLogId } : {}),
+        expectedHealthLogId: entry.healthLogId,
       },
       log,
     );
   } catch (dbErr) {
+    const isConflict = isEntryConflictError(dbErr);
     log.error({ action: "edit_food_db_error", error: dbErr instanceof Error ? dbErr.message : String(dbErr) }, "DB update failed after create — cleaning up new log (old log + DB row intact)");
 
     // DB never flipped: the old log is still authoritative. Delete the new orphan log
@@ -349,6 +371,9 @@ export async function POST(request: Request) {
       }
     }
 
+    if (isConflict) {
+      return errorResponse("CONFLICT", "Food log entry was changed or deleted while saving. Reload and try again.", 409);
+    }
     return errorResponse("INTERNAL_ERROR", "Failed to save food edit", 500);
   }
 

@@ -54,6 +54,23 @@ beforeEach(() => {
 });
 
 describe("GET /api/auth/session", () => {
+  it("returns 500 INTERNAL_ERROR when the user lookup throws", async () => {
+    mockGetSession.mockResolvedValue({
+      sessionId: "test-session",
+      userId: "user-uuid-123",
+      expiresAt: Date.now() + 86400000,
+      healthConnected: true,
+      destroy: vi.fn(),
+    });
+    mockGetUserById.mockRejectedValueOnce(new Error("connection refused"));
+
+    const response = await GET();
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+  });
+
   it("returns session info for valid session", async () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",

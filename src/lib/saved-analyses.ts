@@ -3,10 +3,16 @@ import { savedAnalyses } from "@/db/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { coerceServingUnit, type FoodAnalysis } from "@/types";
 
+/** The calories column is an integer and Claude may return fractional values. */
+function normalizeAnalysis(analysis: FoodAnalysis): FoodAnalysis {
+  return { ...analysis, calories: Math.round(analysis.calories) };
+}
+
 export async function saveAnalysis(
   userId: string,
-  foodAnalysis: FoodAnalysis,
+  rawAnalysis: FoodAnalysis,
 ): Promise<{ id: number; createdAt: Date }> {
+  const foodAnalysis = normalizeAnalysis(rawAnalysis);
   const db = getDb();
   const rows = await db
     .insert(savedAnalyses)
@@ -86,7 +92,7 @@ export async function bulkSaveAnalyses(
   const rows = await db
     .insert(savedAnalyses)
     .values(
-      items.map((item) => ({
+      items.map(normalizeAnalysis).map((item) => ({
         userId,
         description: item.food_name,
         calories: item.calories,
