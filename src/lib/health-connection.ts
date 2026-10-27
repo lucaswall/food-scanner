@@ -5,6 +5,16 @@ import type { Logger } from "@/lib/logger";
 import type { HealthConnectionStatus } from "@/types";
 
 /**
+ * Single source of truth for scope evaluation: the required scopes that a stored
+ * (space-separated) scope string does NOT cover. A null scope cannot be proven to
+ * include anything, so every required scope is reported missing (fail-closed).
+ */
+export function getMissingHealthScopes(scope: string | null | undefined): string[] {
+  const granted = new Set((scope ?? "").split(/\s+/).filter(Boolean));
+  return GOOGLE_HEALTH_SCOPES.filter((s) => !granted.has(s));
+}
+
+/**
  * Check the Google Health connection status for a user.
  * Local DB reads only — no API calls.
  *
@@ -37,8 +47,7 @@ export async function checkHealthConnection(userId: string, log?: Logger): Promi
     );
     return { status: "needs_reconnect" };
   }
-  const grantedScopes = new Set(tokenRow.scope.split(/\s+/).filter(Boolean));
-  const missingScopes = GOOGLE_HEALTH_SCOPES.filter((s) => !grantedScopes.has(s));
+  const missingScopes = getMissingHealthScopes(tokenRow.scope);
 
   if (missingScopes.length > 0) {
     return { status: "scope_mismatch", missingScopes };
