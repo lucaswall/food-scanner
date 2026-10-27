@@ -79,8 +79,8 @@ describe("MODEL_PRICING", () => {
     const pricing = MODEL_PRICING["claude-haiku-4-5-20251001"];
 
     expect(pricing).toBeDefined();
-    expect(pricing.inputPricePerMToken).toBe(0.8);
-    expect(pricing.outputPricePerMToken).toBe(4);
+    expect(pricing.inputPricePerMToken).toBe(1);
+    expect(pricing.outputPricePerMToken).toBe(5);
   });
 
   it("exports pricing for claude-sonnet-4-6", async () => {
@@ -90,6 +90,17 @@ describe("MODEL_PRICING", () => {
     expect(pricing).toBeDefined();
     expect(pricing.inputPricePerMToken).toBe(3);
     expect(pricing.outputPricePerMToken).toBe(15);
+  });
+});
+
+describe("computeCost web search", () => {
+  it("adds $0.01 per web search request", async () => {
+    const { computeCost } = await import("@/lib/claude-usage");
+    const cost = computeCost(
+      { inputTokens: 0, outputTokens: 0, webSearchRequests: 3 },
+      { inputPricePerMToken: 3, outputPricePerMToken: 15 },
+    );
+    expect(cost).toBe("0.030000");
   });
 });
 

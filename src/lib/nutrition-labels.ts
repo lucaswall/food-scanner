@@ -8,9 +8,14 @@ import type { Logger } from "@/lib/logger";
 const ACCENT_FROM = "áéíóúñüÁÉÍÓÚÑÜàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãõÃÕ";
 const ACCENT_TO   = "aeiounuAEIOUNUaeiouAEIOUaeiouAEIOUaoAO";
 
+/** Escape LIKE/ILIKE metacharacters (\\, %, _) so user/model-supplied text matches literally. */
+export function escapeLikePattern(term: string): string {
+  return term.replace(/[\\%_]/g, "\\$&");
+}
+
 function unaccentIlike(column: Column, term: string) {
   const normalized = term.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  return sql`translate(lower(${column}), ${ACCENT_FROM}, ${ACCENT_TO}) like ${"%" + normalized.toLowerCase() + "%"}`
+  return sql`translate(lower(${column}), ${ACCENT_FROM}, ${ACCENT_TO}) like ${"%" + escapeLikePattern(normalized.toLowerCase()) + "%"}`
 }
 
 function mapRow(row: Record<string, unknown>): NutritionLabel {
@@ -240,8 +245,8 @@ export async function findDuplicateLabel(
     .where(
       and(
         eq(nutritionLabels.userId, userId),
-        ilike(nutritionLabels.brand, brand),
-        ilike(nutritionLabels.productName, productName),
+        ilike(nutritionLabels.brand, escapeLikePattern(brand)),
+        ilike(nutritionLabels.productName, escapeLikePattern(productName)),
       ),
     )
     .orderBy(desc(nutritionLabels.updatedAt));

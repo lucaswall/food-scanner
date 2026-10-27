@@ -130,6 +130,29 @@ describe("saveAnalysis", () => {
   });
 });
 
+describe("fractional calories (integer column)", () => {
+  it("saveAnalysis rounds calories in column and stored JSONB", async () => {
+    mockReturning.mockResolvedValue([{ id: 9, createdAt: new Date() }]);
+    await saveAnalysis("user-uuid-123", { ...mockFoodAnalysis, calories: 252.5 });
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        calories: 253,
+        foodAnalysis: expect.objectContaining({ calories: 253 }),
+      }),
+    );
+  });
+
+  it("bulkSaveAnalyses rounds calories for every item", async () => {
+    mockReturning.mockResolvedValue([{ id: 1, createdAt: new Date() }, { id: 2, createdAt: new Date() }]);
+    await bulkSaveAnalyses("user-uuid-123", [
+      { ...mockFoodAnalysis, calories: 99.4 },
+      { ...mockFoodAnalysis, calories: 100.6 },
+    ]);
+    const rows = mockValues.mock.calls[mockValues.mock.calls.length - 1][0] as Array<{ calories: number }>;
+    expect(rows.map((r) => r.calories)).toEqual([99, 101]);
+  });
+});
+
 describe("getSavedAnalyses", () => {
   it("returns all saved items for user ordered by createdAt desc", async () => {
     const rows = [

@@ -53,6 +53,7 @@ import {
   getAnalysisSystemPrompt,
   getChatSystemPrompt,
   getEditSystemPrompt,
+  mapStopReasonToError,
 } from "@/lib/claude-prompts";
 
 // ─── Tool schemas — re-exported from claude-tools-schema.ts (barrel) ──────────
@@ -194,10 +195,29 @@ const CONTEXT_MANAGEMENT = {
   },
 };
 
+/** Sleep for delayMs; rejects with an AbortError as soon as the signal aborts. */
+function abortableDelay(delayMs: number, signal?: AbortSignal | null): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 /**
  * Creates a Claude API stream with automatic retry on overloaded errors.
  * Uses the beta channel for server-side context management (clear_tool_uses).
- * Yields a retry text_delta event before each retry so the UI can show feedback.
+ * Yields a `retry` event before each retry; clients discard text streamed so far and show a notice.
  * Throws ClaudeApiError if all retries are exhausted or if a non-overloaded error occurs.
  *
  * Two-layer retry architecture:
@@ -235,8 +255,8 @@ export async function* createStreamWithRetry(
         const delayMs = RETRY_DELAYS_MS[attempt] ?? 3000;
         log.warn({ action: "stream_retry", attempt, delayMs }, "Claude API transient error, retrying stream");
         attempt++;
-        yield { type: "text_delta", text: "\n\n*The AI service is momentarily busy, retrying...*\n\n" };
-        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+        yield { type: "retry", message: "The AI service is momentarily busy, retrying..." };
+        await abortableDelay(delayMs, requestOptions?.signal);
         continue;
       }
       if (retryable) {
@@ -246,6 +266,12 @@ export async function* createStreamWithRetry(
       throw error;
     }
   }
+}
+
+/** Billable server-side web search count from a response's usage (omitted when zero). */
+function webSearchUsage(usage: Anthropic.Message["usage"]): { webSearchRequests?: number } {
+  const count = (usage as { server_tool_use?: { web_search_requests?: number } | null }).server_tool_use?.web_search_requests;
+  return typeof count === "number" && count > 0 ? { webSearchRequests: count } : {};
 }
 
 /** Build a debug payload summarizing a Claude API response */
@@ -766,6 +792,7 @@ export async function* runToolLoop(
           outputTokens: response.usage.output_tokens,
           cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
           cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+        ...webSearchUsage(response.usage),
         }).catch((error) => {
           l.warn(
             { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
@@ -939,6 +966,10 @@ export async function* runToolLoop(
         "unexpected stop_reason, returning partial response"
       );
 
+      const hasText = response.content.some(
+        (block) => block.type === "text" && (block as Anthropic.TextBlock).text.trim() !== ""
+      );
+
       // Check for analysis in partial response
       const partialReportBlock = response.content.find(
         (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name === "report_nutrition"
@@ -958,6 +989,15 @@ export async function* runToolLoop(
 
       if (partialAnalysis) {
         yield { type: "analysis", analysis: partialAnalysis };
+        yield { type: "done" };
+        return;
+      }
+
+      // No usable analysis: surface refusal / max_tokens as a user-facing error instead of a silent "done"
+      const stopError = mapStopReasonToError(response.stop_reason);
+      if (stopError && (response.stop_reason === "refusal" || !hasText)) {
+        yield { type: "error", message: stopError, code: response.stop_reason === "refusal" ? "AI_REFUSAL" : "AI_MAX_TOKENS" };
+        return;
       }
       yield { type: "done" };
       return;
@@ -1087,7 +1127,8 @@ export async function* analyzeFood(
         { action: "analyze_food_context_window_exceeded" },
         "model_context_window_exceeded on initial analyzeFood call"
       );
-      throw new ClaudeApiError("The conversation is too long to analyze. Please start a new session.");
+      yield { type: "error", message: "The conversation is too long to analyze. Please start a new session.", code: "CONTEXT_EXCEEDED" };
+      return;
     }
 
     if (response.stop_reason === "refusal") {
@@ -1095,7 +1136,8 @@ export async function* analyzeFood(
         { action: "analyze_food_refusal" },
         "Claude refused to analyze the food content"
       );
-      throw new ClaudeApiError("The request was flagged by our safety systems and cannot be processed.");
+      yield { type: "error", message: "The request was flagged by our safety systems and cannot be processed.", code: "AI_REFUSAL" };
+      return;
     }
 
     if (response.stop_reason === "max_tokens") {
@@ -1126,6 +1168,7 @@ export async function* analyzeFood(
         outputTokens: response.usage.output_tokens,
         cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
         cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      ...webSearchUsage(response.usage),
       }).catch((error) => {
         l.warn(
           { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
@@ -1221,6 +1264,7 @@ export async function* analyzeFood(
         outputTokens: response.usage.output_tokens,
         cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
         cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      ...webSearchUsage(response.usage),
       }).catch((error) => {
         l.warn(
           { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
@@ -1318,6 +1362,7 @@ export async function* analyzeFood(
       outputTokens: response.usage.output_tokens,
       cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
       cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+    ...webSearchUsage(response.usage),
     }).catch((error) => {
       l.warn(
         { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
@@ -1529,7 +1574,8 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         { action: "conversational_refine_context_window_exceeded" },
         "model_context_window_exceeded on initial conversationalRefine call"
       );
-      throw new ClaudeApiError("The conversation is too long to continue. Please start a new session.");
+      yield { type: "error", message: "The conversation is too long to continue. Please start a new session.", code: "CONTEXT_EXCEEDED" };
+      return;
     }
 
     if (response.stop_reason === "refusal") {
@@ -1537,7 +1583,8 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         { action: "conversational_refine_refusal" },
         "Claude refused the conversational refinement request"
       );
-      throw new ClaudeApiError("The request was flagged by our safety systems and cannot be processed.");
+      yield { type: "error", message: "The request was flagged by our safety systems and cannot be processed.", code: "AI_REFUSAL" };
+      return;
     }
 
     if (response.stop_reason === "max_tokens") {
@@ -1592,6 +1639,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
           outputTokens: response.usage.output_tokens,
           cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
           cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+        ...webSearchUsage(response.usage),
         }).catch((error) => {
           l.warn(
             { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
@@ -1728,6 +1776,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         outputTokens: response.usage.output_tokens,
         cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
         cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      ...webSearchUsage(response.usage),
       }).catch((error) => {
         l.warn(
           { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
@@ -2024,6 +2073,7 @@ export async function* triageCaptures(
       outputTokens: response.usage.output_tokens,
       cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
       cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+    ...webSearchUsage(response.usage),
     }).catch((error) => {
       l.warn(
         { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
@@ -2195,6 +2245,7 @@ export async function* triageRefine(
       outputTokens: response.usage.output_tokens,
       cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
       cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+    ...webSearchUsage(response.usage),
     }).catch((error) => {
       l.warn(
         { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },

@@ -128,6 +128,10 @@ describe("Claude tool strict mode — FOOD-SCANNER-6 regression guard", () => {
     expect((WEB_SEARCH_TOOL as { input_schema?: unknown }).input_schema).toBeUndefined();
     expect((WEB_SEARCH_TOOL as { strict?: unknown }).strict).toBeUndefined();
   });
+
+  it("WEB_SEARCH_TOOL bounds per-turn searches with max_uses", () => {
+    expect(WEB_SEARCH_TOOL.max_uses).toBeGreaterThan(0);
+  });
 });
 
 // FOOD-SCANNER-6: meal_type uses anyOf[string-enum, null] (the non-strict form).
