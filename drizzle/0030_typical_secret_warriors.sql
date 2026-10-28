@@ -1,0 +1,1 @@
+ALTER TABLE "blood_pressure_readings" ADD COLUMN "heart_rate" integer;

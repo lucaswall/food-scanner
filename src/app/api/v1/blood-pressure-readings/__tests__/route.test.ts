@@ -333,6 +333,7 @@ describe("GET /api/v1/blood-pressure-readings", () => {
       zoneOffset: "+00:00",
       systolic: 120,
       diastolic: 80,
+      heartRate: 72,
       bodyPosition: "sitting_down",
       measurementLocation: "left_upper_arm",
     },
@@ -357,6 +358,33 @@ describe("GET /api/v1/blood-pressure-readings", () => {
     expect(data.success).toBe(true);
     expect(data.data).toHaveLength(1);
     expect(mockGetBloodPressureReadings).toHaveBeenCalledWith("user-123", "2026-03-28", "2026-03-28");
+  });
+
+  it("includes heartRate in each reading, null when absent", async () => {
+    mockGetBloodPressureReadings.mockResolvedValue([
+      ...MOCK_READINGS,
+      {
+        id: 2,
+        measuredAt: "2026-03-28T12:00:00.000Z",
+        zoneOffset: null,
+        systolic: 118,
+        diastolic: 78,
+        heartRate: null,
+        bodyPosition: null,
+        measurementLocation: null,
+      },
+    ]);
+    const request = createGetRequest(
+      "http://localhost:3000/api/v1/blood-pressure-readings?date=2026-03-28",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.data).toHaveLength(2);
+    expect(data.data[0]).toEqual(expect.objectContaining({ id: 1, systolic: 120, diastolic: 80, heartRate: 72 }));
+    expect(data.data[1]).toHaveProperty("heartRate", null);
   });
 
   it("returns readings for date range query", async () => {
@@ -560,6 +588,48 @@ describe("input hardening (blood pressure)", () => {
   it.each([2147483648, 301, 0])("rejects diastolic %s", async (diastolic) => {
     const response = await post([{ ...VALID_READING, diastolic }]);
     expect(response.status).toBe(400);
+  });
+
+  it.each([72.5, 0, -1, 301, 2147483648, "72", true, {}])(
+    "rejects heartRate %s with VALIDATION_ERROR",
+    async (heartRate) => {
+      const response = await post([{ ...VALID_READING, heartRate }]);
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.error.code).toBe("VALIDATION_ERROR");
+      expect(data.error.message).toBe("Reading at index 0: heartRate must be a positive integer up to 300");
+      expect(mockUpsertBloodPressureReadings).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([1, 72, 300])("accepts heartRate %s and passes it to the upsert", async (heartRate) => {
+    const response = await post([{ ...VALID_READING, heartRate }]);
+    expect(response.status).toBe(200);
+    expect(mockUpsertBloodPressureReadings).toHaveBeenCalledWith("user-123", [
+      expect.objectContaining({ systolic: 120, diastolic: 80, heartRate }),
+    ]);
+  });
+
+  it("treats a missing heartRate as null (unknown)", async () => {
+    const response = await post([VALID_READING]);
+    expect(response.status).toBe(200);
+    expect(mockUpsertBloodPressureReadings).toHaveBeenCalledWith("user-123", [
+      expect.objectContaining({ heartRate: null }),
+    ]);
+  });
+
+  it("treats an explicit null heartRate as null (unknown)", async () => {
+    const response = await post([{ ...VALID_READING, heartRate: null }]);
+    expect(response.status).toBe(200);
+    expect(mockUpsertBloodPressureReadings).toHaveBeenCalledWith("user-123", [
+      expect.objectContaining({ heartRate: null }),
+    ]);
+  });
+
+  it("reports the index of the reading with an invalid heartRate", async () => {
+    const response = await post([{ ...VALID_READING, heartRate: 70 }, { ...VALID_READING, measuredAt: "2026-03-28T09:00:00.000Z", heartRate: 0 }]);
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.message).toMatch(/index 1: heartRate/);
   });
 
   it("GET rejects a range longer than 31 days with 400", async () => {

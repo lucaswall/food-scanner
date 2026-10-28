@@ -73,6 +73,9 @@ export async function POST(request: Request) {
     if (!isPositiveIntUpTo(r.diastolic, READING_LIMITS.bloodPressureMmHgMax)) {
       return errorResponse("VALIDATION_ERROR", `Reading at index ${i}: diastolic must be a positive integer up to ${READING_LIMITS.bloodPressureMmHgMax}`, 400);
     }
+    if (r.heartRate !== undefined && r.heartRate !== null && !isPositiveIntUpTo(r.heartRate, READING_LIMITS.heartRateBpmMax)) {
+      return errorResponse("VALIDATION_ERROR", `Reading at index ${i}: heartRate must be a positive integer up to ${READING_LIMITS.heartRateBpmMax}`, 400);
+    }
     if (r.bodyPosition !== undefined && r.bodyPosition !== null && !BODY_POSITION_VALUES.has(r.bodyPosition as string)) {
       return errorResponse("VALIDATION_ERROR", `Reading at index ${i}: invalid bodyPosition value`, 400);
     }
@@ -87,6 +90,7 @@ export async function POST(request: Request) {
       measuredAt: r.measuredAt,
       systolic: r.systolic,
       diastolic: r.diastolic,
+      heartRate: typeof r.heartRate === "number" ? r.heartRate : null,
       zoneOffset: typeof r.zoneOffset === "string" ? r.zoneOffset : null,
       bodyPosition: typeof r.bodyPosition === "string" ? r.bodyPosition : null,
       measurementLocation: typeof r.measurementLocation === "string" ? r.measurementLocation : null,

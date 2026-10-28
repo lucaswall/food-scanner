@@ -140,6 +140,7 @@ describe("upsertBloodPressureReadings", () => {
         zoneOffset: "-05:00",
         systolic: 120,
         diastolic: 80,
+        heartRate: 72,
         bodyPosition: "sitting_down",
         measurementLocation: "left_upper_arm",
       },
@@ -150,7 +151,7 @@ describe("upsertBloodPressureReadings", () => {
     expect(mockInsert).toHaveBeenCalled();
     expect(mockValues).toHaveBeenCalledWith(
       expect.arrayContaining([
-        expect.objectContaining({ userId: "user-123", measuredAt: new Date("2026-03-01T09:00:00.000Z"), systolic: 120, diastolic: 80 }),
+        expect.objectContaining({ userId: "user-123", measuredAt: new Date("2026-03-01T09:00:00.000Z"), systolic: 120, diastolic: 80, heartRate: 72 }),
       ])
     );
     expect(mockOnConflictDoUpdate).toHaveBeenCalledWith(
@@ -160,12 +161,43 @@ describe("upsertBloodPressureReadings", () => {
           zoneOffset: "mocked-sql",
           systolic: "mocked-sql",
           diastolic: "mocked-sql",
+          heartRate: "mocked-sql",
           bodyPosition: "mocked-sql",
           measurementLocation: "mocked-sql",
         }),
       })
     );
     expect(count).toBe(1);
+  });
+
+  it("stores a null heartRate when the reading has none", async () => {
+    mockOnConflictDoUpdate.mockResolvedValueOnce(undefined);
+    const { upsertBloodPressureReadings } = await import("@/lib/health-readings");
+
+    await upsertBloodPressureReadings("user-123", [
+      { measuredAt: "2026-03-01T09:00:00.000Z", zoneOffset: null, systolic: 120, diastolic: 80, heartRate: null, bodyPosition: null, measurementLocation: null },
+    ]);
+
+    expect(mockValues).toHaveBeenCalledWith([expect.objectContaining({ heartRate: null })]);
+  });
+
+  it("on conflict keeps the stored heartRate unless the incoming reading carries one (COALESCE)", async () => {
+    mockOnConflictDoUpdate.mockResolvedValueOnce(undefined);
+    mockSql.mockReturnValue("mocked-sql");
+    const { upsertBloodPressureReadings } = await import("@/lib/health-readings");
+    const { bloodPressureReadings } = await import("@/db/schema");
+
+    await upsertBloodPressureReadings("user-123", [
+      { measuredAt: "2026-03-01T09:00:00.000Z", zoneOffset: null, systolic: 120, diastolic: 80, heartRate: null, bodyPosition: null, measurementLocation: null },
+    ]);
+
+    const heartRateSql = mockSql.mock.calls.find(([strings]) =>
+      (strings as TemplateStringsArray).join("").includes("heart_rate")
+    );
+    expect(heartRateSql).toBeDefined();
+    const [strings, ...params] = heartRateSql!;
+    expect([...(strings as TemplateStringsArray)]).toEqual(["coalesce(excluded.heart_rate, ", ")"]);
+    expect(params).toEqual([bloodPressureReadings.heartRate]);
   });
 
   it("returns 0 and skips DB call for empty array", async () => {
@@ -278,6 +310,7 @@ describe("getBloodPressureReadings", () => {
         zoneOffset: "-05:00",
         systolic: 120,
         diastolic: 80,
+        heartRate: 72,
         bodyPosition: "sitting_down",
         measurementLocation: "left_upper_arm",
       },
@@ -306,7 +339,39 @@ describe("getBloodPressureReadings", () => {
         id: 1,
         systolic: 120,
         diastolic: 80,
+        heartRate: 72,
       }),
+    ]);
+  });
+
+  it("maps a missing heart rate to null", async () => {
+    mockLimit.mockResolvedValueOnce([
+      {
+        id: 2,
+        measuredAt: new Date("2026-03-01T10:00:00.000Z"),
+        zoneOffset: null,
+        systolic: 118,
+        diastolic: 78,
+        heartRate: null,
+        bodyPosition: null,
+        measurementLocation: null,
+      },
+    ]);
+
+    const { getBloodPressureReadings } = await import("@/lib/health-readings");
+    const result = await getBloodPressureReadings("user-123", "2026-03-01", "2026-03-01");
+
+    expect(result).toEqual([
+      {
+        id: 2,
+        measuredAt: "2026-03-01T10:00:00.000Z",
+        zoneOffset: null,
+        systolic: 118,
+        diastolic: 78,
+        heartRate: null,
+        bodyPosition: null,
+        measurementLocation: null,
+      },
     ]);
   });
 
@@ -369,14 +434,15 @@ describe("readings batch dedupe (same measuredAt in one batch, last wins)", () =
     const { upsertBloodPressureReadings } = await import("@/lib/health-readings");
 
     const count = await upsertBloodPressureReadings("user-123", [
-      { measuredAt: "2026-03-01T08:00:00Z", zoneOffset: null, systolic: 120, diastolic: 80, bodyPosition: null, measurementLocation: null },
-      { measuredAt: "2026-03-01T08:00:00Z", zoneOffset: null, systolic: 130, diastolic: 85, bodyPosition: null, measurementLocation: null },
+      { measuredAt: "2026-03-01T08:00:00Z", zoneOffset: null, systolic: 120, diastolic: 80, heartRate: 70, bodyPosition: null, measurementLocation: null },
+      { measuredAt: "2026-03-01T08:00:00Z", zoneOffset: null, systolic: 130, diastolic: 85, heartRate: 75, bodyPosition: null, measurementLocation: null },
     ]);
 
     expect(count).toBe(1);
-    const values = mockValues.mock.calls[0][0] as { systolic: number }[];
+    const values = mockValues.mock.calls[0][0] as { systolic: number; heartRate: number | null }[];
     expect(values).toHaveLength(1);
     expect(values[0].systolic).toBe(130);
+    expect(values[0].heartRate).toBe(75);
   });
 
   it("hydration: collapses duplicate instants keeping the last", async () => {

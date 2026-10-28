@@ -554,6 +554,7 @@ export interface BloodPressureReading {
   zoneOffset: string | null;
   systolic: number;
   diastolic: number;
+  heartRate: number | null;
   bodyPosition: string | null;
   measurementLocation: string | null;
 }
@@ -579,6 +580,8 @@ export interface BloodPressureReadingInput {
   zoneOffset: string | null;
   systolic: number;
   diastolic: number;
+  /** Pulse in beats per minute; null when unknown (an upsert keeps any previously stored value). */
+  heartRate: number | null;
   bodyPosition: string | null;
   measurementLocation: string | null;
 }

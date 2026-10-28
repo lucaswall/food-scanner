@@ -75,6 +75,7 @@ export async function upsertBloodPressureReadings(
         zoneOffset: r.zoneOffset,
         systolic: r.systolic,
         diastolic: r.diastolic,
+        heartRate: r.heartRate,
         bodyPosition: r.bodyPosition,
         measurementLocation: r.measurementLocation,
       }))
@@ -85,6 +86,8 @@ export async function upsertBloodPressureReadings(
         zoneOffset: sql`excluded.zone_offset`,
         systolic: sql`excluded.systolic`,
         diastolic: sql`excluded.diastolic`,
+        // Health Connect read-back re-pushes carry no heart rate: never let them wipe a stored one.
+        heartRate: sql`coalesce(excluded.heart_rate, ${bloodPressureReadings.heartRate})`,
         bodyPosition: sql`excluded.body_position`,
         measurementLocation: sql`excluded.measurement_location`,
       },
@@ -188,6 +191,7 @@ export async function getBloodPressureReadings(
     zoneOffset: row.zoneOffset ?? null,
     systolic: row.systolic,
     diastolic: row.diastolic,
+    heartRate: row.heartRate ?? null,
     bodyPosition: row.bodyPosition ?? null,
     measurementLocation: row.measurementLocation ?? null,
   }));

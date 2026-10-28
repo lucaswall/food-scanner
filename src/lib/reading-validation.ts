@@ -12,6 +12,7 @@ export const MAX_READINGS_RANGE_DAYS = 31;
 export const READING_LIMITS = {
   glucoseMgDlMax: 2000,
   bloodPressureMmHgMax: 300,
+  heartRateBpmMax: 300,
   hydrationMlMax: 10000,
 } as const;
 
