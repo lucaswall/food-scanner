@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-10-28
+
+### Added
+
+- Waist circumference readings can now be saved and retrieved through the external API.
+
 ## [4.2.0] - 2026-10-28
 
 ### Added
@@ -706,7 +712,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.2.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v4.3.0...HEAD
+[4.3.0]: https://github.com/lucaswall/food-scanner/compare/v4.2.0...v4.3.0
 [4.2.0]: https://github.com/lucaswall/food-scanner/compare/v4.1.0...v4.2.0
 [4.1.0]: https://github.com/lucaswall/food-scanner/compare/v4.0.7...v4.1.0
 [4.0.7]: https://github.com/lucaswall/food-scanner/compare/v4.0.6...v4.0.7
