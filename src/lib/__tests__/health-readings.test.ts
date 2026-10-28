@@ -492,3 +492,132 @@ describe("readings GET row limit", () => {
     expect(result).toEqual([{ id: 1, measuredAt: "2026-03-01T08:00:00.000Z", zoneOffset: null, volumeMl: 250 }]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Waist circumference
+// ---------------------------------------------------------------------------
+describe("upsertWaistReadings", () => {
+  beforeEach(() => {
+    setupMocks();
+    mockOnConflictDoUpdate.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("inserts readings and upserts on (userId, measuredAt) overwriting zoneOffset and valueCm", async () => {
+    mockSql.mockReturnValue("mocked-sql");
+    const { upsertWaistReadings } = await import("@/lib/health-readings");
+    const { waistReadings } = await import("@/db/schema");
+
+    const count = await upsertWaistReadings("user-123", [
+      { measuredAt: "2026-10-28T11:05:00.000Z", zoneOffset: "-03:00", valueCm: 104.5 },
+      { measuredAt: "2026-10-29T11:05:00.000Z", zoneOffset: null, valueCm: 104 },
+    ]);
+
+    expect(count).toBe(2);
+    expect(mockInsert).toHaveBeenCalledWith(waistReadings);
+    expect(mockValues).toHaveBeenCalledWith([
+      { userId: "user-123", measuredAt: new Date("2026-10-28T11:05:00.000Z"), zoneOffset: "-03:00", valueCm: "104.5" },
+      { userId: "user-123", measuredAt: new Date("2026-10-29T11:05:00.000Z"), zoneOffset: null, valueCm: "104" },
+    ]);
+    expect(mockOnConflictDoUpdate).toHaveBeenCalledWith({
+      target: [waistReadings.userId, waistReadings.measuredAt],
+      set: { zoneOffset: "mocked-sql", valueCm: "mocked-sql" },
+    });
+
+    const setSql = mockSql.mock.calls.map(([strings]) => (strings as TemplateStringsArray).join(""));
+    expect(setSql).toEqual(expect.arrayContaining(["excluded.zone_offset", "excluded.value_cm"]));
+  });
+
+  it.each([
+    [104.55, "104.6"],
+    [104.44, "104.4"],
+    [104.46, "104.5"],
+    [99.95, "100"],
+    [300, "300"],
+  ])("stores valueCm %s rounded to one decimal as %s", async (valueCm, stored) => {
+    const { upsertWaistReadings } = await import("@/lib/health-readings");
+
+    await upsertWaistReadings("user-123", [{ measuredAt: "2026-10-28T11:05:00.000Z", zoneOffset: null, valueCm }]);
+
+    expect(mockValues).toHaveBeenCalledWith([expect.objectContaining({ valueCm: stored })]);
+  });
+
+  it("collapses duplicate instants within one batch keeping the last", async () => {
+    const { upsertWaistReadings } = await import("@/lib/health-readings");
+
+    const count = await upsertWaistReadings("user-123", [
+      { measuredAt: "2026-10-28T11:05:00.000Z", zoneOffset: null, valueCm: 104.5 },
+      { measuredAt: "2026-10-28T08:05:00-03:00", zoneOffset: "-03:00", valueCm: 103.9 },
+    ]);
+
+    expect(count).toBe(1);
+    expect(mockValues).toHaveBeenCalledWith([expect.objectContaining({ valueCm: "103.9", zoneOffset: "-03:00" })]);
+  });
+
+  it("returns 0 and skips DB call for empty array", async () => {
+    const { upsertWaistReadings } = await import("@/lib/health-readings");
+
+    const count = await upsertWaistReadings("user-123", []);
+
+    expect(mockInsert).not.toHaveBeenCalled();
+    expect(count).toBe(0);
+  });
+});
+
+describe("getWaistReadings", () => {
+  beforeEach(() => {
+    setupMocks();
+  });
+
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("queries the UTC day range ordered ascending and maps numeric strings to numbers", async () => {
+    mockLimit.mockResolvedValueOnce([
+      { id: 1, userId: "user-123", measuredAt: new Date("2026-10-01T11:05:00.000Z"), zoneOffset: "-03:00", valueCm: "104.5" },
+      { id: 2, userId: "user-123", measuredAt: new Date("2026-10-28T11:05:00.000Z"), zoneOffset: null, valueCm: "104" },
+    ]);
+    mockBetween.mockReturnValue("mocked-between-condition");
+    mockEq.mockReturnValue("mocked-eq-condition");
+    mockAnd.mockReturnValue("mocked-and-condition");
+
+    const { getWaistReadings } = await import("@/lib/health-readings");
+    const { waistReadings } = await import("@/db/schema");
+    const result = await getWaistReadings("user-123", "2026-10-01", "2026-10-28");
+
+    expect(mockFrom).toHaveBeenCalledWith(waistReadings);
+    expect(mockEq).toHaveBeenCalledWith(waistReadings.userId, "user-123");
+    expect(mockBetween).toHaveBeenCalledWith(
+      waistReadings.measuredAt,
+      new Date("2026-10-01T00:00:00.000Z"),
+      new Date("2026-10-28T23:59:59.999Z")
+    );
+    expect(mockAsc).toHaveBeenCalledWith(waistReadings.measuredAt);
+    expect(result).toEqual([
+      { id: 1, measuredAt: "2026-10-01T11:05:00.000Z", zoneOffset: "-03:00", valueCm: 104.5 },
+      { id: 2, measuredAt: "2026-10-28T11:05:00.000Z", zoneOffset: null, valueCm: 104 },
+    ]);
+  });
+
+  it("returns empty array when no readings in range", async () => {
+    mockLimit.mockResolvedValueOnce([]);
+
+    const { getWaistReadings } = await import("@/lib/health-readings");
+    const result = await getWaistReadings("user-123", "2026-10-01", "2026-10-28");
+
+    expect(result).toEqual([]);
+  });
+
+  it("requests MAX+1 rows and throws instead of truncating silently", async () => {
+    const { getWaistReadings } = await import("@/lib/health-readings");
+    const { MAX_READINGS_ROWS } = await import("@/lib/reading-validation");
+
+    mockLimit.mockResolvedValueOnce(new Array(MAX_READINGS_ROWS + 1).fill({}));
+    await expect(getWaistReadings("user-123", "2026-10-01", "2026-10-28")).rejects.toThrow("READINGS_LIMIT_EXCEEDED");
+    expect(mockLimit).toHaveBeenCalledWith(MAX_READINGS_ROWS + 1);
+  });
+});

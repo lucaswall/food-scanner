@@ -599,6 +599,19 @@ export interface HydrationReadingInput {
   volumeMl: number;
 }
 
+export interface WaistReading {
+  id: number;
+  measuredAt: string;
+  zoneOffset: string | null;
+  valueCm: number;
+}
+
+export interface WaistReadingInput {
+  measuredAt: string;
+  zoneOffset: string | null;
+  valueCm: number;
+}
+
 export interface SavedAnalysisDetail extends SavedAnalysisListItem {
   foodAnalysis: FoodAnalysis;
 }

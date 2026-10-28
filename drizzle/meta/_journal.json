@@ -218,6 +218,13 @@
       "when": 1793190380369,
       "tag": "0030_typical_secret_warriors",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1793197306847,
+      "tag": "0031_tan_rattler",
+      "breakpoints": true
     }
   ]
 }

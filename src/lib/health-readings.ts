@@ -1,9 +1,9 @@
 import { getDb } from "@/db/index";
-import { glucoseReadings, bloodPressureReadings, hydrationReadings } from "@/db/schema";
+import { glucoseReadings, bloodPressureReadings, hydrationReadings, waistReadings } from "@/db/schema";
 import { eq, and, between, asc, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { MAX_READINGS_ROWS, READINGS_LIMIT_EXCEEDED_MESSAGE } from "@/lib/reading-validation";
-import type { GlucoseReading, GlucoseReadingInput, BloodPressureReading, BloodPressureReadingInput, HydrationReading, HydrationReadingInput } from "@/types";
+import type { GlucoseReading, GlucoseReadingInput, BloodPressureReading, BloodPressureReadingInput, HydrationReading, HydrationReadingInput, WaistReading, WaistReadingInput } from "@/types";
 
 /**
  * Collapses readings that share the same instant (last one wins). A single INSERT ... ON CONFLICT
@@ -226,5 +226,71 @@ export async function getHydrationReadings(
     measuredAt: row.measuredAt instanceof Date ? row.measuredAt.toISOString() : String(row.measuredAt),
     zoneOffset: row.zoneOffset ?? null,
     volumeMl: row.volumeMl,
+  }));
+}
+
+/** Waist circumference is stored at 0.1 cm precision. */
+function roundToTenth(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+export async function upsertWaistReadings(
+  userId: string,
+  input: WaistReadingInput[]
+): Promise<number> {
+  const readings = dedupeByMeasuredAt(input);
+  if (readings.length === 0) return 0;
+
+  await getDb()
+    .insert(waistReadings)
+    .values(
+      readings.map((r) => ({
+        userId,
+        measuredAt: new Date(r.measuredAt),
+        zoneOffset: r.zoneOffset,
+        valueCm: String(roundToTenth(r.valueCm)),
+      }))
+    )
+    .onConflictDoUpdate({
+      target: [waistReadings.userId, waistReadings.measuredAt],
+      set: {
+        zoneOffset: sql`excluded.zone_offset`,
+        valueCm: sql`excluded.value_cm`,
+      },
+    });
+
+  logger.debug({ action: "upsert_waist_readings", userId, count: readings.length }, "waist readings upserted");
+  return readings.length;
+}
+
+/** Query waist readings by date range. Dates are interpreted as UTC calendar days. */
+export async function getWaistReadings(
+  userId: string,
+  from: string,
+  to: string
+): Promise<WaistReading[]> {
+  const fromTs = new Date(`${from}T00:00:00.000Z`);
+  const toTs = new Date(`${to}T23:59:59.999Z`);
+
+  const rows = await getDb()
+    .select()
+    .from(waistReadings)
+    .where(
+      and(
+        eq(waistReadings.userId, userId),
+        between(waistReadings.measuredAt, fromTs, toTs)
+      )
+    )
+    .orderBy(asc(waistReadings.measuredAt))
+    .limit(MAX_READINGS_ROWS + 1);
+  assertWithinRowLimit(rows);
+
+  logger.debug({ action: "get_waist_readings", userId, from, to, count: rows.length }, "waist readings fetched");
+
+  return rows.map((row) => ({
+    id: row.id,
+    measuredAt: row.measuredAt instanceof Date ? row.measuredAt.toISOString() : String(row.measuredAt),
+    zoneOffset: row.zoneOffset ?? null,
+    valueCm: Number(row.valueCm),
   }));
 }
