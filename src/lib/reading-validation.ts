@@ -14,6 +14,7 @@ export const READING_LIMITS = {
   bloodPressureMmHgMax: 300,
   heartRateBpmMax: 300,
   hydrationMlMax: 10000,
+  waistCmMax: 300,
 } as const;
 
 const ISO_INSTANT_RE =

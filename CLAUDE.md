@@ -135,7 +135,7 @@ When the breaker rejects, it throws `HEALTH_RATE_LIMIT_LOW`. Route handlers map 
 
 ## DATABASE
 
-- **Tables:** `users`, `sessions`, `health_tokens`, `custom_foods`, `food_log_entries`, `api_keys`, `claude_usage`, `nutrition_labels`, `daily_calorie_goals`, `glucose_readings`, `blood_pressure_readings`, `hydration_readings`, `saved_analyses`
+- **Tables:** `users`, `sessions`, `health_tokens`, `custom_foods`, `food_log_entries`, `api_keys`, `claude_usage`, `nutrition_labels`, `daily_calorie_goals`, `glucose_readings`, `blood_pressure_readings`, `hydration_readings`, `waist_readings`, `saved_analyses`
 - All DB access through `src/lib/` modules — route handlers never import from `src/db/` directly
 - Schema changes: edit `src/db/schema.ts`, then `npx drizzle-kit generate` (does NOT need a live DB)
 - **IMPORTANT: Never hand-write migration files or snapshots**
