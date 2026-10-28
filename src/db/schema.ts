@@ -236,6 +236,7 @@ export const bloodPressureReadings = pgTable(
     zoneOffset: varchar("zone_offset", { length: 6 }),
     systolic: integer("systolic").notNull(),
     diastolic: integer("diastolic").notNull(),
+    heartRate: integer("heart_rate"),
     bodyPosition: text("body_position"),
     measurementLocation: text("measurement_location"),
   },

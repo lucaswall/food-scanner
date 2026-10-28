@@ -298,7 +298,7 @@ Batch upsert glucose readings. Uses composite unique constraint on `(userId, mea
 | `mealType` | string | No | `breakfast`, `lunch`, `dinner`, `snack`, `unknown` |
 | `specimenSource` | string | No | `capillary_blood`, `interstitial_fluid`, `plasma`, `serum`, `tears`, `whole_blood`, `unknown` |
 
-**Batch limit:** 1000 readings per request. `measuredAt` must be a real ISO 8601 instant between 2000-01-01 and 24h in the future (otherwise 400). Readings sharing the same instant within one batch are collapsed (last wins). Value bounds: glucose `valueMgDl` <= 2000, blood pressure `systolic`/`diastolic` <= 300 (integers), hydration `volumeMl` <= 10000 (integer).
+**Batch limit:** 1000 readings per request. `measuredAt` must be a real ISO 8601 instant between 2000-01-01 and 24h in the future (otherwise 400). Readings sharing the same instant within one batch are collapsed (last wins). Value bounds: glucose `valueMgDl` <= 2000, blood pressure `systolic`/`diastolic` <= 300 and `heartRate` <= 300 (integers), hydration `volumeMl` <= 10000 (integer).
 
 **Response:** `{ "upserted": <count> }`
 
@@ -338,7 +338,7 @@ Results are ordered by `measuredAt` ascending.
 
 ### POST /api/v1/blood-pressure-readings
 
-Batch upsert blood pressure readings. Uses composite unique constraint on `(userId, measuredAt)` — existing readings with the same timestamp are updated.
+Batch upsert blood pressure readings. Uses composite unique constraint on `(userId, measuredAt)` — existing readings with the same timestamp are updated. Exception: `heartRate` is only overwritten when the incoming reading carries one — a reading sent without `heartRate` (omitted or `null`) keeps any heart rate already stored for that timestamp.
 
 **Data source:** PostgreSQL (60 req/min)
 
@@ -351,6 +351,7 @@ Batch upsert blood pressure readings. Uses composite unique constraint on `(user
       "measuredAt": "2026-03-28T08:00:00.000Z",
       "systolic": 120,
       "diastolic": 80,
+      "heartRate": 72,
       "zoneOffset": "+05:30",
       "bodyPosition": "sitting_down",
       "measurementLocation": "left_upper_arm"
@@ -364,11 +365,12 @@ Batch upsert blood pressure readings. Uses composite unique constraint on `(user
 | `measuredAt` | string | Yes | ISO 8601 datetime with timezone |
 | `systolic` | integer | Yes | Positive integer |
 | `diastolic` | integer | Yes | Positive integer |
+| `heartRate` | integer \| null | No | Pulse in beats per minute, positive integer up to 300. Omit (or send `null`) when unknown |
 | `zoneOffset` | string | No | `±HH:MM` format |
 | `bodyPosition` | string | No | `standing_up`, `sitting_down`, `lying_down`, `reclining`, `unknown` |
 | `measurementLocation` | string | No | `left_upper_arm`, `right_upper_arm`, `left_wrist`, `right_wrist`, `unknown` |
 
-**Batch limit:** 1000 readings per request. `measuredAt` must be a real ISO 8601 instant between 2000-01-01 and 24h in the future (otherwise 400). Readings sharing the same instant within one batch are collapsed (last wins). Value bounds: glucose `valueMgDl` <= 2000, blood pressure `systolic`/`diastolic` <= 300 (integers), hydration `volumeMl` <= 10000 (integer).
+**Batch limit:** 1000 readings per request. `measuredAt` must be a real ISO 8601 instant between 2000-01-01 and 24h in the future (otherwise 400). Readings sharing the same instant within one batch are collapsed (last wins). Value bounds: glucose `valueMgDl` <= 2000, blood pressure `systolic`/`diastolic` <= 300 and `heartRate` <= 300 (integers), hydration `volumeMl` <= 10000 (integer).
 
 **Response:** `{ "upserted": <count> }`
 
@@ -397,6 +399,7 @@ interface BloodPressureReading {
   zoneOffset: string | null;
   systolic: number;
   diastolic: number;
+  heartRate: number | null;        // beats per minute; null when never provided
   bodyPosition: string | null;
   measurementLocation: string | null;
 }
@@ -432,7 +435,7 @@ Batch upsert hydration readings. Uses composite unique constraint on `(userId, m
 | `volumeMl` | integer | Yes | Positive integer (milliliters) |
 | `zoneOffset` | string | No | `±HH:MM` format |
 
-**Batch limit:** 1000 readings per request. `measuredAt` must be a real ISO 8601 instant between 2000-01-01 and 24h in the future (otherwise 400). Readings sharing the same instant within one batch are collapsed (last wins). Value bounds: glucose `valueMgDl` <= 2000, blood pressure `systolic`/`diastolic` <= 300 (integers), hydration `volumeMl` <= 10000 (integer).
+**Batch limit:** 1000 readings per request. `measuredAt` must be a real ISO 8601 instant between 2000-01-01 and 24h in the future (otherwise 400). Readings sharing the same instant within one batch are collapsed (last wins). Value bounds: glucose `valueMgDl` <= 2000, blood pressure `systolic`/`diastolic` <= 300 and `heartRate` <= 300 (integers), hydration `volumeMl` <= 10000 (integer).
 
 **Response:** `{ "upserted": <count> }`
 
