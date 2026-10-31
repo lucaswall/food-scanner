@@ -203,9 +203,8 @@ test.describe('Analyze Page', () => {
     // Click analyze
     await page.getByRole('button', { name: 'Analyze Food' }).click();
 
-    // Wait for error message to appear (role="alert" or error text)
-    await expect(page.getByRole('alert')).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText(/Failed to analyze food/i)).toBeVisible();
+    // Wait for the error alert; Next's route announcer is also role="alert", so match by text
+    await expect(page.getByRole('alert').filter({ hasText: /Failed to analyze food/i })).toBeVisible({ timeout: 5000 });
 
     // Verify analyze button is still visible for retry
     await expect(page.getByRole('button', { name: 'Analyze Food' })).toBeVisible();
