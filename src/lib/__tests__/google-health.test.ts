@@ -580,7 +580,23 @@ describe("google-health", () => {
       expect(nutritionLog.energy).toEqual({ kcal: 321 }); // Math.round(320.7)
       expect(nutritionLog.totalCarbohydrate).toEqual({ grams: 0 });
       expect(nutritionLog.totalFat).toEqual({ grams: 10 });
-      expect(nutritionLog.serving).toEqual({ amount: 200, foodMeasurementUnit: "g" });
+      expect(nutritionLog.serving).toEqual({
+        amount: 200,
+        foodMeasurementUnit: "users/me/dataTypes/food-measurement-unit/dataPoints/147",
+      });
+    });
+
+    it("serving.foodMeasurementUnit is the food-measurement-unit resource name for each unit", async () => {
+      fetchMock.mockResolvedValue(makeJsonResponse({ name: "users/me/dataTypes/nutrition-log/dataPoints/op1" }));
+
+      await createNutritionLog("token", { ...sampleFood, amount: 1, unit_id: "serving" }, sampleTiming, fakeLog, "user-1");
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const { nutritionLog } = JSON.parse(init.body as string);
+      expect(nutritionLog.serving).toEqual({
+        amount: 1,
+        foodMeasurementUnit: "users/me/dataTypes/food-measurement-unit/dataPoints/304",
+      });
     });
 
     it("nutritionLog.nutrients carries protein/fiber/sodium as NutrientQuantity (sodium mg → grams)", async () => {

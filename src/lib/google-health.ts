@@ -19,7 +19,7 @@ import {
   sanitizeErrorBody,
   jsonWithTimeout,
 } from "@/lib/http";
-import type { FoodAnalysis, HealthProfile, HealthWeightLog, ActivitySummary } from "@/types";
+import type { FoodAnalysis, HealthProfile, HealthWeightLog, ActivitySummary, ServingUnit } from "@/types";
 
 export type { HealthCallCriticality } from "@/lib/google-health-rate-limit";
 export { parseErrorBody, sanitizeErrorBody, jsonWithTimeout };
@@ -819,6 +819,30 @@ function mapMealType(mealTypeId: number): string {
 }
 
 /**
+ * Google Health `food-measurement-unit` dataPoint id for each ServingUnit. The ids are the
+ * legacy Fitbit unit ids, verified against `GET …/dataTypes/food-measurement-unit/dataPoints`
+ * (147 "gram", 226 "oz", 91 "cup", 349 "tbsp", 364 "tsp", 209 "ml", 311 "slice", 304 "serving").
+ */
+const HEALTH_FOOD_MEASUREMENT_UNIT_ID: Record<ServingUnit, number> = {
+  g: 147,
+  oz: 226,
+  cup: 91,
+  tbsp: 349,
+  tsp: 364,
+  ml: 209,
+  slice: 311,
+  serving: 304,
+};
+
+/**
+ * `Serving.foodMeasurementUnit` is a food-measurement-unit resource name — the API rejects a
+ * bare unit string with INVALID_ARGUMENT "Invalid food-measurement-unit resource name".
+ */
+function foodMeasurementUnitName(unit: ServingUnit): string {
+  return `users/me/dataTypes/food-measurement-unit/dataPoints/${HEALTH_FOOD_MEASUREMENT_UNIT_ID[unit]}`;
+}
+
+/**
  * Build a Google Health **v4** nutrition-log DataPoint body for a `create` (POST).
  *
  * Schema verified against the v4 discovery document
@@ -827,7 +851,7 @@ function mapMealType(mealTypeId: number): string {
  *     server assigns the dataPoint name/id — the client does NOT supply a `name`.
  *   - NutritionLog has TOP-LEVEL `foodDisplayName`, `energy`/`energyFromFat`
  *     (EnergyQuantity {kcal}), `totalCarbohydrate`/`totalFat` (WeightQuantity {grams}),
- *     `serving` (Serving {amount, foodMeasurementUnit}), `mealType`, `interval`
+ *     `serving` (Serving {amount, foodMeasurementUnit resource name}), `mealType`, `interval`
  *     (SessionTimeInterval), and `nutrients[]` (NutrientQuantity {nutrient, quantity}).
  *   - The remaining macros go in `nutrients[]` keyed by the `Nutrient` enum
  *     (PROTEIN, DIETARY_FIBER, SODIUM, SATURATED_FAT, TRANS_FAT, SUGAR). WeightQuantity
@@ -848,7 +872,7 @@ function buildNutritionLogBody(food: FoodAnalysis, timing: HealthLogTiming): Rec
     energy: { kcal: Math.round(food.calories) },
     totalCarbohydrate: { grams: food.carbs_g },
     totalFat: { grams: food.fat_g },
-    serving: { amount: food.amount, foodMeasurementUnit: food.unit_id },
+    serving: { amount: food.amount, foodMeasurementUnit: foodMeasurementUnitName(food.unit_id) },
     nutrients,
   };
 
