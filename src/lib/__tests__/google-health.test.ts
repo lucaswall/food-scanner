@@ -527,6 +527,26 @@ describe("google-health", () => {
       );
     });
 
+    it("logs Google's error_description with a rejected refresh so the revoke reason is visible", async () => {
+      warnMock.mockClear();
+      fetchMock.mockResolvedValue(makeJsonResponse(
+        { error: "invalid_grant", error_description: "Token has been expired or revoked." },
+        400,
+      ));
+
+      await expect(
+        refreshGoogleHealthToken("old-refresh", fakeLog),
+      ).rejects.toThrow("HEALTH_TOKEN_INVALID");
+
+      expect(warnMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "google_health_token_refresh_rejected",
+          oauthErrorDescription: "Token has been expired or revoked.",
+        }),
+        expect.any(String),
+      );
+    });
+
     it("logs a transient refresh failure (5xx) at error", async () => {
       errorMock.mockClear();
       fetchMock.mockResolvedValue(new Response(null, { status: 503 }));

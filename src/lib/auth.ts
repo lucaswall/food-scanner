@@ -11,6 +11,12 @@ export const GOOGLE_HEALTH_SCOPES = [
   "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly",
 ];
 
+/**
+ * Login only reads the profile once, so it asks for neither offline access nor forced
+ * consent. It shares the OAuth client with the Google Health connect flow, and every
+ * `access_type=offline` + `prompt=consent` login minted an unused refresh token and
+ * re-consented the client with a narrower scope set than the live Health grant.
+ */
 export function buildGoogleAuthUrl(state: string, redirectUri: string): string {
   const params = new URLSearchParams({
     client_id: getRequiredEnv("GOOGLE_CLIENT_ID"),
@@ -18,8 +24,6 @@ export function buildGoogleAuthUrl(state: string, redirectUri: string): string {
     response_type: "code",
     scope: "openid email profile",
     state,
-    access_type: "offline",
-    prompt: "consent",
   });
 
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
@@ -41,9 +45,6 @@ export function buildGoogleHealthAuthUrl(state: string, redirectUri: string): st
 
 export interface ExchangeGoogleCodeResult {
   access_token: string;
-  refresh_token?: string;
-  expires_in?: number;
-  scope?: string;
 }
 
 export interface ExchangeGoogleHealthCodeResult {
@@ -86,12 +87,7 @@ export async function exchangeGoogleCode(
     if (typeof data.access_token !== "string") {
       throw new Error("Invalid Google token response: missing access_token");
     }
-    return {
-      access_token: data.access_token,
-      refresh_token: typeof data.refresh_token === "string" ? data.refresh_token : undefined,
-      expires_in: typeof data.expires_in === "number" ? data.expires_in : undefined,
-      scope: typeof data.scope === "string" ? data.scope : undefined,
-    };
+    return { access_token: data.access_token };
   } finally {
     clearTimeout(timeoutId);
   }

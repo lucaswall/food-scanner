@@ -395,13 +395,14 @@ export async function refreshGoogleHealthToken(
       // to keep it out of Sentry issues (FOOD-SCANNER-1B). Any other 400/401 (invalid_client,
       // unauthorized_client, invalid_request...) is a server-side fault: keep the token.
       if (response.status === 400 || response.status === 401) {
-        const oauthError = await readOAuthErrorCode(response);
+        const { code: oauthError, description: oauthErrorDescription } = await readOAuthError(response);
         if (oauthError === "invalid_grant") {
           l.warn(
             {
               action: "google_health_token_refresh_rejected",
               status: response.status,
               oauthError,
+              oauthErrorDescription,
             },
             "Google Health token refresh rejected — refresh token expired or revoked",
           );
@@ -412,6 +413,7 @@ export async function refreshGoogleHealthToken(
             action: "google_health_token_refresh_config_error",
             status: response.status,
             oauthError,
+            oauthErrorDescription,
           },
           "Google Health token refresh rejected for a non-invalid_grant reason — check OAuth client config; keeping stored tokens",
         );
@@ -473,18 +475,25 @@ const refreshInFlight = new Map<string, Promise<string>>();
  *   - HEALTH_TOKEN_SAVE_FAILED — upsert failed after one retry
  *   - (propagates any HEALTH_TOKEN_INVALID / HEALTH_REFRESH_TRANSIENT from refreshGoogleHealthToken)
  */
-/** Extract the OAuth `error` code (e.g. "invalid_grant") from a token-endpoint error body. Never throws. */
-async function readOAuthErrorCode(response: Response): Promise<string | null> {
+/**
+ * Extract the OAuth `error` code (e.g. "invalid_grant") and `error_description` from a
+ * token-endpoint error body. The description is Google's reason text (e.g. "Token has been
+ * expired or revoked."), capped at 200 chars; it carries no token material. Never throws.
+ */
+async function readOAuthError(response: Response): Promise<{ code: string | null; description: string | null }> {
   try {
     const body: unknown = await response.json();
     if (body && typeof body === "object") {
-      const code = (body as Record<string, unknown>).error;
-      if (typeof code === "string") return code;
+      const { error, error_description } = body as Record<string, unknown>;
+      return {
+        code: typeof error === "string" ? error : null,
+        description: typeof error_description === "string" ? error_description.slice(0, 200) : null,
+      };
     }
   } catch {
     // Empty or non-JSON body
   }
-  return null;
+  return { code: null, description: null };
 }
 
 export async function ensureFreshToken(

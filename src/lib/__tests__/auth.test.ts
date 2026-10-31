@@ -78,6 +78,17 @@ describe("buildGoogleAuthUrl", () => {
     expect(url.searchParams.get("response_type")).toBe("code");
   });
 
+  it("requests neither offline access nor forced consent", () => {
+    const url = new URL(
+      buildGoogleAuthUrl(
+        "test-state",
+        "http://localhost:3000/api/auth/google/callback",
+      ),
+    );
+    expect(url.searchParams.has("access_type")).toBe(false);
+    expect(url.searchParams.has("prompt")).toBe(false);
+  });
+
   it("includes state parameter for CSRF protection", () => {
     const url = new URL(
       buildGoogleAuthUrl(
@@ -183,42 +194,17 @@ describe("exchangeGoogleCode", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns refresh_token, expires_in, and scope when the token endpoint provides them", async () => {
+  it("returns only the access token", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
-        JSON.stringify({
-          access_token: "google-access-token",
-          refresh_token: "google-refresh-token",
-          expires_in: 3599,
-          scope: "openid email https://www.googleapis.com/auth/googlehealth.nutrition.writeonly",
-        }),
+        JSON.stringify({ access_token: "google-access-token", expires_in: 3599, scope: "openid email" }),
         { status: 200 },
       ),
     );
 
     const result = await exchangeGoogleCode("auth-code", "http://localhost:3000/callback");
 
-    expect(result.access_token).toBe("google-access-token");
-    expect(result.refresh_token).toBe("google-refresh-token");
-    expect(result.expires_in).toBe(3599);
-    expect(result.scope).toBe(
-      "openid email https://www.googleapis.com/auth/googlehealth.nutrition.writeonly",
-    );
-
-    vi.restoreAllMocks();
-  });
-
-  it("leaves refresh_token/expires_in/scope undefined when omitted by the endpoint", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ access_token: "only-access" }), { status: 200 }),
-    );
-
-    const result = await exchangeGoogleCode("auth-code", "http://localhost:3000/callback");
-
-    expect(result.access_token).toBe("only-access");
-    expect(result.refresh_token).toBeUndefined();
-    expect(result.expires_in).toBeUndefined();
-    expect(result.scope).toBeUndefined();
+    expect(result).toEqual({ access_token: "google-access-token" });
 
     vi.restoreAllMocks();
   });
