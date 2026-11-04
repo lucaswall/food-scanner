@@ -155,7 +155,7 @@ Look for successful startup with no database connection errors. The app runs mig
 
 Railway builds with Railpack, which auto-detects Next.js:
 - **Build:** `npm run build` (runs `next build`)
-- **Start:** `npm start` (runs `next start`)
+- **Start:** `node node_modules/next/dist/bin/next start`, set in `railpack.json` so npm doesn't stay resident
 - **Health check:** `GET /api/health` returns 200
 
 `railpack.json` replaces Railpack's deprecated `NPM_CONFIG_PRODUCTION=false` with `NPM_CONFIG_INCLUDE=dev`, so the build still installs devDependencies without npm's `production` config warning on every install, build and start.
